@@ -55,3 +55,17 @@ jobs:
           releaseBody: "Instaladores para Windows (.exe), macOS (.dmg universal) e Linux (.deb, .rpm, .AppImage)."
           releaseDraft: true
           args: ${{ matrix.args }}
+
+      # Cópia dos instaladores como artefato da execução (Actions › execução › Artifacts).
+      # Útil em execuções manuais e, futuramente, como entrada da assinatura no SignPath.
+      - name: Guardar instaladores como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: instaladores-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
