@@ -187,6 +187,16 @@ body.viewer-docked .topbar-right { flex-shrink: 0; }
 body.viewer-docked .table-toolbar { flex-wrap: wrap; gap: 8px; height: auto; }
 body.viewer-docked .table-actions { flex-wrap: wrap; justify-content: flex-end; }
 body.viewer-docked .data-table td:last-child, body.viewer-docked .data-table th:last-child { position: sticky; right: 0; background: var(--surface-bg); z-index: 1; box-shadow: -8px 0 12px -10px rgba(2, 6, 23, .25); }
+/* popups (editar registro etc.) ocupam só a área à esquerda do visualizador, que fica por cima */
+.modal-overlay { transition: right .28s cubic-bezier(.2, .8, .2, 1); }
+body.viewer-docked .modal-overlay { width: auto; right: var(--viewer-w, 0px); }
+/* larguras em % já seguem a área livre; só as em vw precisam ser recalculadas */
+body.viewer-docked .modal-dialog.bi-dialog { width: min(780px, calc(100% - 32px)); }
+body.viewer-docked .modal-dialog.bi-dialog.wide { width: calc(100% - 32px); }
+#record-modal-overlay .modal-body { container-type: inline-size; }
+@container (max-width: 520px) {
+  .form-grid { grid-template-columns: 1fr; }
+}
 body.viewer-docked .data-table tbody tr:hover td:last-child { background: color-mix(in srgb, var(--primary) 4%, var(--surface-bg)); }
 
 .pf-date { font-variant-numeric: tabular-nums; letter-spacing: .3px; }
