@@ -1,6 +1,7 @@
 // Gerador "Comprovantes Lattes": escolha do conteúdo + identificação → PDF único
 
 import { api } from "../api.js";
+import { easyClose } from "../theme.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast, compareActivity } from "../utils.js";
 import { PALETTE } from "./charts.js";
 import { loadProfile, PROFILE_FIELDS } from "./profile.js";
@@ -53,7 +54,7 @@ export class ReportBuilder {
     this.overlay.style.display = "none";
     document.getElementById("app").appendChild(this.overlay);
     this.overlay.addEventListener("click", (e) => {
-      if (e.target === this.overlay && !this.busy) this.close();
+      if (e.target === this.overlay && easyClose() && !this.busy) this.close();
     });
     this.data = null;
     this.sel = {}; // cat -> Set(tipos)

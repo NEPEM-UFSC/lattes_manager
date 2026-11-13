@@ -20,7 +20,7 @@ export const DENSITIES = { normal: "Confortável", compact: "Compacta" };
 export const MOTION = { full: "Fluido", reduced: "Reduzido" };
 
 const KEY = "lattes.theme";
-const DEFAULT = { mode: "system", accent: "azul", density: "normal", motion: "full" };
+const DEFAULT = { mode: "system", accent: "azul", density: "normal", motion: "full", easyClose: false };
 const media = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
 export function getTheme() {
@@ -29,6 +29,11 @@ export function getTheme() {
   } catch {
     return { ...DEFAULT };
   }
+}
+
+/** "Fechamento facilitado": se true, clicar fora de um modal o fecha. Padrão: false (só Cancelar / ×). */
+export function easyClose() {
+  return getTheme().easyClose === true;
 }
 
 export function resolvedMode(t = getTheme()) {

@@ -1,6 +1,7 @@
 // Importação de produções a partir do XML do Currículo Lattes
 
 import { api } from "../api.js";
+import { easyClose } from "../theme.js";
 import { escapeHtml, showToast } from "../utils.js";
 
 export class XmlImportModal {
@@ -15,12 +16,47 @@ export class XmlImportModal {
     this.overlay.style.display = "none";
     document.getElementById("app").appendChild(this.overlay);
     this.overlay.addEventListener("click", (e) => {
-      if (e.target === this.overlay) this.close();
+      if (e.target === this.overlay && easyClose()) this.close();
     });
   }
 
-  async open(xmlPath = null) {
+  /** Sem caminho: pergunta a origem (pasta de dados ou procurar arquivo). Com caminho: lê direto. */
+  open(xmlPath = null) {
     this.overlay.style.display = "flex";
+    if (xmlPath) return this.load(xmlPath);
+    this.renderStart();
+  }
+
+  async browse() {
+    const p = await api.selectXmlFile();
+    if (p) this.load(p);
+  }
+
+  renderStart(error = null) {
+    this.overlay.innerHTML = `
+      <div class="modal-dialog" style="max-width:520px">
+        <header class="modal-header">
+          <h2 class="modal-title">🧬 Importar produções do XML Lattes</h2>
+          <button type="button" class="btn-close-modal" data-x="close">&times;</button>
+        </header>
+        <div class="modal-body">
+          ${error ? `<p style="color:var(--danger,#dc2626);margin:0 0 12px">Falha ao ler XML: ${escapeHtml(String(error))}</p>` : ""}
+          <p style="margin:0 0 14px">De onde vem o XML do currículo?</p>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <button type="button" class="btn btn-primary" data-x="browse">📂 Procurar arquivo...</button>
+            <button type="button" class="btn btn-secondary" data-x="default">💾 Usar o XML da pasta de dados (lattes_xml.xml)</button>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-x="close">Cancelar</button>
+        </footer>
+      </div>`;
+    this.overlay.querySelectorAll('[data-x="close"]').forEach((b) => b.addEventListener("click", () => this.close()));
+    this.overlay.querySelector('[data-x="browse"]').addEventListener("click", () => this.browse());
+    this.overlay.querySelector('[data-x="default"]').addEventListener("click", () => this.load(null));
+  }
+
+  async load(xmlPath) {
     this.overlay.innerHTML = `<div class="modal-dialog xml-dialog"><div class="loading-state" style="display:flex"><div class="spinner"></div><span>Lendo XML do Lattes...</span></div></div>`;
     try {
       this.items = await api.previewLattesXml(xmlPath);
@@ -29,8 +65,7 @@ export class XmlImportModal {
       this.filter = "novos";
       this.render();
     } catch (err) {
-      this.close();
-      showToast(`Falha ao ler XML: ${err}`, "error", 6000);
+      this.renderStart(err);
     }
   }
 
@@ -79,7 +114,7 @@ export class XmlImportModal {
                 .join("")}
             </div>
             <input type="search" class="form-input" data-x="search" placeholder="Filtrar..." value="${escapeHtml(this.search)}" />
-            <button type="button" class="btn btn-secondary btn-sm" data-x="other">Outro arquivo...</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-x="other">📂 Procurar arquivo...</button>
           </div>
           <div class="xml-table-wrap">
             <table class="data-table xml-table">
@@ -141,10 +176,7 @@ export class XmlImportModal {
         this.render();
       })
     );
-    $('[data-x="other"]').addEventListener("click", async () => {
-      const p = await api.selectXmlFile();
-      if (p) this.open(p);
-    });
+    $('[data-x="other"]').addEventListener("click", () => this.browse());
     $('[data-x="import"]').addEventListener("click", () => this.doImport());
   }
 

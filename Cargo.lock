@@ -2214,7 +2214,7 @@ dependencies = [
 
 [[package]]
 name = "lattes-app"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "calamine",
  "chrono",

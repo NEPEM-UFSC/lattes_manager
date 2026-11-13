@@ -2,6 +2,7 @@
 
 import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 import { api } from "../api.js";
+import { easyClose } from "../theme.js";
 
 export class RecordModal {
   constructor({ onSaved }) {
@@ -41,7 +42,7 @@ export class RecordModal {
     this.btnCancel.addEventListener("click", () => this.close());
 
     this.overlay.addEventListener("click", (e) => {
-      if (e.target === this.overlay) this.close();
+      if (e.target === this.overlay && easyClose()) this.close();
     });
 
     this.btnSelectFile.addEventListener("click", () => this.handlePickFile());

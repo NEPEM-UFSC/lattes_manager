@@ -2,6 +2,7 @@
 // extrai os campos e procura registros já cadastrados sem comprovante.
 
 import { api } from "../api.js";
+import { easyClose } from "../theme.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 import { PALETTE } from "./charts.js";
 
@@ -77,7 +78,7 @@ export class DocAnalyzer {
     this.overlay.className = "modal-overlay";
     this.overlay.style.display = "none";
     document.getElementById("app").appendChild(this.overlay);
-    this.overlay.addEventListener("click", (e) => e.target === this.overlay && !this.busy && this.close());
+    this.overlay.addEventListener("click", (e) => e.target === this.overlay && easyClose() && !this.busy && this.close());
   }
 
   close() {

@@ -2,6 +2,7 @@
 // e revisa registros quase duplicados.
 
 import { api } from "../api.js";
+import { easyClose } from "../theme.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 
 const group = (c) => CATEGORY_SCHEMAS[c]?.group || c;
@@ -15,7 +16,7 @@ export class LinkerModal {
     this.overlay.style.display = "none";
     document.getElementById("app").appendChild(this.overlay);
     this.overlay.addEventListener("click", (e) => {
-      if (e.target === this.overlay) this.close();
+      if (e.target === this.overlay && easyClose()) this.close();
     });
     this.tab = "links";
   }

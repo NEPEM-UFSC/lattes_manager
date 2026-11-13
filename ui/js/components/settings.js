@@ -115,6 +115,14 @@ export class SettingsView {
             .map(([k, l]) => `<button type="button" data-motion="${k}" class="${(t.motion || "full") === k ? "on" : ""}">${l}</button>`)
             .join("")}
         </div>
+      </div>
+      <div class="ap-section">
+        <h3>Fechamento facilitado</h3>
+        <p class="hint">Quando ativado, clicar fora de uma janela (cadastro, importação etc.) a fecha. Desativado, ela só fecha em Cancelar ou no ×, evitando perder o que foi digitado.</p>
+        <div class="seg">
+          <button type="button" data-easyclose="0" class="${t.easyClose ? "" : "on"}">Desativado</button>
+          <button type="button" data-easyclose="1" class="${t.easyClose ? "on" : ""}">Ativado</button>
+        </div>
       </div>`;
   }
 
@@ -129,6 +137,7 @@ export class SettingsView {
     this.container.querySelectorAll("[data-accent]").forEach((b) => b.addEventListener("click", () => set({ accent: b.dataset.accent })));
     this.container.querySelectorAll("[data-density]").forEach((b) => b.addEventListener("click", () => set({ density: b.dataset.density })));
     this.container.querySelectorAll("[data-motion]").forEach((b) => b.addEventListener("click", () => set({ motion: b.dataset.motion })));
+    this.container.querySelectorAll("[data-easyclose]").forEach((b) => b.addEventListener("click", () => set({ easyClose: b.dataset.easyclose === "1" })));
   }
 
   // ---------------- Pasta de dados ----------------

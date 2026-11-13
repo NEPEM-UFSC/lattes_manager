@@ -18,7 +18,7 @@ import { XmlImportModal } from "./components/xmlImport.js";
 import { ReportBuilder } from "./components/reportBuilder.js";
 import { LinkerModal } from "./components/linker.js";
 import { FilterBar } from "./components/filterBar.js";
-import { applyTheme } from "./theme.js";
+import { applyTheme, easyClose } from "./theme.js";
 
 class App {
   constructor() {
@@ -500,7 +500,7 @@ class App {
     this.btnCloseDeleteModal.addEventListener("click", () => this.closeDeleteModal());
     this.btnCancelDelete.addEventListener("click", () => this.closeDeleteModal());
     this.deleteModalOverlay.addEventListener("click", (e) => {
-      if (e.target === this.deleteModalOverlay) this.closeDeleteModal();
+      if (e.target === this.deleteModalOverlay && easyClose()) this.closeDeleteModal();
     });
     this.btnConfirmDelete.addEventListener("click", () => this.handleConfirmDelete());
   }

@@ -3,6 +3,7 @@
 // registros já cadastrados. Você revisa tudo numa tabela e importa de uma vez.
 
 import { api } from "../api.js";
+import { easyClose } from "../theme.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 import { PALETTE } from "./charts.js";
 import { ocrImage } from "./docAnalyzer.js";
@@ -36,7 +37,7 @@ export class BatchImport {
     this.overlay.className = "modal-overlay";
     this.overlay.style.display = "none";
     document.getElementById("app").appendChild(this.overlay);
-    this.overlay.addEventListener("click", (e) => e.target === this.overlay && this.phase === "setup" && this.close());
+    this.overlay.addEventListener("click", (e) => e.target === this.overlay && easyClose() && this.phase === "setup" && this.close());
   }
 
   /** Abre o assistente; `files` (opcional) vem do arrastar-e-soltar. */

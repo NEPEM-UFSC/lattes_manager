@@ -2,6 +2,7 @@
 
 import { escapeHtml, showToast } from "../utils.js";
 import { api } from "../api.js";
+import { easyClose } from "../theme.js";
 
 export class SubfoldersView {
   constructor({ onMappingAdded }) {
@@ -22,7 +23,7 @@ export class SubfoldersView {
     this.btnCloseModal.addEventListener("click", () => this.closeModal());
     this.btnCancel.addEventListener("click", () => this.closeModal());
     this.modalOverlay.addEventListener("click", (e) => {
-      if (e.target === this.modalOverlay) this.closeModal();
+      if (e.target === this.modalOverlay && easyClose()) this.closeModal();
     });
 
     this.form.addEventListener("submit", (e) => this.handleSubmitNewMapping(e));
