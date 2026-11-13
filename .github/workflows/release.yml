@@ -25,7 +25,7 @@ jobs:
             args: "--bundles deb,rpm,appimage"
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Dependências do Linux
         if: matrix.platform == 'ubuntu-22.04'
@@ -41,15 +41,17 @@ jobs:
       - name: Cache do Rust
         uses: swatinem/rust-cache@v2
 
+      # CLI pré-compilado via npm (Node já vem nos runners): evita compilar o tauri-cli
+      # do zero, que é lento e quebrava no macOS.
       - name: Tauri CLI
-        run: cargo install tauri-cli --version 2.12.4 --locked
+        run: npm install -g @tauri-apps/cli@2.12.4
 
       - name: Compilar e publicar no rascunho de Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tauriScript: cargo tauri
+          tauriScript: tauri
           tagName: v__VERSION__
           releaseName: "Lattes Manager v__VERSION__"
           releaseBody: "Instaladores para Windows (.exe), macOS (.dmg universal) e Linux (.deb, .rpm, .AppImage)."
@@ -59,7 +61,7 @@ jobs:
       # Cópia dos instaladores como artefato da execução (Actions › execução › Artifacts).
       # Útil em execuções manuais e, futuramente, como entrada da assinatura no SignPath.
       - name: Guardar instaladores como artefato
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: instaladores-${{ runner.os }}
           if-no-files-found: error
