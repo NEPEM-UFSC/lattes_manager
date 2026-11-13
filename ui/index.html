@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lattes Manager</title>
+  <link rel="stylesheet" href="css/variables.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/components.css" />
+  <link rel="stylesheet" href="css/extras.css" />
+  <link rel="stylesheet" href="css/viewer-report.css" />
+  <link rel="stylesheet" href="css/ui.css" />
+  <link rel="stylesheet" href="css/features.css" />
+  <link rel="stylesheet" href="css/modern.css" />
+  <script>
+    // aplica o tema antes da primeira pintura (evita "piscar" claro→escuro)
+    (function () {
+      try {
+        var t = JSON.parse(localStorage.getItem("lattes.theme")) || {};
+        var mode = t.mode || "system", V = { papel: "light", grafite: "dark", oceano: "dark" };
+        var variant = V[mode] ? mode : "";
+        if (mode === "system") mode = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        if (V[mode]) mode = V[mode];
+        var A = { azul: ["#2563eb", "#1d4ed8"], indigo: ["#4f46e5", "#4338ca"], violeta: ["#7c3aed", "#6d28d9"], esmeralda: ["#059669", "#047857"], rosa: ["#db2777", "#be185d"], ambar: ["#d97706", "#b45309"], ciano: ["#0891b2", "#0e7490"], coral: ["#e8590c", "#c2410c"], grafite: ["#475569", "#334155"] };
+        var a = A[t.accent] || A.azul, r = document.documentElement;
+        r.dataset.theme = mode;
+        r.dataset.variant = variant;
+        r.dataset.motion = t.motion || "full";
+        r.dataset.density = t.density || "normal";
+        r.style.setProperty("--primary", a[0]);
+        r.style.setProperty("--primary-hover", a[1]);
+      } catch (e) { }
+    })();
+  </script>
+  <link rel="icon" href="img/logo.png" />
+</head>
+
+<body>
+  <div id="app" class="app-container">
+    <!-- 1. SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-icon brand-logo">
+            <img src="img/logo.png" alt="Lattes" />
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">Lattes Manager</span>
+            <span class="brand-subtitle">Desktop</span>
+          </div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">CATEGORIAS</div>
+        <ul id="nav-category-list" class="nav-list">
+          <li class="nav-item" data-category="dadosgerais">
+            <button class="nav-link">
+              <span class="nav-icon">👤</span>
+              <span class="nav-label">Dados Gerais</span>
+              <span class="badge badge-count" id="badge-dadosgerais">0</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="formacao">
+            <button class="nav-link">
+              <span class="nav-icon">🎓</span>
+              <span class="nav-label">Formação</span>
+              <span class="badge badge-count" id="badge-formacao">0</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="encargos">
+            <button class="nav-link">
+              <span class="nav-icon">🏛️</span>
+              <span class="nav-label">Encargos</span>
+              <span class="badge badge-count" id="badge-encargos">0</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="disciplinas">
+            <button class="nav-link">
+              <span class="nav-icon">📚</span>
+              <span class="nav-label">Disciplinas</span>
+              <span class="badge badge-count" id="badge-disciplinas">0</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="projetos">
+            <button class="nav-link">
+              <span class="nav-icon">🔬</span>
+              <span class="nav-label">Projetos</span>
+              <span class="badge badge-count" id="badge-projetos">0</span>
+            </button>
+          </li>
+          <li class="nav-item active" data-category="producoes">
+            <button class="nav-link">
+              <span class="nav-icon">📄</span>
+              <span class="nav-label">Produções</span>
+              <span class="badge badge-count" id="badge-producoes">0</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="patentes">
+            <button class="nav-link">
+              <span class="nav-icon">💡</span>
+              <span class="nav-label">Patentes</span>
+              <span class="badge badge-count" id="badge-patentes">0</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="eventos">
+            <button class="nav-link">
+              <span class="nav-icon">🎙️</span>
+              <span class="nav-label">Eventos</span>
+              <span class="badge badge-count" id="badge-eventos">0</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="orientacoes">
+            <button class="nav-link">
+              <span class="nav-icon">👥</span>
+              <span class="nav-label">Orientações</span>
+              <span class="badge badge-count" id="badge-orientacoes">0</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="bancas">
+            <button class="nav-link">
+              <span class="nav-icon">⚖️</span>
+              <span class="nav-label">Bancas</span>
+              <span class="badge badge-count" id="badge-bancas">0</span>
+            </button>
+          </li>
+        </ul>
+
+        <div class="nav-section-label">GERENCIAMENTO</div>
+        <ul class="nav-list">
+          <li class="nav-item" data-category="graficos">
+            <button class="nav-link" id="nav-graficos">
+              <span class="nav-icon">📈</span>
+              <span class="nav-label">Indicadores</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="ferramentas">
+            <button class="nav-link" id="nav-ferramentas">
+              <span class="nav-icon">🧰</span>
+              <span class="nav-label">Ferramentas</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="configuracoes">
+            <button class="nav-link" id="nav-configuracoes">
+              <span class="nav-icon">⚙️</span>
+              <span class="nav-label">Configurações</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="subpastas">
+            <button class="nav-link" id="nav-subpastas">
+              <span class="nav-icon">📁</span>
+              <span class="nav-label">Subpastas</span>
+              <span class="badge badge-subfolders" id="badge-subfolders">49</span>
+            </button>
+          </li>
+          <li class="nav-item" data-category="sobre">
+            <button class="nav-link" id="nav-sobre">
+              <span class="nav-icon">ℹ️</span>
+              <span class="nav-label">Sobre</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button type="button" id="btn-theme-toggle" class="theme-toggle" title="Alternar tema claro/escuro"><span
+            class="ti">🌙</span><span class="tl">Tema escuro</span></button>
+        <div class="db-status-chip">
+          <span class="status-dot"></span>
+          <span class="db-info" id="db-status-text">SQLite Conectado</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 2. MAIN CONTENT AREA -->
+    <main class="main-content">
+      <!-- TOPBAR -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 id="view-title" class="view-title">Produções Intelectuais</h1>
+          <span id="view-subtitle" class="view-subtitle">Gerencie artigos, livros, trabalhos e comprovantes
+            anexos</span>
+        </div>
+
+        <div class="topbar-center">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="search" id="input-search" placeholder="Pesquisar…  (Ctrl+K)" autocomplete="off" />
+            <button id="btn-clear-search" class="btn-clear-search" style="display: none;">&times;</button>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <button id="btn-new-record" class="btn btn-primary" title="Novo registro (Ctrl+N)">
+            <span>+</span> <span class="lbl">Novo Registro</span>
+          </button>
+
+          <div class="menu-wrap">
+            <button id="btn-import-menu" class="btn btn-outline" title="Importar dados" aria-haspopup="true">
+              <span>📥</span> <span class="lbl">Importar</span> <span class="caret">▾</span>
+            </button>
+            <div id="import-menu" class="menu-pop" role="menu">
+              <button id="btn-import-xml" role="menuitem"><span>🧬</span>
+                <div><b>XML do Lattes</b><small>Produções do currículo exportado do CNPq</small></div>
+              </button>
+              <button id="btn-new-from-doi" role="menuitem"><span>⚡</span>
+                <div><b>Novo por DOI</b><small>Cole o DOI: preenche os dados e baixa o PDF de acesso aberto</small>
+                </div>
+              </button>
+              <button id="btn-new-from-pdf" role="menuitem"><span>✨</span>
+                <div><b>Novo a partir de arquivo</b><small>PDF ou imagem: o app sugere a atividade e preenche os campos</small></div>
+              </button>
+              <button id="btn-batch-import" role="menuitem"><span>🗂️</span>
+                <div><b>Importação em lote</b><small>Uma pasta ou vários arquivos de uma vez: o app classifica, preenche e cadastra</small></div>
+              </button>
+            </div>
+          </div>
+
+          <button id="btn-report" class="btn btn-gradient" title="Gerar PDF único com capa, sumário e comprovantes">
+            <span>📑</span> <span class="lbl">Gerar comprovantes</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- CONTENT BODY -->
+      <div class="content-body">
+        <!-- Records Table Container -->
+        <div id="table-container" class="table-container">
+          <div id="profile-panel" class="profile-panel" style="display:none"></div>
+          <div id="filter-bar" class="filter-bar"></div>
+          <div class="table-toolbar">
+            <div class="record-count-indicator">
+              Exibindo <span id="count-displayed">0</span> de <span id="count-total">0</span> registros
+            </div>
+            <div class="table-actions">
+              <div class="seg" id="seg-comprovante" title="Filtrar por comprovante">
+                <button type="button" data-comp="all" class="on">Todos</button>
+                <button type="button" data-comp="with">📎 Com comprovante</button>
+                <button type="button" data-comp="without">Sem comprovante</button>
+              </div>
+              <button id="btn-add-doi" class="btn-icon-subtle"
+                title="Cadastrar uma produção a partir do DOI (dados + PDF de acesso aberto)">⚡ Adicionar por
+                DOI</button>
+              <button id="btn-linker" class="btn-icon-subtle"
+                title="Procurar comprovantes nas pastas e revisar duplicatas">🔗 Vincular comprovantes</button>
+              <button id="btn-refresh" class="btn-icon-subtle" title="Atualizar dados">🔄 Atualizar</button>
+            </div>
+          </div>
+
+          <div class="table-scroll-wrapper">
+            <table id="records-table" class="data-table">
+              <thead id="records-thead">
+                <!-- Dynamically generated headers -->
+              </thead>
+              <tbody id="records-tbody">
+                <!-- Dynamically generated rows -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Empty State -->
+          <div id="table-empty-state" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">📋</div>
+            <h3 class="empty-state-title">Nenhum registro encontrado</h3>
+            <p class="empty-state-description">Nenhum item corresponde aos filtros selecionados ou a categoria está
+              vazia.</p>
+            <button id="btn-empty-new-record" class="btn btn-primary">+ Criar Primeiro Registro</button>
+          </div>
+
+          <!-- Loading Skeleton -->
+          <div id="table-loading-state" class="loading-state" style="display: none;">
+            <div class="spinner"></div>
+            <span>Carregando dados...</span>
+          </div>
+        </div>
+
+        <!-- Subfolders Management View Container (toggleable) -->
+        <div id="subfolders-container" class="subfolders-container" style="display: none;">
+          <!-- Managed by subfolders.js -->
+        </div>
+
+        <div id="charts-container" class="charts-container" style="display: none;"></div>
+        <div id="settings-container" class="settings-container" style="display: none;"></div>
+        <div id="tools-container" class="tools-container" style="display: none;"></div>
+        <div id="about-container" class="about-container" style="display: none;"></div>
+      </div>
+    </main>
+
+    <!-- 3. MODAL DIALOG (Record Create / Edit) -->
+    <div id="record-modal-overlay" class="modal-overlay" style="display: none;">
+      <div class="modal-dialog">
+        <header class="modal-header">
+          <h2 id="record-modal-title" class="modal-title">Novo Registro</h2>
+          <button type="button" id="btn-close-record-modal" class="btn-close-modal">&times;</button>
+        </header>
+
+        <form id="record-form" class="modal-form">
+          <div class="modal-body">
+            <!-- Dynamic fields injected here by modal.js -->
+            <div id="meta-panel" class="meta-panel" style="display:none"></div>
+            <div id="dynamic-form-fields" class="form-grid"></div>
+
+            <!-- Subfolder & Attachment Section -->
+            <div class="attachment-section">
+              <label class="form-label">Comprovante / Documento Anexo</label>
+
+              <div id="file-dropzone" class="file-dropzone">
+                <div id="file-unselected" class="file-unselected">
+                  <span class="file-icon">📎</span>
+                  <div class="file-prompt">
+                    <span class="file-prompt-main">Selecione o comprovante — ou arraste o PDF para a janela</span>
+                    <span class="file-prompt-sub">O arquivo será copiado para a subpasta correspondente com prefixo
+                      sequencial (001_...)</span>
+                  </div>
+                  <button type="button" id="btn-select-file" class="btn btn-secondary btn-sm">Selecionar
+                    Arquivo...</button>
+                </div>
+
+                <div id="file-selected-card" class="file-selected-card" style="display: none;">
+                  <div class="file-info-preview">
+                    <span class="file-type-badge" id="file-ext-badge">PDF</span>
+                    <div class="file-details">
+                      <span id="selected-file-name" class="file-name">documento.pdf</span>
+                      <span id="target-subfolder-path" class="subfolder-preview">Destino:
+                        5_producoes\artigos_completos\</span>
+                    </div>
+                  </div>
+                  <button type="button" id="btn-remove-attachment" class="btn-icon-danger"
+                    title="Remover anexo">&times;</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="modal-footer">
+            <button type="button" id="btn-cancel-record" class="btn btn-secondary">Cancelar</button>
+            <button type="submit" id="btn-save-record" class="btn btn-primary">Salvar Registro</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- 4. DOCUMENT PREVIEW DRAWER -->
+    <div id="preview-backdrop" class="preview-backdrop"></div>
+    <aside id="preview-drawer" class="preview-drawer">
+      <div id="preview-resizer" class="preview-resizer" title="Arraste para redimensionar"></div>
+      <header class="drawer-header">
+        <div class="viewer-nav">
+          <button type="button" id="btn-preview-prev" class="viewer-btn" title="Comprovante anterior (←)">‹</button>
+          <span id="preview-counter" class="viewer-counter">1 / 1</span>
+          <button type="button" id="btn-preview-next" class="viewer-btn" title="Próximo comprovante (→)">›</button>
+        </div>
+        <div class="drawer-header-info">
+          <h3 id="preview-filename" class="drawer-title">001_documento.pdf</h3>
+          <span id="preview-filepath" class="drawer-path">5_producoes\artigos_completos\...</span>
+        </div>
+        <div class="drawer-header-actions">
+          <button type="button" id="btn-drawer-reveal" class="viewer-btn"
+            title="Localizar no Windows Explorer">📂</button>
+          <button type="button" id="btn-drawer-open-system" class="viewer-btn"
+            title="Abrir em programa externo">↗</button>
+          <button type="button" id="btn-drawer-expand" class="viewer-btn" title="Tela cheia (F)">⛶</button>
+          <button type="button" id="btn-close-drawer" class="btn-close-drawer" title="Fechar (Esc)">&times;</button>
+        </div>
+      </header>
+
+      <div id="preview-content" class="drawer-content">
+        <!-- PDF embed / Image / Fallback injected here by previewer.js -->
+      </div>
+    </aside>
+
+    <!-- 5. DELETE CONFIRMATION MODAL -->
+    <div id="delete-modal-overlay" class="modal-overlay" style="display: none;">
+      <div class="modal-dialog modal-dialog-sm">
+        <header class="modal-header">
+          <h3 class="modal-title">Confirmar Exclusão</h3>
+          <button type="button" id="btn-close-delete-modal" class="btn-close-modal">&times;</button>
+        </header>
+        <div class="modal-body">
+          <p id="delete-modal-message">Tem certeza que deseja excluir este registro?</p>
+          <div id="delete-file-option" class="checkbox-option" style="display: none;">
+            <label class="checkbox-label">
+              <input type="checkbox" id="chk-delete-physical-file" />
+              <span>Excluir também o arquivo comprovante do disco</span>
+            </label>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" id="btn-cancel-delete" class="btn btn-secondary">Cancelar</button>
+          <button type="button" id="btn-confirm-delete" class="btn btn-danger">Excluir Registro</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- 6. ADD SUBFOLDER MAPPING MODAL -->
+    <div id="subfolder-modal-overlay" class="modal-overlay" style="display: none;">
+      <div class="modal-dialog modal-dialog-sm">
+        <header class="modal-header">
+          <h3 class="modal-title">Novo Mapeamento de Subpasta</h3>
+          <button type="button" id="btn-close-subfolder-modal" class="btn-close-modal">&times;</button>
+        </header>
+        <form id="subfolder-form" class="modal-form">
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label" for="subfolder-group-select">Grupo / Categoria</label>
+              <select id="subfolder-group-select" class="form-select" required>
+                <option value="Dados gerais">Dados gerais</option>
+                <option value="Formação">Formação</option>
+                <option value="Encargos">Encargos</option>
+                <option value="Disciplinas">Disciplinas</option>
+                <option value="Projetos">Projetos</option>
+                <option value="Produções">Produções</option>
+                <option value="Patentes">Patentes</option>
+                <option value="Eventos">Eventos</option>
+                <option value="Orientações">Orientações</option>
+                <option value="Bancas">Bancas</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="subfolder-desc-input">Descrição / Tipo</label>
+              <input type="text" id="subfolder-desc-input" class="form-input" placeholder="Ex: Artigos Internacionais"
+                required />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="subfolder-path-input">Caminho da Subpasta</label>
+              <input type="text" id="subfolder-path-input" class="form-input"
+                placeholder="Ex: 5_producoes\artigos_internacionais" required />
+            </div>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" id="btn-cancel-subfolder" class="btn btn-secondary">Cancelar</button>
+            <button type="submit" id="btn-save-subfolder" class="btn btn-primary">Adicionar Subpasta</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
+    <!-- 7. TOAST CONTAINER -->
+    <div id="toast-container" class="toast-container"></div>
+  </div>
+
+  <!-- Application Bootstrap -->
+  <script type="module" src="js/app.js"></script>
+  <div id="drop-overlay" class="drop-overlay">
+    <div class="drop-card">
+      <div class="drop-icon">📄</div><b>Solte os PDFs ou imagens para cadastrar</b><span>Um arquivo: o app sugere a atividade e preenche os campos.
+        Vários: importação em lote, com revisão antes de salvar.</span>
+    </div>
+  </div>
+</body>
+
+</html>

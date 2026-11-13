@@ -1,0 +1,57 @@
+# Instaladores do Lattes Manager para Windows, macOS (Intel + Apple Silicon) e Linux.
+# Dispara ao enviar uma tag "v*" (ex.: git tag v1.6.0 && git push --tags) ou manualmente
+# em Actions › "Instaladores" › Run workflow. Os arquivos ficam num rascunho de Release.
+name: Instaladores
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: "--bundles nsis"
+          - platform: macos-latest
+            args: "--target universal-apple-darwin --bundles app,dmg"
+          - platform: ubuntu-22.04
+            args: "--bundles deb,rpm,appimage"
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependências do Linux
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf rpm
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache do Rust
+        uses: swatinem/rust-cache@v2
+
+      - name: Tauri CLI
+        run: cargo install tauri-cli --version 2.12.4 --locked
+
+      - name: Compilar e publicar no rascunho de Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: cargo tauri
+          tagName: v__VERSION__
+          releaseName: "Lattes Manager v__VERSION__"
+          releaseBody: "Instaladores para Windows (.exe), macOS (.dmg universal) e Linux (.deb, .rpm, .AppImage)."
+          releaseDraft: true
+          args: ${{ matrix.args }}

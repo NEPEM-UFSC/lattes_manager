@@ -1,0 +1,98 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+use lattes_app::commands;
+use lattes_app::db;
+use lattes_app::AppState;
+fn main() {
+    // Pasta de dados: configurada em Configurações › Pasta de dados, ou detectada
+    let (root_dir, _from_config) = lattes_app::config::resolve_data_dir();
+    let canonical_root = lattes_app::strip_verbatim(&std::fs::canonicalize(&root_dir).unwrap_or(root_dir));
+    let db_path = canonical_root.join("lattes.db");
+
+    let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
+    let scope_root = lattes_app::strip_verbatim(&canonical_root);
+    let app_state = AppState::new(conn, canonical_root);
+
+    tauri::Builder::default()
+        .manage(app_state)
+        .setup(move |app| {
+            use tauri::Manager;
+            // Visualizador interno: libera apenas a pasta do currículo no asset protocol
+            app.asset_protocol_scope().allow_directory(&scope_root, true)?;
+            // índice de textos dos comprovantes em segundo plano (classificação de documentos)
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let st = handle.state::<AppState>();
+                let _ = commands::update_doc_index(&st);
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::ping,
+            commands::get_records,
+            commands::create_record,
+            commands::update_record,
+            commands::delete_record,
+            commands::get_subfolder_mappings,
+            commands::add_subfolder_mapping,
+            commands::select_source_file,
+            commands::open_file,
+            commands::reveal_in_explorer,
+            commands::open_folder,
+            commands::get_app_stats,
+            commands::select_xml_file,
+            commands::preview_lattes_xml,
+            commands::import_lattes_xml,
+            commands::update_subfolder_mapping,
+            commands::delete_subfolder_mapping,
+            commands::get_dropdown_options,
+            commands::set_dropdown_options,
+            commands::get_all_records,
+            commands::resolve_file_path,
+            commands::read_file_bytes,
+            commands::read_system_font,
+            commands::get_lattes_profile,
+            commands::get_app_version,
+            commands::select_save_path,
+            commands::write_report,
+            commands::get_setting,
+            commands::set_setting,
+            commands::suggest_file_links,
+            commands::apply_file_links,
+            commands::find_duplicate_records,
+            commands::get_data_dir_info,
+            commands::pick_folder,
+            commands::inspect_data_dir,
+            commands::set_data_dir,
+            commands::reset_data_dir,
+            commands::extract_pdf_metadata,
+            commands::open_doi,
+            commands::resolve_doi,
+            commands::find_doi_by_title,
+            commands::open_url,
+            commands::list_custom_categories,
+            commands::save_custom_category,
+            commands::delete_custom_category,
+            commands::reorder_custom_categories,
+            commands::preview_file_renames,
+            commands::apply_file_renames,
+            commands::check_files,
+            commands::clear_missing_links,
+            commands::backup_database,
+            commands::export_xlsx,
+            commands::analyze_document,
+            commands::pdf_scan_image,
+            commands::read_image_file,
+            commands::pdf_rotation,
+            commands::pick_files,
+            commands::list_folder_files,
+            commands::backup_estimate,
+            commands::pick_backup_target,
+            commands::create_backup,
+            commands::pick_backup_file,
+            commands::inspect_backup,
+            commands::restore_backup,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

@@ -1,0 +1,167 @@
+:root {
+  /* Color Palette */
+  --primary: #2563eb;          /* Royal Blue */
+  --primary-hover: #1d4ed8;
+  --primary-light: color-mix(in srgb, var(--primary) 9%, var(--surface-bg));
+  --primary-border: color-mix(in srgb, var(--primary) 35%, var(--surface-bg));
+  --accent-soft: color-mix(in srgb, var(--primary) 12%, var(--surface-bg));
+
+  --sidebar-bg: #0f172a;       /* Slate 900 */
+  --sidebar-hover: #1e293b;    /* Slate 800 */
+  --sidebar-active: #334155;   /* Slate 700 */
+  --sidebar-text: #cbd5e1;     /* Slate 300 */
+  --sidebar-text-muted: #64748b;
+
+  --surface-bg: #ffffff;
+  --surface-2: #f8fafc;        /* realce sutil */
+  --surface-3: #f1f5f9;        /* trilhas, hovers */
+  --surface-4: #e2e8f0;
+  --app-bg: #f8fafc;           /* Slate 50 */
+  --card-bg: #ffffff;
+  --overlay-bg: rgba(15, 23, 42, 0.65);
+  --glass-bg: rgba(248, 250, 252, 0.86);
+  color-scheme: light;
+
+  --text-primary: #0f172a;     /* Slate 900 */
+  --text-secondary: #475569;   /* Slate 600 */
+  --text-muted: #94a3b8;       /* Slate 400 */
+
+  --border-light: #e2e8f0;     /* Slate 200 */
+  --border-subtle: #cbd5e1;    /* Slate 300 */
+
+  /* Functional Status Colors */
+  --success: #10b981;
+  --success-bg: #ecfdf5;
+  --success-border: #a7f3d0;
+  --warning: #f59e0b;
+  --warning-bg: #fffbeb;
+  --warning-border: #fde68a;
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --info: #0284c7;
+  --info-bg: #f0f9ff;
+  --info-border: #bae6fd;
+
+  /* Qualis Grade Badge Colors */
+  --qualis-a1-text: #065f46;
+  --qualis-a1-bg: #d1fae5;
+  --qualis-a1-border: #6ee7b7;
+
+  --qualis-a2-text: #115e59;
+  --qualis-a2-bg: #ccfbf1;
+  --qualis-a2-border: #5eead4;
+
+  --qualis-a3-text: #166534;
+  --qualis-a3-bg: #dcfce7;
+  --qualis-a3-border: #86efac;
+
+  --qualis-a4-text: #15803d;
+  --qualis-a4-bg: #dcfce7;
+  --qualis-a4-border: #bbf7d0;
+
+  --qualis-b1-text: #1e40af;
+  --qualis-b1-bg: #dbeafe;
+  --qualis-b1-border: #93c5fd;
+
+  --qualis-b2-text: #3730a3;
+  --qualis-b2-bg: #e0e7ff;
+  --qualis-b2-border: #a5b4fc;
+
+  --qualis-b3-text: #4338ca;
+  --qualis-b3-bg: #ede9fe;
+  --qualis-b3-border: #c4b5fd;
+
+  --qualis-b4-text: #5b21b6;
+  --qualis-b4-bg: #f3e8ff;
+  --qualis-b4-border: #d8b4fe;
+
+  --qualis-b5-text: #6b21a8;
+  --qualis-b5-bg: #f5f3ff;
+  --qualis-b5-border: #ddd6fe;
+
+  --qualis-c-text: #92400e;
+  --qualis-c-bg: #fef3c7;
+  --qualis-c-border: #fcd34d;
+
+  --qualis-sq-text: #475569;
+  --qualis-sq-bg: #f1f5f9;
+  --qualis-sq-border: #cbd5e1;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Dimensions & Spacing */
+  --sidebar-width: 256px;
+  --topbar-height: 70px;
+  --drawer-width: 580px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.15);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+
+/* =========================================================
+   Tema escuro
+   ========================================================= */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --sidebar-bg: #070b14;
+  --sidebar-hover: #111a2b;
+  --sidebar-active: #1c2840;
+
+  --app-bg: #0b1120;
+  --surface-bg: #111a2b;
+  --surface-2: #142036;
+  --surface-3: #1a2740;
+  --surface-4: #24334f;
+  --card-bg: #111a2b;
+  --overlay-bg: rgba(2, 6, 15, 0.72);
+  --glass-bg: rgba(11, 17, 32, 0.86);
+
+  --text-primary: #e5ecf6;
+  --text-secondary: #a3b1c6;
+  --text-muted: #6b7a92;
+
+  --border-light: #1f2c44;
+  --border-subtle: #2c3b57;
+
+  --primary-light: color-mix(in srgb, var(--primary) 16%, var(--surface-bg));
+  --primary-border: color-mix(in srgb, var(--primary) 45%, var(--surface-bg));
+  --accent-soft: color-mix(in srgb, var(--primary) 20%, var(--surface-bg));
+
+  --success-bg: rgba(16, 185, 129, 0.12);
+  --success-border: rgba(16, 185, 129, 0.35);
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --warning-border: rgba(245, 158, 11, 0.35);
+  --danger-bg: rgba(239, 68, 68, 0.12);
+  --danger-border: rgba(239, 68, 68, 0.35);
+  --info-bg: rgba(2, 132, 199, 0.14);
+  --info-border: rgba(2, 132, 199, 0.4);
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 10px -1px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 14px 30px -6px rgba(0, 0, 0, 0.6);
+  --shadow-drawer: -6px 0 30px rgba(0, 0, 0, 0.55);
+}
+
+/* Qualis no escuro: fundo translúcido, texto claro */
+:root[data-theme="dark"] .badge-qualis { background: color-mix(in srgb, currentColor 16%, transparent) !important; border-color: color-mix(in srgb, currentColor 40%, transparent) !important; filter: brightness(1.6) saturate(0.9); }
+
+/* Densidade compacta */
+:root[data-density="compact"] .data-table td { padding-top: 6px !important; padding-bottom: 6px !important; }
+:root[data-density="compact"] .data-table th { padding-top: 8px !important; padding-bottom: 8px !important; }
+:root[data-density="compact"] .nav-link { padding-top: 6px; padding-bottom: 6px; }
+:root[data-density="compact"] { --topbar-height: 60px; }
