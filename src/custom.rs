@@ -237,6 +237,7 @@ fn row_to_dto(r: &rusqlite::Row) -> Result<RecordDto> {
         journal: None,
         qualis: None,
         aluno: None,
+        url: None,
     })
 }
 
@@ -245,14 +246,14 @@ const COLS: &str = "id, category, ano, tipo, identifier, file, folder, titulo, d
 pub fn list(conn: &Connection, category: &str, search: Option<&str>, year: Option<i64>, tipo: Option<&str>) -> Result<Vec<RecordDto>> {
     let mut st = conn.prepare(&format!("SELECT {} FROM custom_records WHERE category = ?1 ORDER BY ano DESC, id DESC", COLS))?;
     let rows: Vec<RecordDto> = st.query_map([category], row_to_dto)?.collect::<Result<_>>()?;
-    let s = search.map(|s| s.to_lowercase()).filter(|s| !s.trim().is_empty());
+    let s = search.map(|s| crate::db::fold(s.trim())).filter(|s| !s.is_empty());
     Ok(rows
         .into_iter()
         .filter(|r| year.is_none_or(|y| r.ano == Some(y)))
         .filter(|r| tipo.is_none_or(|t| t.trim().is_empty() || r.tipo.as_deref() == Some(t)))
         .filter(|r| {
             s.as_ref().is_none_or(|s| {
-                [&r.titulo, &r.descricao, &r.tipo, &r.identifier].iter().any(|f| f.as_ref().is_some_and(|v| v.to_lowercase().contains(s.as_str())))
+                [&r.titulo, &r.descricao, &r.tipo, &r.identifier].iter().any(|f| f.as_ref().is_some_and(|v| crate::db::fold(v).contains(s.as_str())))
             })
         })
         .collect())

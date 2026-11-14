@@ -11,7 +11,7 @@ pub mod files;
 pub mod migration;
 
 use rusqlite::Connection;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 pub struct AppState {
@@ -19,6 +19,9 @@ pub struct AppState {
     pub root_dir: PathBuf,
     /// Destino escolhido pelo usuário no diálogo "Salvar como" do relatório.
     pub pending_save: Mutex<Option<PathBuf>>,
+    /// Arquivos que o app gravou para o usuário fora da pasta do currículo (relatório,
+    /// planilha, backup). Só esses caminhos absolutos podem ser abertos ou mostrados na pasta.
+    saved_files: Mutex<Vec<PathBuf>>,
 }
 
 impl AppState {
@@ -27,8 +30,32 @@ impl AppState {
             db: Mutex::new(conn),
             root_dir,
             pending_save: Mutex::new(None),
+            saved_files: Mutex::new(Vec::new()),
         }
     }
+
+    pub fn remember_saved(&self, p: &Path) {
+        let p = real_path(p);
+        if let Ok(mut v) = self.saved_files.lock() {
+            if v.contains(&p) {
+                return;
+            }
+            if v.len() >= 64 {
+                v.remove(0);
+            }
+            v.push(p);
+        }
+    }
+
+    pub fn is_saved(&self, p: &Path) -> bool {
+        let p = real_path(p);
+        self.saved_files.lock().is_ok_and(|v| v.contains(&p))
+    }
+}
+
+/// Caminho canônico (sem `\\?\`) para comparar dois caminhos do mesmo arquivo.
+pub fn real_path(p: &Path) -> PathBuf {
+    strip_verbatim(&std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()))
 }
 
 /// Remove o prefixo verbatim `\\?\` que `canonicalize` adiciona no Windows.

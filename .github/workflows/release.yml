@@ -1,5 +1,5 @@
 # Instaladores do Lattes Manager para Windows, macOS (Intel + Apple Silicon) e Linux.
-# Dispara ao enviar uma tag "v*" (ex.: git tag v1.6.0 && git push --tags) ou manualmente
+# Dispara ao enviar uma tag "v*" (ex.: git tag v1.0.0 && git push --tags) ou manualmente
 # em Actions › "Instaladores" › Run workflow. Os arquivos ficam num rascunho de Release.
 name: Instaladores
 

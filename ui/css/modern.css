@@ -27,19 +27,19 @@
 /* ---------- variantes de tema ---------- */
 :root[data-variant="papel"] {
   --app-bg: #f6f1e7; --surface-bg: #fffdf8; --card-bg: #fffdf8; --surface-2: #faf5ea; --surface-3: #f1eadb; --surface-4: #e6dcc7;
-  --border-light: #e8dfcc; --border-subtle: #d8cbb0; --text-primary: #2b2418; --text-secondary: #5d5240; --text-muted: #9a8c72;
+  --border-light: #e8dfcc; --border-subtle: #d8cbb0; --text-primary: #2b2418; --text-secondary: #5d5240; --text-muted: #7a6c52;
   --glass-bg: rgba(250, 245, 234, .86);
   --sidebar-grad: linear-gradient(185deg, #2b2418 0%, #3a2f1f 100%); --sidebar-bg: #2b2418; --sidebar-hover: #3a2f1f; --sidebar-active: #4a3c27;
 }
 :root[data-variant="grafite"] {
   --app-bg: #111214; --surface-bg: #1a1b1e; --card-bg: #1a1b1e; --surface-2: #1f2023; --surface-3: #26272b; --surface-4: #313237;
-  --border-light: #2a2b30; --border-subtle: #3a3b41; --text-primary: #ececef; --text-secondary: #a7a8b0; --text-muted: #6f7079;
+  --border-light: #2a2b30; --border-subtle: #3a3b41; --text-primary: #ececef; --text-secondary: #a7a8b0; --text-muted: #8e8f99;
   --glass-bg: rgba(17, 18, 20, .86);
   --sidebar-grad: linear-gradient(185deg, #0b0b0d 0%, #141518 100%); --sidebar-bg: #0b0b0d; --sidebar-hover: #1a1b1e; --sidebar-active: #26272b;
 }
 :root[data-variant="oceano"] {
   --app-bg: #04131c; --surface-bg: #082230; --card-bg: #082230; --surface-2: #0a2838; --surface-3: #0d3145; --surface-4: #124058;
-  --border-light: #0f3549; --border-subtle: #17465f; --text-primary: #e3f4fb; --text-secondary: #9cc3d3; --text-muted: #5d8a9c;
+  --border-light: #0f3549; --border-subtle: #17465f; --text-primary: #e3f4fb; --text-secondary: #9cc3d3; --text-muted: #7fa9ba;
   --glass-bg: rgba(4, 19, 28, .86);
   --sidebar-grad: linear-gradient(185deg, #021018 0%, #05202e 60%, #031520 100%); --sidebar-bg: #021018; --sidebar-hover: #072536; --sidebar-active: #0b3247;
 }
@@ -110,8 +110,8 @@ body { background: var(--app-bg); font-feature-settings: "ss01", "cv11"; }
 .card, .kpi, .settings-panel, .settings-menu, .dd-card { border-radius: 18px !important; }
 .kpi, .card { transition: transform .25s var(--ease-out), box-shadow .25s ease !important; }
 .kpi:hover, .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg) !important; }
-.pill, .fb-pill, .rb-tipo, .cat-chip { transition: transform .18s var(--ease-spring), background .15s, color .15s, box-shadow .2s !important; }
-.pill:hover, .fb-pill:hover, .rb-tipo:hover, .cat-chip:hover { transform: translateY(-1px); }
+.pill, .fb-pill, .cat-chip { transition: transform .18s var(--ease-spring), background .15s, color .15s, box-shadow .2s !important; }
+.pill:hover, .fb-pill:hover, .cat-chip:hover { transform: translateY(-1px); }
 
 /* ---------- modais ---------- */
 .modal-overlay { backdrop-filter: blur(6px) saturate(1.2); -webkit-backdrop-filter: blur(6px) saturate(1.2); animation: fadeIn .2s ease both; }

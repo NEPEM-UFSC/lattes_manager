@@ -216,7 +216,31 @@ function mockHandler(cmd, args = {}) {
   }
 }
 
+// Comandos que não alteram registros; qualquer outro invalida o cache de get_all_records.
+const KEEPS_RECORDS = /^(ping|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
+let allRecordsCache = null;
+
+async function getAllRecordsCached() {
+  if (!allRecordsCache) {
+    allRecordsCache = invokeCommand("get_all_records").catch((e) => {
+      allRecordsCache = null;
+      throw e;
+    });
+  }
+  return structuredClone(await allRecordsCache);
+}
+
 export async function invokeCommand(cmd, args = {}) {
+  if (KEEPS_RECORDS.test(cmd)) return rawInvoke(cmd, args);
+  allRecordsCache = null;
+  try {
+    return await rawInvoke(cmd, args);
+  } finally {
+    allRecordsCache = null; // uma leitura feita durante a gravação pode ter guardado dados antigos
+  }
+}
+
+async function rawInvoke(cmd, args) {
   if (window.__TAURI__?.core?.invoke) {
     return await window.__TAURI__.core.invoke(cmd, args);
   } else if (window.__TAURI__?.invoke) {
@@ -309,7 +333,7 @@ export const api = {
   deleteSubfolderMapping: (id) => invokeCommand("delete_subfolder_mapping", { id: Number(id) }),
   getDropdownOptions: (field) => invokeCommand("get_dropdown_options", { field }),
   setDropdownOptions: (field, options) => invokeCommand("set_dropdown_options", { field, options }),
-  getAllRecords: () => invokeCommand("get_all_records"),
+  getAllRecords: () => getAllRecordsCached(),
 
   // Visualizador interno
   resolveFilePath: (relativePath) => invokeCommand("resolve_file_path", { relativePath }),
@@ -321,6 +345,9 @@ export const api = {
   readSystemFont: async (name) => new Uint8Array(await invokeCommand("read_system_font", { name })),
   getLattesProfile: (xmlPath = null) => invokeCommand("get_lattes_profile", { xmlPath }),
   getAppVersion: () => invokeCommand("get_app_version"),
+  getProfilePhoto: () => invokeCommand("get_profile_photo"),
+  pickProfilePhoto: () => invokeCommand("pick_profile_photo"),
+  removeProfilePhoto: () => invokeCommand("remove_profile_photo"),
   selectSavePath: (suggestedName, kind = "pdf") => invokeCommand("select_save_path", { suggestedName, kind }),
   /** Envia o PDF como corpo binário (sem JSON). */
   writeReport: (bytes) => invokeCommand("write_report", bytes),
@@ -329,6 +356,7 @@ export const api = {
   openDoi: (doi) => invokeCommand("open_doi", { doi }),
   resolveDoi: (doi, download = true) => invokeCommand("resolve_doi", { doi, download }),
   findDoiByTitle: (titulo) => invokeCommand("find_doi_by_title", { titulo }),
+  extractRecordDoi: (category, id) => invokeCommand("extract_record_doi", { category, id }),
   openUrl: (url) => invokeCommand("open_url", { url }),
   listCustomCategories: () => invokeCommand("list_custom_categories"),
   saveCustomCategory: (category) => invokeCommand("save_custom_category", { category }),

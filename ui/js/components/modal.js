@@ -156,6 +156,8 @@ export class RecordModal {
         html += `<div class="doi-line"><div class="doi-wrap"><input type="text" id="field-${field.name}" name="${field.name}" class="form-input mono-input" value="${escapeHtml(isDoi ? val : "")}" placeholder="${escapeHtml(field.placeholder || "")}" ${!isDoi && val ? 'data-legacy="1"' : ""} />
           <button type="button" class="doi-open" title="Abrir em doi.org" tabindex="-1">↗</button></div>
           <button type="button" class="btn btn-secondary btn-sm doi-resolve" title="Busca os dados do DOI (ou do título) e baixa o PDF de acesso aberto, se houver">⚡ Resolver</button></div>`;
+      } else if (field.type === "link") {
+        html += `<input type="text" inputmode="url" spellcheck="false" autocomplete="off" id="field-${field.name}" name="${field.name}" class="form-input" value="${escapeHtml(val)}" placeholder="${escapeHtml(field.placeholder || "")}" title="Endereço http(s); sem o https:// ele é completado ao salvar" />`;
       } else if (field.type === "textarea") {
         html += `<textarea id="field-${field.name}" name="${field.name}" class="form-textarea" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""}>${escapeHtml(val)}</textarea>`;
       } else {

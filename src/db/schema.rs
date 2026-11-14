@@ -201,15 +201,87 @@ pub fn normalize_category(category: &str) -> Option<&'static str> {
     }
 }
 
+/// Migrações em ordem, controladas por `PRAGMA user_version`. A posição `i` leva o banco à versão `i + 1`.
+/// `SCHEMA_SQL` é a versão 1 e não deve mudar: colunas, tabelas e índices novos entram aqui no fim.
+pub const MIGRATIONS: &[&str] = &[
+    // 1: esquema inicial (SCHEMA_SQL)
+    "",
+    // 2: filtros por ano + tipo
+    r#"
+CREATE INDEX IF NOT EXISTS idx_dadosgerais_ano_tipo ON dadosgerais(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_formacao_ano_tipo ON formacao(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_encargos_ano_tipo ON encargos(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_disciplinas_ano_tipo ON disciplinas(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_projetos_ano_tipo ON projetos(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_producoes_ano_tipo ON producoes(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_patentes_ano_tipo ON patentes(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_eventos_ano_tipo ON eventos(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_orientacoes_ano_tipo ON orientacoes(ano, tipo);
+CREATE INDEX IF NOT EXISTS idx_bancas_ano_tipo ON bancas(ano, tipo);
+"#,
+    // 3: link opcional em todas as categorias
+    r#"
+ALTER TABLE dadosgerais ADD COLUMN url TEXT;
+ALTER TABLE formacao ADD COLUMN url TEXT;
+ALTER TABLE encargos ADD COLUMN url TEXT;
+ALTER TABLE disciplinas ADD COLUMN url TEXT;
+ALTER TABLE projetos ADD COLUMN url TEXT;
+ALTER TABLE producoes ADD COLUMN url TEXT;
+ALTER TABLE patentes ADD COLUMN url TEXT;
+ALTER TABLE eventos ADD COLUMN url TEXT;
+ALTER TABLE orientacoes ADD COLUMN url TEXT;
+ALTER TABLE bancas ADD COLUMN url TEXT;
+ALTER TABLE custom_records ADD COLUMN url TEXT;
+"#,
+];
+
 pub fn create_tables(conn: &Connection) -> Result<()> {
+    crate::db::register_functions(conn)?;
+    let existing: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'app_metadata'",
+        [],
+        |r| r.get(0),
+    )?;
     conn.execute_batch(SCHEMA_SQL)?;
     conn.execute_batch(crate::custom::SCHEMA_SQL)?;
     conn.execute_batch(crate::classify::SCHEMA_SQL)?;
+    migrate(conn, existing > 0)
+}
+
+pub fn schema_version(conn: &Connection) -> Result<usize> {
+    conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0)).map(|v| v.max(0) as usize)
+}
+
+fn migrate(conn: &Connection, existing: bool) -> Result<()> {
+    let current = schema_version(conn)?;
+    if current >= MIGRATIONS.len() {
+        return Ok(());
+    }
+    if existing {
+        snapshot_before_migration(conn, current);
+    }
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(current) {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", (i + 1) as i64)?;
+        tx.commit()?;
+    }
     conn.execute(
-        "INSERT OR IGNORE INTO app_metadata (key, value) VALUES (?1, ?2)",
-        rusqlite::params!["schema_version", "1"],
+        "INSERT INTO app_metadata (key, value) VALUES ('schema_version', ?1) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [MIGRATIONS.len().to_string()],
     )?;
     Ok(())
+}
+
+/// Cópia do banco em `backups/` antes de alterar o esquema. Falhar aqui não impede a migração.
+fn snapshot_before_migration(conn: &Connection, from: usize) {
+    let Some(db) = conn.path().filter(|p| !p.is_empty()).map(std::path::PathBuf::from) else { return };
+    let Some(dir) = db.parent().map(|d| d.join("backups")) else { return };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let stamp = chrono::Local::now().format("%Y-%m-%d_%H%M%S");
+    let _ = crate::backup::snapshot_db(conn, &dir.join(format!("lattes_antes_migracao_v{}_{}.db", from, stamp)));
 }
 
 pub fn init_schema(conn: &Connection) -> Result<()> {

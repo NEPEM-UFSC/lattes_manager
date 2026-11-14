@@ -241,6 +241,14 @@ pub fn backup(conn: &Connection, root: &Path) -> Result<BackupInfo, String> {
     Ok(BackupInfo { bytes: std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0), path: target.to_string_lossy().to_string(), total })
 }
 
+// ---------------- DOI dos comprovantes ----------------
+
+/// DOI gravado dentro de um comprovante PDF (sem rede).
+/// `catch_unwind`: numa varredura em lote, um PDF malformado não pode derrubar o app.
+pub fn doi_in_pdf(bytes: &[u8]) -> Option<String> {
+    std::panic::catch_unwind(|| crate::metadata::extract_local(bytes).ok().and_then(|m| m.doi)).unwrap_or(None)
+}
+
 // ---------------- Excel ----------------
 
 #[derive(Debug, Clone, Deserialize)]

@@ -30,6 +30,43 @@ pub fn open_in_memory() -> Result<Connection> {
     Ok(conn)
 }
 
+/// Minúsculas e sem acentos, para buscas que ignoram acentuação ("formacao" acha "FORMAÇÃO").
+pub fn fold(s: &str) -> String {
+    s.chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ã' | 'ä' | 'å' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            'ñ' => 'n',
+            'ý' | 'ÿ' => 'y',
+            c => c,
+        })
+        .collect()
+}
+
+/// Funções SQL próprias do app: `fold(texto)` (ver [`fold`]).
+pub fn register_functions(conn: &Connection) -> Result<()> {
+    use rusqlite::functions::FunctionFlags;
+    use rusqlite::types::ValueRef;
+    conn.create_scalar_function(
+        "fold",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |ctx| {
+            Ok(match ctx.get_raw(0) {
+                ValueRef::Text(t) => Some(fold(&String::from_utf8_lossy(t))),
+                ValueRef::Integer(i) => Some(i.to_string()),
+                ValueRef::Real(f) => Some(f.to_string()),
+                ValueRef::Null | ValueRef::Blob(_) => None,
+            })
+        },
+    )
+}
+
 /// Configures essential performance, safety, and concurrency PRAGMAs.
 fn configure_connection(conn: &Connection) -> Result<()> {
     conn.pragma_update(None, "journal_mode", "WAL")?;

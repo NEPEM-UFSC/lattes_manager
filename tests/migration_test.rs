@@ -2,23 +2,19 @@ use lattes_app::db::schema;
 use lattes_app::migration::calamine_importer::migrate_workbook;
 use regex::Regex;
 use rusqlite::Connection;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-fn find_workspace_root() -> PathBuf {
-    if Path::new("lattes.xlsm").exists() {
-        PathBuf::from(".")
-    } else if Path::new("../lattes.xlsm").exists() {
-        PathBuf::from("..")
-    } else if Path::new(r"d:\Desktop\UFSC\lattes\lattes.xlsm").exists() {
-        PathBuf::from(r"d:\Desktop\UFSC\lattes")
-    } else {
-        panic!("lattes.xlsm not found");
-    }
+/// Planilha real do autor; sem ela (ex.: no CI) os testes abaixo são pulados.
+fn find_workspace_root() -> Option<PathBuf> {
+    [".", "..", r"d:\Desktop\UFSC\lattes"]
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.join("lattes.xlsm").exists())
 }
 
 #[test]
 fn test_real_workbook_migration_census_in_memory() {
-    let root = find_workspace_root();
+    let Some(root) = find_workspace_root() else { return };
     let xlsm_path = root.join("lattes.xlsm");
 
     let mut conn = Connection::open_in_memory().expect("Failed opening in-memory SQLite");
@@ -123,7 +119,7 @@ fn test_real_workbook_migration_census_in_memory() {
 
 #[test]
 fn test_path_relative_normalization_zero_drive_letters() {
-    let root = find_workspace_root();
+    let Some(root) = find_workspace_root() else { return };
     let xlsm_path = root.join("lattes.xlsm");
 
     let mut conn = Connection::open_in_memory().unwrap();
@@ -176,7 +172,7 @@ fn test_path_relative_normalization_zero_drive_letters() {
 
 #[test]
 fn test_data_anomalies_and_edge_cases_preservation() {
-    let root = find_workspace_root();
+    let Some(root) = find_workspace_root() else { return };
     let xlsm_path = root.join("lattes.xlsm");
 
     let mut conn = Connection::open_in_memory().unwrap();

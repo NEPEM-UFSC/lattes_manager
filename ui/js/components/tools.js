@@ -125,6 +125,7 @@ const TOOLS = [
   ["renomear", "🏷️", "Renomear comprovantes", "Renomeia os arquivos pelo título do registro: 001_titulo_do_trabalho.pdf (sem acentos, com _), atualizando os vínculos."],
   ["verificar", "🩺", "Verificar arquivos", "Encontra registros cujo arquivo sumiu da pasta e arquivos nas pastas que não estão ligados a nenhum registro."],
   ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista."],
+  ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref."],
   ["pdfs", "⚡", "Buscar PDFs por DOI (lote)", "Para artigos sem comprovante: resolve o DOI (ou procura pelo título) e baixa o PDF de acesso aberto."],
   ["duplicatas", "👯", "Duplicatas e vínculos", "Abre o assistente que liga arquivos soltos aos registros e mostra possíveis registros duplicados."],
   ["backup", "🛟", "Backup e restauração", "Cria um backup .zip dos registros (com ou sem os arquivos dos comprovantes) e restaura um backup anterior."],
@@ -185,7 +186,7 @@ export class ToolsView {
   }
 
   renderTool() {
-    ({ formatar: () => this.toolFormat(), padronizar: () => this.toolTidy(), renomear: () => this.toolRename(), verificar: () => this.toolCheck(), qualis: () => this.toolQualis(), pdfs: () => this.toolPdfs(), backup: () => this.toolBackup() })[this.active]();
+    ({ formatar: () => this.toolFormat(), padronizar: () => this.toolTidy(), renomear: () => this.toolRename(), verificar: () => this.toolCheck(), qualis: () => this.toolQualis(), pdfs: () => this.toolPdfs(), dois: () => this.toolDois(), backup: () => this.toolBackup() })[this.active]();
   }
 
   // ===== 1. formatador =====
@@ -499,7 +500,176 @@ export class ToolsView {
     });
   }
 
-  // ===== 7. backup e restauração =====
+
+  // ===== 7. extrair DOI dos artigos =====
+  async toolDois() {
+    const st = this.state;
+    if (!st.data) {
+      this.shell("Extrair DOI dos artigos", "Carregando…", `<div class="loading-state" style="display:flex"><div class="spinner"></div></div>`);
+      st.data = await api.getAllRecords();
+    }
+    const isDoi = (s) => /^10\.\d{4,9}\//.test(String(s || "").trim());
+    const hasPdf = (r) => Boolean(r.path && r.path.trim().toLowerCase().endsWith(".pdf"));
+    const cands = (st.data.producoes || []).filter((r) => !isDoi(r.identifier)).sort((a, b) => (b.ano || 0) - (a.ano || 0));
+    st.found ||= {}; // id -> { doi, fonte } ou { m, s } quando não achou
+    st.sel ||= new Set();
+    st.online ??= true;
+    const run = Boolean(st.running);
+    const comPdf = cands.filter(hasPdf).length;
+    const nAchados = () => cands.filter((r) => st.found[r.id]?.doi).length;
+
+    // mesma marcação usada no desenho inicial e nas atualizações de uma linha só
+    const chkHtml = (r) => (st.found[r.id]?.doi ? `<input type="checkbox" data-id="${r.id}" ${st.sel.has(r.id) ? "checked" : ""}/>` : "");
+    const cellHtml = (r) => {
+      const f = st.found[r.id];
+      if (f?.doi)
+        return `<span class="mono">${escapeHtml(f.doi)}</span>
+          <button type="button" class="ibtn" data-open="${escapeHtml(f.doi)}" title="Abrir em doi.org para conferir">🌐</button>
+          <small class="tl-src">${f.fonte === "pdf" ? "📄 do próprio PDF" : "🌐 Crossref pelo título — confira"}</small>`;
+      if (f) return escapeHtml(f.m || "");
+      return hasPdf(r) ? "" : "sem PDF anexado";
+    };
+    const contador = () => `<b>${cands.length}</b> produção(ões) sem DOI · ${comPdf} com PDF anexado${nAchados() ? ` · <b>${nAchados()}</b> encontrado(s)` : ""}`;
+
+    this.shell(
+      "Extrair DOI dos artigos",
+      "Lê o DOI declarado dentro do PDF de cada produção e, se o arquivo não trouxer, procura pelo título na Crossref. Confira a prévia antes de gravar: o DOI vai para a coluna DOI e o botão 🌐 da linha passa a abrir o artigo.",
+      cands.length
+        ? `<div class="tl-bar">
+            <span data-count>${contador()}</span>
+            <label class="tl-chk"><input type="checkbox" data-online ${st.online ? "checked" : ""} ${run ? "disabled" : ""}/> procurar pelo título na Crossref (mais lento)</label>
+            ${run
+              ? '<button type="button" class="btn btn-secondary btn-sm" data-stop>■ Parar</button>'
+              : '<button type="button" class="btn btn-secondary btn-sm" data-run>🔎 Procurar DOI</button>'}
+            ${nAchados() && !run ? `<button type="button" class="btn btn-primary btn-sm" data-apply>Gravar ${st.sel.size} DOI(s)</button>` : ""}
+          </div>
+          ${run ? `<div class="tl-progress"><i style="width:${Math.round((st.i / Math.max(1, st.n || 1)) * 100)}%"></i></div>` : ""}
+          <div class="tl-table"><table class="data-table"><thead><tr><th style="width:36px"></th><th style="width:60px">Ano</th><th>Título</th><th style="width:320px">DOI encontrado</th></tr></thead><tbody>
+          ${cands
+            .map(
+              (r) => `<tr><td data-chk="${r.id}">${chkHtml(r)}</td>
+                <td>${r.ano || "—"}</td>
+                <td>${escapeHtml(r.titulo || "")}</td>
+                <td class="tl-st ${st.found[r.id]?.s || ""}" data-cell="${r.id}">${cellHtml(r)}</td></tr>`
+            )
+            .join("")}
+          </tbody></table></div>
+          <p class="dd-note">O DOI lido de dentro do PDF é confiável. O encontrado na Crossref pelo título casa ≥85% do texto, mas vale conferir no 🌐 antes de gravar.</p>`
+        : `<div class="tl-empty">✅ Todas as produções já têm DOI cadastrado.</div>`
+    );
+
+    // Durante a varredura só mudam a linha da vez e a barra: redesenhar o painel
+    // inteiro a cada arquivo fazia a tela piscar e perder a rolagem.
+    const pintarLinha = (r) => {
+      const cel = this.el.querySelector(`[data-cell="${r.id}"]`);
+      if (!cel) return;
+      cel.className = `tl-st ${st.found[r.id]?.s || ""}`;
+      cel.innerHTML = cellHtml(r);
+      const chk = this.el.querySelector(`[data-chk="${r.id}"]`);
+      if (chk) chk.innerHTML = chkHtml(r);
+    };
+    const pintarBarra = () => {
+      const fill = this.el.querySelector(".tl-progress i");
+      if (fill) fill.style.width = `${Math.round((st.i / Math.max(1, st.n || 1)) * 100)}%`;
+      const lbl = this.el.querySelector("[data-count]");
+      if (lbl) lbl.innerHTML = contador();
+    };
+    const refresh = () => this.active === "dois" && this.toolDois();
+
+    this.el.querySelector("[data-online]")?.addEventListener("change", (e) => (st.online = e.target.checked));
+    this.el.querySelector("[data-stop]")?.addEventListener("click", () => (st.stop = true));
+
+    // delegação: os botões e caixas das linhas são recriados durante a varredura
+    const tabela = this.el.querySelector(".tl-table");
+    tabela?.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-open]");
+      if (b) api.openDoi(b.dataset.open).catch(() => {});
+    });
+    tabela?.addEventListener("change", (e) => {
+      const c = e.target.closest("[data-id]");
+      if (!c) return;
+      c.checked ? st.sel.add(+c.dataset.id) : st.sel.delete(+c.dataset.id);
+      const b = this.el.querySelector("[data-apply]");
+      if (b) b.textContent = `Gravar ${st.sel.size} DOI(s)`;
+    });
+
+    this.el.querySelector("[data-run]")?.addEventListener("click", async () => {
+      st.running = true;
+      st.stop = false;
+      st.i = 0;
+      st.found = {};
+      st.sel = new Set();
+      const comPdfList = cands.filter(hasPdf);
+      st.n = comPdfList.length + (st.online ? cands.length : 0);
+      await refresh(); // mostra a barra de progresso e o botão Parar
+
+      // 1) DOI declarado dentro do PDF — rápido e sem rede
+      for (const r of comPdfList) {
+        if (st.stop || this.active !== "dois") break;
+        try {
+          const doi = await api.extractRecordDoi("producoes", r.id);
+          if (doi) {
+            st.found[r.id] = { doi, fonte: "pdf", s: "ok" };
+            st.sel.add(r.id);
+          } else {
+            st.found[r.id] = { m: "sem DOI no arquivo", s: "skip" };
+          }
+        } catch (e) {
+          st.found[r.id] = { m: String(e).slice(0, 60), s: "err" };
+        }
+        st.i++;
+        pintarLinha(r);
+        pintarBarra();
+      }
+      // 2) o que sobrou: busca pelo título na Crossref
+      if (st.online) {
+        for (const r of cands.filter((x) => !st.found[x.id]?.doi && String(x.titulo || "").trim().length >= 15)) {
+          if (st.stop || this.active !== "dois") break;
+          st.found[r.id] = { m: "⏳ procurando na Crossref…", s: "run" };
+          pintarLinha(r);
+          try {
+            const doi = await api.findDoiByTitle(r.titulo);
+            if (doi) {
+              st.found[r.id] = { doi, fonte: "crossref", s: "warn" };
+              st.sel.add(r.id);
+            } else {
+              st.found[r.id] = { m: "não encontrado", s: "skip" };
+            }
+          } catch (e) {
+            st.found[r.id] = { m: String(e).slice(0, 60), s: "err" };
+          }
+          st.i++;
+          pintarLinha(r);
+          pintarBarra();
+        }
+      }
+      st.running = false;
+      refresh(); // troca a barra pelo botão "Gravar"
+    });
+
+    this.el.querySelector("[data-apply]")?.addEventListener("click", async () => {
+      const todo = cands.filter((r) => st.sel.has(r.id) && st.found[r.id]?.doi);
+      if (!todo.length) return;
+      let ok = 0;
+      const erros = [];
+      for (const r of todo) {
+        try {
+          await api.updateRecord("producoes", r.id, { identifier: st.found[r.id].doi });
+          ok++;
+        } catch (e) {
+          erros.push(`#${r.id}: ${e}`);
+        }
+      }
+      showToast(`${ok} DOI(s) gravado(s)${erros.length ? ` · ${erros.length} erro(s)` : ""}`, erros.length ? "error" : "success", 4000);
+      st.data = null;
+      st.found = {};
+      st.sel = new Set();
+      this.onChanged && this.onChanged();
+      refresh();
+    });
+  }
+
+  // ===== 8. backup e restauração =====
   async toolBackup() {
     const st = this.state;
     st.include ??= true;

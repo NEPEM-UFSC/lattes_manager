@@ -24,16 +24,18 @@
 
   --text-primary: #0f172a;     /* Slate 900 */
   --text-secondary: #475569;   /* Slate 600 */
-  --text-muted: #94a3b8;       /* Slate 400 */
+  --text-muted: #64748b;       /* Slate 500 · 4,8:1 sobre branco */
 
   --border-light: #e2e8f0;     /* Slate 200 */
   --border-subtle: #cbd5e1;    /* Slate 300 */
 
   /* Functional Status Colors */
-  --success: #10b981;
+  --success: #10b981;         /* ícones e fundos; para texto use --success-text */
+  --success-text: #047857;
   --success-bg: #ecfdf5;
   --success-border: #a7f3d0;
-  --warning: #f59e0b;
+  --warning: #f59e0b;         /* ícones e fundos; para texto use --warning-text */
+  --warning-text: #b45309;
   --warning-bg: #fffbeb;
   --warning-border: #fde68a;
   --danger: #ef4444;
@@ -133,7 +135,7 @@
 
   --text-primary: #e5ecf6;
   --text-secondary: #a3b1c6;
-  --text-muted: #6b7a92;
+  --text-muted: #8494ad;
 
   --border-light: #1f2c44;
   --border-subtle: #2c3b57;
@@ -142,6 +144,8 @@
   --primary-border: color-mix(in srgb, var(--primary) 45%, var(--surface-bg));
   --accent-soft: color-mix(in srgb, var(--primary) 20%, var(--surface-bg));
 
+  --success-text: #34d399;
+  --warning-text: #fbbf24;
   --success-bg: rgba(16, 185, 129, 0.12);
   --success-border: rgba(16, 185, 129, 0.35);
   --warning-bg: rgba(245, 158, 11, 0.12);

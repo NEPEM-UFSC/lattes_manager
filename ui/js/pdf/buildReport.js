@@ -4,6 +4,7 @@
 // Todas as páginas recebem o rodapé "Gerado com Lattes Manager vX · data · Página N de M".
 
 import { api } from "../api.js";
+import { PHOTO_ASPECT, PHOTO_FOCUS_Y } from "../components/profile.js";
 
 const A4 = [595.28, 841.89];
 const M = 56; // margem lateral
@@ -45,10 +46,11 @@ const pad2 = (n) => String(n).padStart(2, "0");
 
 /**
  * @param {object} cfg
- *  - profile: { nome, nome_citacoes, lattes_url, orcid, atualizacao, resumo }
+ *  - profile: { nome, resumo, rows: [[rótulo, valor]], photo: bytes PNG/JPG ou null }
  *  - title, subtitle, includeResumo
  *  - sections: [{ name, color, items: [{ ano, tipo, title, meta, qualis, path }] }]
  *  - firstPageOnly: anexa só a 1ª página de cada comprovante
+ *  - qr: adiciona no fim uma seção com QR codes dos itens que têm link (`item.url`); qrCols: colunas da grade
  *  - version, onProgress({ done, total, label })
  * @returns {Promise<{ bytes: Uint8Array, pages: number, attached: number, failed: string[] }>}
  */
@@ -87,15 +89,13 @@ export async function buildReport(cfg) {
 
   // ---------- navegação: links internos e marcadores ----------
   const ctx = doc.context;
-  const { PDFName, PDFArray, PDFHexString } = PDFLib;
+  const { PDFName, PDFArray, PDFHexString, PDFString } = PDFLib;
   const destOf = (num) => {
     const t = doc.getPage(Math.max(1, Math.min(num, doc.getPageCount())) - 1);
     return [t.ref, "XYZ", null, t.getHeight(), null];
   };
-  /** Área clicável [x1,y1,x2,y2] em `page` que leva à página `num` (1-based). */
-  const addLink = (page, rect, num) => {
-    if (!num) return;
-    const ref = ctx.register(ctx.obj({ Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, 0], Dest: destOf(num) }));
+  const pushAnnot = (page, dict) => {
+    const ref = ctx.register(ctx.obj(dict));
     const key = PDFName.of("Annots");
     let arr = page.node.lookupMaybe(key, PDFArray);
     if (!arr) {
@@ -104,12 +104,26 @@ export async function buildReport(cfg) {
     }
     arr.push(ref);
   };
+  /** Área clicável [x1,y1,x2,y2] em `page` que leva à página `num` (1-based). */
+  const addLink = (page, rect, num) => {
+    if (num) pushAnnot(page, { Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, 0], Dest: destOf(num) });
+  };
+  /** Área clicável que abre um endereço externo. */
+  const addUri = (page, rect, url) =>
+    pushAnnot(page, { Type: "Annot", Subtype: "Link", Rect: rect, Border: [0, 0, 0], A: { Type: "Action", S: "URI", URI: PDFString.of(url) } });
   const chipLinks = []; // chips da capa -> seção (destino conhecido só no fim)
 
   let logo = null;
   try {
     logo = await doc.embedPng(new Uint8Array(await (await fetch("img/logo.png")).arrayBuffer()));
   } catch {}
+
+  let photo = null;
+  if (cfg.profile.photo) {
+    try {
+      photo = await doc.embedJpg(await preparePhoto(cfg.profile.photo));
+    } catch {}
+  }
 
   const sections = cfg.sections.filter((s) => s.items.length);
   for (const s of sections) {
@@ -118,6 +132,9 @@ export async function buildReport(cfg) {
     // ordem de aparição na lista (por atividade, como no Lattes)
     s.tipos = Object.entries(t);
   }
+  sections.forEach((s, i) => (s.num = i + 1));
+  // QR codes: só seções com pelo menos um item que tenha link
+  const qrSections = cfg.qr && window.qrcode ? sections.filter((s) => (s.links = s.items.filter((i) => i.url)).length) : [];
   const totalItems = sections.reduce((a, s) => a + s.items.length, 0);
   const totalFiles = sections.reduce((a, s) => a + s.items.filter((i) => i.path).length, 0);
   let done = 0;
@@ -145,15 +162,29 @@ export async function buildReport(cfg) {
     text(p, "LATTES MANAGER", M + 78, H - 98, { font: F.bold, size: 9, color: C.white, opacity: 0.85 });
     text(p, `Relatório de comprovantes · ${today}`, M + 78, H - 112, { size: 9, color: C.white, opacity: 0.75 });
 
+    // foto 3×4 em moldura branca, à direita da faixa; o texto ocupa o espaço que sobra
+    const PH_W = 132, PH_H = PH_W / PHOTO_ASPECT, PH_PAD = 5;
+    let textW = W - 2 * M;
+    if (photo) {
+      const fx = W - M - PH_W, fTop = H - 150;
+      rrect(p, fx + 3, fTop - 5, PH_W, PH_H, 12, { color: hex(C.ink), opacity: 0.22 });
+      rrect(p, fx, fTop, PH_W, PH_H, 12, { color: hex(C.white) });
+      p.drawImage(photo, { x: fx + PH_PAD, y: fTop - PH_H + PH_PAD, width: PH_W - 2 * PH_PAD, height: PH_H - 2 * PH_PAD });
+      textW -= PH_W + 28;
+    }
+
     let y = H - 210;
     text(p, "COMPROVANTES", M, y + 34, { font: F.bold, size: 11, color: C.white, opacity: 0.8 });
-    for (const line of wrap(cfg.title || "Comprovantes do Currículo Lattes", F.bold, 30, W - 2 * M).slice(0, 3)) {
-      text(p, line, M, y, { font: F.bold, size: 30, color: C.white });
-      y -= 36;
+    const titleSize = photo ? 26 : 30;
+    for (const line of wrap(cfg.title || "Comprovantes do Currículo Lattes", F.bold, titleSize, textW).slice(0, 3)) {
+      text(p, line, M, y, { font: F.bold, size: titleSize, color: C.white });
+      y -= titleSize + 6;
     }
     y -= 10;
-    text(p, cfg.profile.nome || "", M, y, { font: F.semi, size: 18, color: C.white });
-    if (cfg.subtitle) text(p, ellipsize(cfg.subtitle, F.reg, 11, W - 2 * M), M, y - 22, { size: 11, color: C.white, opacity: 0.85 });
+    const nameLines = wrap(cfg.profile.nome || "", F.semi, 18, textW).slice(0, 2);
+    nameLines.forEach((line, i) => text(p, line, M, y - i * 22, { font: F.semi, size: 18, color: C.white }));
+    y -= Math.max(0, nameLines.length - 1) * 22;
+    if (cfg.subtitle) text(p, ellipsize(cfg.subtitle, F.reg, 11, textW), M, y - 22, { size: 11, color: C.white, opacity: 0.85 });
 
     // cartão de identificação
     const rows = [
@@ -224,7 +255,7 @@ export async function buildReport(cfg) {
   // =====================================================================
   // 3. SUMÁRIO (preenchido no final, quando as páginas são conhecidas)
   // =====================================================================
-  const tocLines = sections.reduce((a, s) => a + 1 + s.tipos.length, 0);
+  const tocLines = sections.reduce((a, s) => a + 1 + s.tipos.length, 0) + (qrSections.length ? 1 + qrSections.length : 0);
   const tocPerPage = 34;
   const tocPages = [];
   const tocStart = doc.getPageCount() + 1;
@@ -380,6 +411,114 @@ export async function buildReport(cfg) {
     }
   }
 
+  // =====================================================================
+  // 4b. QR CODES dos itens com link (opcional, no fim do documento)
+  // =====================================================================
+  let qrStart = null;
+  if (qrSections.length) {
+    progress("Gerando QR codes…");
+    qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"];
+    const [W, H] = A4;
+    const cols = Math.max(2, Math.min(6, Number(cfg.qrCols) || 4));
+    const gap = cols >= 5 ? 10 : 14;
+    const cardW = (W - 2 * M - gap * (cols - 1)) / cols;
+    const pad = cols >= 5 ? 8 : 11;
+    const qrSize = cardW - 2 * pad;
+    const tSize = cols >= 5 ? 6.8 : cols === 4 ? 7.4 : 8.2;
+    const lineH = tSize + 2.4;
+    const cardH = pad + qrSize + 6 + 15 + 3 * lineH + 4 + 9 + pad;
+    const nLinks = qrSections.reduce((a, s) => a + s.links.length, 0);
+
+    const contHeader = (sec) => {
+      p = doc.addPage(A4);
+      text(p, `QR codes · ${sec.num}. ${sec.name}`, M, H - 50, { font: F.bold, size: 11, color: C.ink });
+      text(p, "continuação", M + width(`QR codes · ${sec.num}. ${sec.name}`, F.bold, 11) + 8, H - 50, { size: 9, color: C.faint });
+      p.drawRectangle({ x: M, y: H - 60, width: 40, height: 2, color: hex(sec.color) });
+      y = H - 80;
+    };
+
+    let p = doc.addPage(A4);
+    qrStart = doc.getPageCount();
+    let y = pageHeader(p, "QR codes dos links", `${plural(nLinks, "item com link", "itens com link")} · aponte a câmera do celular ou clique no cartão para abrir`);
+
+    for (const sec of qrSections) {
+      // cabeçalho da seção só se couber junto com a primeira linha de cartões
+      if (y - 40 - cardH < FOOT_H + 16) {
+        p = doc.addPage(A4);
+        y = H - 60;
+      }
+      sec.qrPage = doc.getPageCount();
+      rrect(p, M, y + 4, W - 2 * M, 24, 6, { color: hex(sec.color), opacity: 0.1 });
+      p.drawRectangle({ x: M, y: y - 20, width: 3, height: 24, color: hex(sec.color) });
+      const head = `${sec.num}. ${sec.name}`;
+      text(p, ellipsize(head, F.bold, 11, W - 2 * M - 120), M + 12, y - 12, { font: F.bold, size: 11, color: C.ink });
+      addLink(p, [M, y - 20, M + 12 + width(head, F.bold, 11), y + 4], sec.startPage);
+      const cnt = plural(sec.links.length, "link", "links");
+      text(p, cnt, W - M - 10 - width(cnt, F.semi, 8.5), y - 11.5, { font: F.semi, size: 8.5, color: C.muted });
+      y -= 38;
+      sec.links.forEach((it, i) => {
+        const col = i % cols;
+        if (col === 0 && i > 0) {
+          y -= cardH + gap;
+          if (y - cardH < FOOT_H + 16) contHeader(sec);
+        }
+        qrCard(p, M + col * (cardW + gap), y, it, sec);
+      });
+      y -= cardH + 30;
+      await tick();
+    }
+
+    function qrCard(pg, x, top, it, sec) {
+      rrect(pg, x, top, cardW, cardH, 10, { color: hex(C.white), borderColor: hex(C.line), borderWidth: 0.8 });
+      drawQr(pg, it.url, x + pad, top - pad, qrSize);
+      // número do item (cor da seção) e ano
+      let ty = top - pad - qrSize - 6;
+      const nw = width(it.num, F.bold, 7.5) + 12;
+      rrect(pg, x + pad, ty, nw, 13, 6.5, { color: hex(sec.color), opacity: 0.16 });
+      text(pg, it.num, x + pad + 6, ty - 9.4, { font: F.bold, size: 7.5, color: C.ink });
+      if (it.ano) text(pg, String(it.ano), x + pad + nw + 6, ty - 9.4, { size: 7.5, color: C.muted });
+      ty -= 15 + tSize;
+      const tw = cardW - 2 * pad;
+      let lines = wrap(it.title || "(sem título)", F.semi, tSize, tw);
+      if (lines.length > 3) lines = [...lines.slice(0, 2), ellipsize(lines.slice(2).join(" "), F.semi, tSize, tw)];
+      for (const l of lines) {
+        text(pg, l, x + pad, ty, { font: F.semi, size: tSize, color: C.ink });
+        ty -= lineH;
+      }
+      text(pg, ellipsize(shortUrl(it.url), F.reg, 6.3, tw), x + pad, top - cardH + pad, { size: 6.3, color: C.indigo });
+      addUri(pg, [x, top - cardH, x + cardW, top], it.url);
+    }
+
+    /** QR em vetor: cada sequência de módulos escuros de uma linha vira um retângulo. */
+    function drawQr(pg, url, x, top, size) {
+      let q;
+      try {
+        q = qrcode(0, "M");
+        q.addData(url, "Byte");
+        q.make();
+      } catch {
+        return;
+      }
+      const n = q.getModuleCount();
+      const cell = size / (n + 4); // 2 módulos de margem branca em cada lado
+      let d = "";
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; ) {
+          if (!q.isDark(r, c)) {
+            c++;
+            continue;
+          }
+          let e = c;
+          while (e < n && q.isDark(r, e)) e++;
+          // leve sobreposição entre linhas evita frestas claras em alguns leitores de PDF
+          d += `M${c} ${r}H${e}V${r + 1.04}H${c}Z`;
+          c = e;
+        }
+      }
+      pg.drawSvgPath(d, { x: x + 2 * cell, y: top - 2 * cell, scale: cell, color: hex(C.ink) });
+    }
+  }
+
   function addAttachmentPage(embedded, rotation, it, s, k, n, isImage = false) {
     const w0 = embedded.width, h0 = embedded.height;
     const rot = ((rotation % 360) + 360) % 360;
@@ -477,6 +616,29 @@ export async function buildReport(cfg) {
       }
       y -= 10;
     });
+    if (qrStart) {
+      line((pg, yy) => {
+        rrect(pg, M, yy + 13, 26, 18, 6, { color: hex(C.ink) });
+        text(pg, "QR", M + 13 - width("QR", F.bold, 9) / 2, yy - 0.5, { font: F.bold, size: 9, color: C.white });
+        text(pg, "QR codes dos links", M + 38, yy, { font: F.bold, size: 12, color: C.ink });
+        const right = `${plural(qrSections.reduce((a, s) => a + s.links.length, 0), "link", "links")}    p. ${qrStart}`;
+        const rw = width(right, F.semi, 10);
+        const lx = M + 38 + width("QR codes dos links", F.bold, 12) + 8;
+        pg.drawLine({ start: { x: lx, y: yy + 3 }, end: { x: W - M - rw - 8, y: yy + 3 }, thickness: 0.7, color: hex(C.line), dashArray: [1.5, 3] });
+        text(pg, right, W - M - rw, yy, { font: F.semi, size: 10, color: C.text });
+        addLink(pg, [M, yy - 6, W - M, yy + 14], qrStart);
+      });
+      y -= 22;
+      for (const s of qrSections) {
+        line((pg, yy) => {
+          text(pg, ellipsize(`${s.num}. ${s.name}`, F.reg, 10, W - 2 * M - 120), M + 38, yy, { size: 10, color: C.muted });
+          const t = `${s.links.length}`;
+          text(pg, t, W - M - width(`p. ${qrStart}`, F.semi, 10) - 22 - width(t, F.reg, 10), yy, { size: 10, color: C.muted });
+          addLink(pg, [M + 34, yy - 4, W - M, yy + 11], s.qrPage);
+        });
+        y -= 16;
+      }
+    }
   }
 
   // =====================================================================
@@ -525,6 +687,12 @@ export async function buildReport(cfg) {
         : s.items.map(itemMark),
     })
   );
+  if (qrStart)
+    outline.push({
+      title: "QR codes dos links",
+      page: qrStart,
+      children: qrSections.map((s) => ({ title: `${s.num}. ${s.name} (${s.links.length})`, page: s.qrPage })),
+    });
   buildOutline(outline);
   doc.catalog.set(PDFName.of("PageMode"), PDFName.of("UseOutlines"));
 
@@ -564,7 +732,33 @@ export async function buildReport(cfg) {
   return { bytes, pages: pages.length, attached: totalFiles - failed.length, failed };
 }
 
-// ---------- fontes ----------
+/** Endereço curto para o rodapé do cartão: sem protocolo; DOIs como "doi:10.…". */
+function shortUrl(url) {
+  return url.replace(/^https?:\/\//i, "").replace(/^(dx\.)?doi\.org\//i, "doi:").replace(/\/$/, "");
+}
+
+/** Foto recortada em 3×4 (mesmo enquadramento da prévia) e reduzida a 720×960 px, em JPEG. */
+async function preparePhoto(bytes) {
+  const bmp = await createImageBitmap(new Blob([bytes]));
+  const outW = 720, outH = Math.round(outW / PHOTO_ASPECT);
+  let sw = bmp.width, sh = bmp.height;
+  if (sw / sh > PHOTO_ASPECT) sw = sh * PHOTO_ASPECT;
+  else sh = sw / PHOTO_ASPECT;
+  const sx = (bmp.width - sw) / 2;
+  const sy = (bmp.height - sh) * PHOTO_FOCUS_Y;
+  const c = document.createElement("canvas");
+  c.width = outW;
+  c.height = outH;
+  const g = c.getContext("2d");
+  g.fillStyle = "#fff"; // PNG com transparência
+  g.fillRect(0, 0, outW, outH);
+  g.imageSmoothingQuality = "high";
+  g.drawImage(bmp, sx, sy, sw, sh, 0, 0, outW, outH);
+  bmp.close();
+  const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.92));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 async function loadFonts(doc, StandardFonts) {
   try {
     doc.registerFontkit(window.fontkit);

@@ -9,9 +9,10 @@ pub use storage::{compute_relative_path, save_attached_file, save_attached_file_
 
 /// Junta um caminho relativo salvo no banco (sempre com `\`) à pasta raiz, em qualquer sistema:
 /// no Linux/macOS a barra invertida viraria parte do nome do arquivo.
+/// Descarta `..` e prefixos de unidade (`C:`) para que o resultado nunca saia de `root`.
 pub fn rel_join(root: &std::path::Path, rel: &str) -> std::path::PathBuf {
     let mut p = root.to_path_buf();
-    for part in rel.split(['\\', '/']).filter(|s| !s.is_empty() && *s != ".") {
+    for part in rel.split(['\\', '/']).filter(|s| !s.is_empty() && *s != "." && *s != ".." && !s.contains(':')) {
         p.push(part);
     }
     p

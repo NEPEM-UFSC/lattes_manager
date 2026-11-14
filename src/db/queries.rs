@@ -4,8 +4,53 @@ use rusqlite::{params, Connection, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// Tabela de uma categoria (nativa ou personalizada), para as colunas comuns a todas.
+fn table_of(category: &str) -> Option<&'static str> {
+    if crate::custom::is_custom(category) {
+        Some("custom_records")
+    } else {
+        normalize_category(category)
+    }
+}
+
+/// Preenche `url` nos registros: a coluna existe em todas as tabelas, mas não nos structs de cada uma.
+pub fn fill_urls(conn: &Connection, category: &str, recs: &mut [RecordDto]) -> Result<()> {
+    let Some(table) = table_of(category) else { return Ok(()) };
+    if recs.is_empty() {
+        return Ok(());
+    }
+    let mut st = conn.prepare(&format!("SELECT id, url FROM {} WHERE url IS NOT NULL AND url <> ''", table))?;
+    let urls: HashMap<i64, String> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_>>()?;
+    for r in recs.iter_mut() {
+        r.url = urls.get(&r.id).cloned();
+    }
+    Ok(())
+}
+
+/// Grava a URL quando o payload traz a chave "url" (vazia = sem link).
+fn store_url(conn: &Connection, category: &str, id: i64, data: &Value) -> Result<()> {
+    if data.get("url").is_none() {
+        return Ok(());
+    }
+    let table = table_of(category).ok_or(rusqlite::Error::InvalidQuery)?;
+    conn.execute(&format!("UPDATE {} SET url = ?1 WHERE id = ?2", table), params![json_str(data, "url"), id])?;
+    Ok(())
+}
+
 /// Fetches filtered records for a given category.
 pub fn get_records(
+    conn: &Connection,
+    category: &str,
+    search: Option<&str>,
+    year: Option<i64>,
+    tipo: Option<&str>,
+) -> Result<Vec<RecordDto>> {
+    let mut recs = get_records_base(conn, category, search, year, tipo)?;
+    fill_urls(conn, category, &mut recs)?;
+    Ok(recs)
+}
+
+fn get_records_base(
     conn: &Connection,
     category: &str,
     search: Option<&str>,
@@ -81,8 +126,8 @@ pub fn list_dadosgerais(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(descricao) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
         }
@@ -114,8 +159,8 @@ pub fn list_formacao(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(descricao) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
         }
@@ -147,8 +192,8 @@ pub fn list_encargos(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(descricao) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
         }
@@ -180,8 +225,8 @@ pub fn list_disciplinas(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(disciplina) LIKE ? OR LOWER(curso) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(disciplina) LIKE ? OR fold(curso) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
@@ -214,8 +259,8 @@ pub fn list_projetos(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(descricao) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
         }
@@ -247,8 +292,8 @@ pub fn list_producoes(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(titulo) LIKE ? OR LOWER(journal) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(titulo) LIKE ? OR fold(journal) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
@@ -281,8 +326,8 @@ pub fn list_patentes(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(descricao) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
         }
@@ -314,8 +359,8 @@ pub fn list_eventos(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(descricao) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
         }
@@ -347,8 +392,8 @@ pub fn list_orientacoes(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(aluno) LIKE ? OR LOWER(titulo) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(aluno) LIKE ? OR fold(titulo) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
@@ -381,8 +426,8 @@ pub fn list_bancas(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (LOWER(aluno) LIKE ? OR LOWER(titulo) LIKE ? OR LOWER(identifier) LIKE ?)");
-            let pattern = format!("%{}%", s.trim().to_lowercase());
+            sql.push_str(" AND (fold(aluno) LIKE ? OR fold(titulo) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
@@ -480,6 +525,13 @@ pub fn json_i64(val: &Value, key: &str) -> Option<i64> {
 }
 
 pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<RecordDto> {
+    let mut rec = [get_record_by_id_base(conn, category, id)?];
+    fill_urls(conn, category, &mut rec)?;
+    let [rec] = rec;
+    Ok(rec)
+}
+
+fn get_record_by_id_base(conn: &Connection, category: &str, id: i64) -> Result<RecordDto> {
     if crate::custom::is_custom(category) {
         return crate::custom::get(conn, category, id);
     }
@@ -566,7 +618,9 @@ pub fn insert_record(
     attached_path: Option<String>,
 ) -> Result<RecordDto> {
     if crate::custom::is_custom(category) {
-        return crate::custom::insert(conn, category, data, attached_file, attached_path);
+        let rec = crate::custom::insert(conn, category, data, attached_file, attached_path)?;
+        store_url(conn, category, rec.id, data)?;
+        return get_record_by_id(conn, category, rec.id);
     }
     let table = normalize_category(category).ok_or(rusqlite::Error::InvalidQuery)?;
     let ano = json_i64(data, "ano");
@@ -633,6 +687,7 @@ pub fn insert_record(
     }
 
     let id = conn.last_insert_rowid();
+    store_url(conn, table, id, data)?;
     get_record_by_id(conn, table, id)
 }
 
@@ -645,7 +700,9 @@ pub fn update_record(
     new_attached_path: Option<String>,
 ) -> Result<RecordDto> {
     if crate::custom::is_custom(category) {
-        return crate::custom::update(conn, category, id, data, new_attached_file, new_attached_path);
+        crate::custom::update(conn, category, id, data, new_attached_file, new_attached_path)?;
+        store_url(conn, category, id, data)?;
+        return get_record_by_id(conn, category, id);
     }
     let table = normalize_category(category).ok_or(rusqlite::Error::InvalidQuery)?;
     let existing = get_record_by_id(conn, table, id)?;
@@ -791,5 +848,6 @@ pub fn update_record(
         _ => return Err(rusqlite::Error::InvalidQuery),
     }
 
+    store_url(conn, table, id, data)?;
     get_record_by_id(conn, table, id)
 }

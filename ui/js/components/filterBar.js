@@ -23,6 +23,7 @@ export class FilterBar {
     this.tipos = new Set();
     this.years = new Set();
     this.comp = "all"; // all | with | without
+    this.link = "all"; // all | with | without — DOI ou URL
     this.search = "";
     this.showAllYears = false;
   }
@@ -45,12 +46,16 @@ export class FilterBar {
   }
 
   hasFile = (r) => Boolean(r.path && String(r.path).trim());
+  /** Link do registro: URL preenchida ou DOI no identificador (que também guarda nome de arquivo). */
+  hasLink = (r) => Boolean(String(r.url || "").trim()) || /^10\.\d{4,9}\//.test(String(r.identifier || "").trim());
 
   matches(r, { skipTipo = false, skipYear = false } = {}) {
     if (!skipTipo && this.tipos.size && !this.tipos.has(r.tipo || "Sem tipo")) return false;
     if (!skipYear && this.years.size && !this.years.has(r.ano)) return false;
     if (this.comp === "with" && !this.hasFile(r)) return false;
     if (this.comp === "without" && this.hasFile(r)) return false;
+    if (this.link === "with" && !this.hasLink(r)) return false;
+    if (this.link === "without" && this.hasLink(r)) return false;
     if (this.search) {
       const hay = norm(Object.values(r).filter((v) => typeof v === "string" || typeof v === "number").join(" "));
       if (!norm(this.search).split(/\s+/).filter(Boolean).every((w) => hay.includes(w))) return false;
@@ -63,7 +68,7 @@ export class FilterBar {
   }
 
   active() {
-    return this.tipos.size || this.years.size || this.comp !== "all" || this.search;
+    return this.tipos.size || this.years.size || this.comp !== "all" || this.link !== "all" || this.search;
   }
 
   render() {

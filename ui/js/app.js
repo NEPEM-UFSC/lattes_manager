@@ -41,6 +41,7 @@ class App {
     this.allRecords = [];
     this.filterBar = new FilterBar({ container: document.getElementById("filter-bar"), onChange: () => this.renderTable() });
     this.segComp = document.getElementById("seg-comprovante");
+    this.segLink = document.getElementById("seg-link");
     this.btnNewRecord = document.getElementById("btn-new-record");
     this.btnRefresh = document.getElementById("btn-refresh");
     this.btnEmptyNewRecord = document.getElementById("btn-empty-new-record");
@@ -435,6 +436,15 @@ class App {
       })
     );
 
+    // Filtro de link (DOI ou URL), independente do comprovante
+    this.segLink.querySelectorAll("[data-link]").forEach((b) =>
+      b.addEventListener("click", () => {
+        this.filterBar.link = b.dataset.link;
+        this.filterBar.render();
+        this.renderTable();
+      })
+    );
+
     // Menu Importar
     const menuBtn = document.getElementById("btn-import-menu");
     const menu = document.getElementById("import-menu");
@@ -556,6 +566,7 @@ class App {
   renderTable() {
     this.records = this.filterBar.filtered();
     this.segComp.querySelectorAll("[data-comp]").forEach((b) => b.classList.toggle("on", b.dataset.comp === this.filterBar.comp));
+    this.segLink.querySelectorAll("[data-link]").forEach((b) => b.classList.toggle("on", b.dataset.link === this.filterBar.link));
     if (!this.filterBar.search && this.inputSearch.value) {
       this.inputSearch.value = "";
       this.btnClearSearch.style.display = "none";

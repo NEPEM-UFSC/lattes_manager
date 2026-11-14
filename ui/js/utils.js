@@ -277,6 +277,10 @@ export const CATEGORY_SCHEMAS = {
   },
 };
 
+/** Link opcional de qualquer registro (página, repositório, DOI…); vazio por padrão. */
+const URL_FIELD = { name: "url", label: "URL (link do documento)", type: "link", required: false, placeholder: "https://… (opcional)", width: "full" };
+for (const s of Object.values(CATEGORY_SCHEMAS)) s.fields.push({ ...URL_FIELD });
+
 /** Cores das categorias personalizadas (as padrão ficam em charts.js PALETTE). */
 export const CUSTOM_COLORS = ["#14b8a6", "#e11d48", "#a855f7", "#84cc16", "#0ea5e9", "#d946ef", "#f43f5e", "#22d3ee"];
 
@@ -306,6 +310,7 @@ export function registerCustomCategory(c, index = 0) {
       { name: "tipo", label: "Subcategoria", type: "tipo_select", required: true, width: "half" },
       { name: "titulo", label: tl, type: "textarea", required: true, placeholder: "", width: "full" },
       { name: "descricao", label: dl, type: "text", required: false, placeholder: "", width: "full" },
+      { ...URL_FIELD },
     ],
   };
 }

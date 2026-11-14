@@ -369,6 +369,8 @@ pub struct RecordDto {
     pub aluno: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
+    /// Link opcional do registro (coluna `url` de todas as tabelas, preenchida por `queries::fill_urls`).
+    pub url: Option<String>,
 }
 
 impl From<DadosGeraisRecord> for RecordDto {

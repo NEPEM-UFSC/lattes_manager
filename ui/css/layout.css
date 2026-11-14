@@ -346,6 +346,9 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* dois grupos de filtros + botões não cabem numa linha em janelas estreitas */
+  flex-wrap: wrap;
+  gap: 10px;
   background-color: var(--surface-bg);
 }
 
@@ -358,6 +361,8 @@ html, body {
 .table-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 

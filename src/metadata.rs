@@ -377,7 +377,7 @@ pub fn find_duplicate(conn: &Connection, doi: Option<&str>, titulo: Option<&str>
     rows.iter()
         .map(|(id, ti, _)| (id, ti, dice(&tt, &trigrams(ti))))
         .filter(|(_, _, s)| *s >= 0.9)
-        .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
+        .max_by(|a, b| a.2.total_cmp(&b.2))
         .map(|(id, ti, s)| Duplicate { id: *id, titulo: ti.clone(), motivo: format!("título {}% igual", (s * 100.0).round()) })
 }
 

@@ -1,6 +1,7 @@
 // Table Component: Renders Dynamic Record Tables for all 10 Categories
 
-import { CATEGORY_SCHEMAS, escapeHtml } from "../utils.js";
+import { api } from "../api.js";
+import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 
 const QUALIS_ORDER = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"];
 const NUMERIC = new Set(["id", "ano", "horas", "alunos"]);
@@ -178,6 +179,7 @@ export class TableView {
                 : `<span class="ibtn-gap"></span><span class="ibtn-gap"></span>`)
             }
             ${doiBtn}
+            ${rec.url ? `<button type="button" class="ibtn" data-action="openurl" data-id="${rec.id}" title="Abrir ${escapeHtml(rec.url)}">🔗</button>` : `<span class="ibtn-gap"></span>`}
             <button type="button" class="ibtn" data-action="edit" data-id="${rec.id}" title="Editar registro (ou duplo clique na linha)">✏️</button>
             <button type="button" class="ibtn ibtn-danger" data-action="delete" data-id="${rec.id}" title="Excluir registro">🗑</button>
           </div>
@@ -217,6 +219,9 @@ export class TableView {
         break;
       case "opendoi":
         if (this.onOpenDoi) this.onOpenDoi(record);
+        break;
+      case "openurl":
+        api.openUrl(record.url).catch((err) => showToast(`Não foi possível abrir o link: ${err}`, "error"));
         break;
     }
   }

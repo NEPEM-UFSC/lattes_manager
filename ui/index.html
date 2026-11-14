@@ -13,26 +13,7 @@
   <link rel="stylesheet" href="css/ui.css" />
   <link rel="stylesheet" href="css/features.css" />
   <link rel="stylesheet" href="css/modern.css" />
-  <script>
-    // aplica o tema antes da primeira pintura (evita "piscar" claro→escuro)
-    (function () {
-      try {
-        var t = JSON.parse(localStorage.getItem("lattes.theme")) || {};
-        var mode = t.mode || "system", V = { papel: "light", grafite: "dark", oceano: "dark" };
-        var variant = V[mode] ? mode : "";
-        if (mode === "system") mode = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-        if (V[mode]) mode = V[mode];
-        var A = { azul: ["#2563eb", "#1d4ed8"], indigo: ["#4f46e5", "#4338ca"], violeta: ["#7c3aed", "#6d28d9"], esmeralda: ["#059669", "#047857"], rosa: ["#db2777", "#be185d"], ambar: ["#d97706", "#b45309"], ciano: ["#0891b2", "#0e7490"], coral: ["#e8590c", "#c2410c"], grafite: ["#475569", "#334155"] };
-        var a = A[t.accent] || A.azul, r = document.documentElement;
-        r.dataset.theme = mode;
-        r.dataset.variant = variant;
-        r.dataset.motion = t.motion || "full";
-        r.dataset.density = t.density || "normal";
-        r.style.setProperty("--primary", a[0]);
-        r.style.setProperty("--primary-hover", a[1]);
-      } catch (e) { }
-    })();
-  </script>
+  <script src="js/theme-boot.js"></script>
   <link rel="icon" href="img/logo.png" />
 </head>
 
@@ -238,6 +219,11 @@
                 <button type="button" data-comp="all" class="on">Todos</button>
                 <button type="button" data-comp="with">📎 Com comprovante</button>
                 <button type="button" data-comp="without">Sem comprovante</button>
+              </div>
+              <div class="seg" id="seg-link" title="Filtrar por link: DOI no identificador ou URL preenchida">
+                <button type="button" data-link="all" class="on">Todos</button>
+                <button type="button" data-link="with">🔗 Com DOI/URL</button>
+                <button type="button" data-link="without">Sem DOI/URL</button>
               </div>
               <button id="btn-add-doi" class="btn-icon-subtle"
                 title="Cadastrar uma produção a partir do DOI (dados + PDF de acesso aberto)">⚡ Adicionar por

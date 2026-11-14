@@ -1,8 +1,7 @@
 [package]
 name = "lattes-app"
-version = "1.7.1"
+version = "1.0.0"
 edition = "2021"
-default-run = "lattes-app"
 
 [lib]
 name = "lattes_app"
@@ -12,15 +11,11 @@ path = "src/lib.rs"
 name = "lattes-app"
 path = "src/main.rs"
 
-[[bin]]
-name = "migrate"
-path = "src/bin/migrate.rs"
-
 [dependencies]
 tauri = { version = "2.0", features = ["tray-icon", "protocol-asset"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.32", features = ["bundled", "chrono", "functions"] }
 calamine = { version = "0.26", features = ["dates"] }
 chrono = { version = "0.4", features = ["serde"] }
 opener = "0.7"

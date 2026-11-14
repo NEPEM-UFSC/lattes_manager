@@ -248,7 +248,7 @@ impl Model {
                 (k.clone(), prior + ll)
             })
             .collect();
-        out.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        out.sort_by(|a, b| b.1.total_cmp(&a.1));
         out
     }
 }
@@ -389,7 +389,7 @@ pub fn classify(model: &Model, text: &str, file_name: &str, valid: &HashSet<Stri
         e.2 = lse_add(e.2, *s);
     }
     let mut v: Vec<(String, String, f64)> = cats.into_iter().map(|(c, (_, t, lse))| { let b = *boosts.get(c.as_str()).unwrap_or(&0.0); (c, t, lse + b) }).collect();
-    v.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+    v.sort_by(|a, b| b.2.total_cmp(&a.2));
     // probabilidades suavizadas (NB é confiante demais): temperatura proporcional ao nº de palavras
     let temp = (toks.len() as f64 / 25.0).clamp(1.0, 12.0);
     let max = v.first().map(|x| x.2).unwrap_or(0.0);
@@ -441,7 +441,7 @@ impl Knn {
                 (i, a.iter().map(|(w, x)| x * b.get(w).unwrap_or(&0.0)).sum())
             })
             .collect();
-        sims.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        sims.sort_by(|a, b| b.1.total_cmp(&a.1));
         sims.into_iter().take(k).map(|(i, s)| (self.docs[i].0.clone(), s)).collect()
     }
 }
@@ -475,13 +475,13 @@ pub fn classify_knn(knn: &Knn, text: &str, file_name: &str, valid: &HashSet<Stri
             let t = tipo
                 .iter()
                 .filter(|(k, _)| k.split_once('|').map(|x| x.0) == Some(c.as_str()))
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .max_by(|a, b| a.1.total_cmp(b.1))
                 .and_then(|(k, _)| k.split_once('|').map(|x| x.1.to_string()))
                 .unwrap_or_default();
             Suggestion { category: c, tipo: t, prob: sc / total }
         })
         .collect();
-    v.sort_by(|a, b| b.prob.partial_cmp(&a.prob).unwrap());
+    v.sort_by(|a, b| b.prob.total_cmp(&a.prob));
     v
 }
 
@@ -499,7 +499,7 @@ pub fn suggest(model: &Model, knn: &Knn, text: &str, file_name: &str, valid: &Ha
         e.1 = s.tipo.clone();
     }
     let mut v: Vec<Suggestion> = comb.into_iter().map(|(c, (p, t))| Suggestion { category: c, tipo: t, prob: p }).collect();
-    v.sort_by(|a, b| b.prob.partial_cmp(&a.prob).unwrap());
+    v.sort_by(|a, b| b.prob.total_cmp(&a.prob));
     v
 }
 
@@ -615,7 +615,7 @@ pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<Reco
             }
         }
     }
-    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    out.sort_by(|a, b| b.score.total_cmp(&a.score));
     out.truncate(5);
     out
 }

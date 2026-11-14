@@ -88,6 +88,38 @@ fn with_valid_folder(db: &Mutex<Connection>, category: &str, data: &Value, exist
     Ok(out)
 }
 
+/// Link de um registro: só http(s). Sem esquema vira https://; DOI solto vira https://doi.org/….
+pub fn normalize_url(raw: &str) -> Result<String, String> {
+    let s = raw.trim();
+    let lower = s.to_ascii_lowercase();
+    let full = if lower.starts_with("http://") || lower.starts_with("https://") {
+        s.to_string()
+    } else if lower.starts_with("10.") && s.contains('/') {
+        format!("https://doi.org/{}", s)
+    } else if lower.starts_with("doi:") {
+        format!("https://doi.org/{}", s[4..].trim())
+    } else if s.split(['/', '?', '#']).next().is_some_and(|h| h.contains(':')) {
+        return Err(format!("URL inválida: '{}'. Use um endereço http:// ou https://", s));
+    } else {
+        format!("https://{}", s)
+    };
+    let host = full.split_once("://").map(|(_, r)| r).unwrap_or("").split(['/', '?', '#']).next().unwrap_or("");
+    if full.contains(char::is_whitespace) || !host.contains('.') || host.starts_with('.') || host.ends_with('.') {
+        return Err(format!("URL inválida: '{}'", s));
+    }
+    Ok(full)
+}
+
+/// Normaliza o campo "url" do payload (se presente); vazio vira null.
+fn with_clean_url(data: &Value) -> Result<Value, String> {
+    let mut out = data.clone();
+    if let Some(v) = out.get_mut("url") {
+        let s = v.as_str().unwrap_or("").trim().to_string();
+        *v = if s.is_empty() { Value::Null } else { Value::String(normalize_url(&s)?) };
+    }
+    Ok(out)
+}
+
 pub fn create_record_impl(
     db: &Mutex<Connection>,
     root_dir: &Path,
@@ -95,7 +127,7 @@ pub fn create_record_impl(
     data: &Value,
     source_file: Option<&str>,
 ) -> Result<RecordDto, String> {
-    let data = &with_valid_folder(db, category, data, None)?;
+    let data = &with_valid_folder(db, category, &with_clean_url(data)?, None)?;
     let mut attached_file: Option<String> = None;
     let mut attached_path: Option<String> = None;
 
@@ -143,7 +175,7 @@ pub fn update_record_impl(
         let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
         queries::get_record_by_id(&conn, category, id).ok()
     };
-    let data = &with_valid_folder(db, category, data, existing.as_ref())?;
+    let data = &with_valid_folder(db, category, &with_clean_url(data)?, existing.as_ref())?;
     let mut attached_file: Option<String> = None;
     let mut attached_path: Option<String> = None;
 
@@ -215,9 +247,10 @@ pub fn delete_record_impl(
             if let Some(path_str) = rec.path {
                 let trimmed = path_str.trim();
                 if !trimmed.is_empty() {
-                    let full_path = shell::resolve_relative_path(root_dir, trimmed);
-                    if full_path.exists() {
-                        let _ = std::fs::remove_file(&full_path);
+                    if let Ok(full_path) = resolve_inside_root(root_dir, trimmed) {
+                        if full_path.is_file() {
+                            let _ = std::fs::remove_file(&full_path);
+                        }
                     }
                 }
             }
@@ -263,18 +296,12 @@ pub fn add_subfolder_mapping_impl(
 }
 
 pub fn open_file_impl(root_dir: &Path, relative_path: &str) -> Result<(), String> {
-    let full_path = shell::resolve_relative_path(root_dir, relative_path);
-    if !full_path.exists() {
-        return Err(format!("Arquivo não encontrado: {}", full_path.display()));
-    }
+    let full_path = resolve_inside_root(root_dir, relative_path)?;
     shell::open_path(&full_path)
 }
 
 pub fn reveal_in_explorer_impl(root_dir: &Path, relative_path: &str) -> Result<(), String> {
-    let full_path = shell::resolve_relative_path(root_dir, relative_path);
-    if !full_path.exists() {
-        return Err(format!("Arquivo não encontrado: {}", full_path.display()));
-    }
+    let full_path = resolve_inside_root(root_dir, relative_path)?;
     shell::reveal_in_explorer(&full_path)
 }
 
@@ -283,9 +310,13 @@ pub fn open_folder_impl(root_dir: &Path, relative_path: &str) -> Result<(), Stri
     if trimmed.is_empty() || trimmed == "." {
         shell::open_folder(root_dir)
     } else {
-        let full_path = shell::resolve_relative_path(root_dir, trimmed);
+        let full_path = crate::files::rel_join(root_dir, trimmed);
         if !full_path.exists() {
             let _ = std::fs::create_dir_all(&full_path);
+        }
+        let full_path = resolve_inside_root(root_dir, trimmed)?;
+        if !full_path.is_dir() {
+            return Err(format!("Não é uma pasta: {}", full_path.display()));
         }
         shell::open_folder(&full_path)
     }
@@ -331,7 +362,7 @@ pub fn ping() -> &'static str {
     "pong"
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_records(
     state: tauri::State<'_, AppState>,
     category: String,
@@ -342,7 +373,7 @@ pub fn get_records(
     get_records_impl(&state.db, &category, search.as_deref(), year, tipo.as_deref())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_record(
     state: tauri::State<'_, AppState>,
     category: String,
@@ -352,7 +383,7 @@ pub fn create_record(
     create_record_impl(&state.db, &state.root_dir, &category, &data, source_file.as_deref())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_record(
     state: tauri::State<'_, AppState>,
     category: String,
@@ -370,7 +401,7 @@ pub fn update_record(
     )
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_record(
     state: tauri::State<'_, AppState>,
     category: String,
@@ -380,7 +411,7 @@ pub fn delete_record(
     delete_record_impl(&state.db, &state.root_dir, &category, id, delete_file)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_subfolder_mappings(
     state: tauri::State<'_, AppState>,
     category_group: Option<String>,
@@ -388,7 +419,7 @@ pub fn get_subfolder_mappings(
     get_subfolder_mappings_impl(&state.db, category_group.as_deref())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn add_subfolder_mapping(
     state: tauri::State<'_, AppState>,
     category_group: String,
@@ -420,12 +451,25 @@ pub fn select_source_file() -> Result<Option<String>, String> {
     Ok(picked.map(|p| p.to_string_lossy().to_string()))
 }
 
+/// Caminho que pode ser aberto no sistema: dentro da pasta do currículo (relativo ou
+/// absoluto) ou um arquivo que o próprio app gravou para o usuário (relatório, planilha, backup).
+pub fn resolve_for_shell(state: &AppState, path: &str) -> Result<PathBuf, String> {
+    resolve_inside_root(&state.root_dir, path).or_else(|e| {
+        let p = PathBuf::from(path.trim());
+        if p.is_file() && state.is_saved(&p) {
+            Ok(crate::real_path(&p))
+        } else {
+            Err(e)
+        }
+    })
+}
+
 #[tauri::command]
 pub fn open_file(
     state: tauri::State<'_, AppState>,
     relative_path: String,
 ) -> Result<(), String> {
-    open_file_impl(&state.root_dir, &relative_path)
+    shell::open_path(&resolve_for_shell(&state, &relative_path)?)
 }
 
 #[tauri::command]
@@ -433,7 +477,7 @@ pub fn reveal_in_explorer(
     state: tauri::State<'_, AppState>,
     relative_path: String,
 ) -> Result<(), String> {
-    reveal_in_explorer_impl(&state.root_dir, &relative_path)
+    shell::reveal_in_explorer(&resolve_for_shell(&state, &relative_path)?)
 }
 
 #[tauri::command]
@@ -444,7 +488,7 @@ pub fn open_folder(
     open_folder_impl(&state.root_dir, &relative_path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_from_excel(
     state: tauri::State<'_, AppState>,
     xlsm_path: Option<String>,
@@ -500,7 +544,7 @@ pub fn select_xml_file() -> Result<Option<String>, String> {
         .map(|p| p.to_string_lossy().to_string()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn preview_lattes_xml(
     state: tauri::State<'_, AppState>,
     xml_path: Option<String>,
@@ -508,7 +552,7 @@ pub fn preview_lattes_xml(
     preview_lattes_xml_impl(&state.db, &state.root_dir, xml_path.as_deref())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_lattes_xml(
     state: tauri::State<'_, AppState>,
     items: Vec<XmlProduction>,
@@ -516,7 +560,7 @@ pub fn import_lattes_xml(
     import_lattes_xml_impl(&state.db, &state.root_dir, &items)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_subfolder_mapping(
     state: tauri::State<'_, AppState>,
     id: i64,
@@ -537,7 +581,7 @@ pub fn update_subfolder_mapping(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_subfolder_mapping(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM subfolder_mappings WHERE id = ?1", rusqlite::params![id])
@@ -546,7 +590,7 @@ pub fn delete_subfolder_mapping(state: tauri::State<'_, AppState>, id: i64) -> R
 }
 
 /// Opções de listas simples (ex.: qualis) guardadas em app_metadata como JSON.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_dropdown_options(state: tauri::State<'_, AppState>, field: String) -> Result<Option<Vec<String>>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let raw: Option<String> = conn
@@ -559,7 +603,7 @@ pub fn get_dropdown_options(state: tauri::State<'_, AppState>, field: String) ->
     Ok(raw.and_then(|s| serde_json::from_str(&s).ok()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_dropdown_options(
     state: tauri::State<'_, AppState>,
     field: String,
@@ -575,7 +619,7 @@ pub fn set_dropdown_options(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_all_records(state: tauri::State<'_, AppState>) -> Result<std::collections::HashMap<String, Vec<RecordDto>>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let mut out = std::collections::HashMap::new();
@@ -594,9 +638,15 @@ pub fn get_all_records(state: tauri::State<'_, AppState>) -> Result<std::collect
 // VISUALIZADOR INTERNO / RELATÓRIO DE COMPROVANTES
 // ==========================================
 
-/// Resolve um caminho relativo garantindo que ele fique dentro da pasta raiz.
+/// Resolve um caminho da interface garantindo que ele fique dentro da pasta raiz.
+/// Aceita caminho relativo à raiz ou absoluto — desde que, já resolvido, continue dentro dela.
 pub fn resolve_inside_root(root_dir: &Path, relative_path: &str) -> Result<PathBuf, String> {
-    let full = shell::resolve_relative_path(root_dir, relative_path);
+    let trimmed = relative_path.trim();
+    let full = if Path::new(trimmed).is_absolute() {
+        PathBuf::from(trimmed)
+    } else {
+        shell::resolve_relative_path(root_dir, trimmed)
+    };
     if !full.exists() {
         return Err(format!("Arquivo não encontrado: {}", full.display()));
     }
@@ -609,7 +659,7 @@ pub fn resolve_inside_root(root_dir: &Path, relative_path: &str) -> Result<PathB
 }
 
 /// Caminho absoluto de um comprovante, para o visualizador interno (asset protocol).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn resolve_file_path(state: tauri::State<'_, AppState>, relative_path: String) -> Result<String, String> {
     resolve_inside_root(&state.root_dir, &relative_path).map(|p| p.to_string_lossy().to_string())
 }
@@ -661,7 +711,7 @@ pub fn read_system_font(name: String) -> Result<tauri::ipc::Response, String> {
     Err(format!("Fonte indisponível neste sistema ({})", n))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_lattes_profile(
     state: tauri::State<'_, AppState>,
     xml_path: Option<String>,
@@ -671,6 +721,82 @@ pub fn get_lattes_profile(
         return Err(format!("Arquivo XML não encontrado em '{}'", path.display()));
     }
     lattes_xml::parse_profile(&path)
+}
+
+// ==========================================
+// FOTO DE PERFIL (perfil/foto_perfil.png|jpg, fora das pastas de comprovantes)
+// ==========================================
+
+pub const PHOTO_DIR: &str = "perfil";
+const PHOTO_MAX_BYTES: u64 = 40 * 1024 * 1024;
+
+/// Extensão pelo conteúdo do arquivo (não pelo nome): só PNG e JPEG.
+pub fn photo_kind(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else {
+        None
+    }
+}
+
+fn photo_files(root_dir: &Path) -> Vec<PathBuf> {
+    ["png", "jpg"].iter().map(|e| root_dir.join(PHOTO_DIR).join(format!("foto_perfil.{}", e))).collect()
+}
+
+/// Caminho relativo da foto atual, se houver.
+pub fn profile_photo_impl(root_dir: &Path) -> Option<String> {
+    photo_files(root_dir)
+        .into_iter()
+        .find(|p| p.is_file())
+        .and_then(|p| p.file_name().map(|n| format!("{}/{}", PHOTO_DIR, n.to_string_lossy())))
+}
+
+/// Copia `src` como a foto de perfil, substituindo a anterior. Devolve o caminho relativo.
+pub fn set_profile_photo_impl(root_dir: &Path, src: &Path) -> Result<String, String> {
+    let size = std::fs::metadata(src).map_err(|e| format!("Falha ao ler a foto: {}", e))?.len();
+    if size > PHOTO_MAX_BYTES {
+        return Err("Foto muito grande (máximo de 40 MB)".into());
+    }
+    let bytes = std::fs::read(src).map_err(|e| format!("Falha ao ler a foto: {}", e))?;
+    let ext = photo_kind(&bytes).ok_or("A foto precisa ser um arquivo PNG ou JPG")?;
+    let dir = root_dir.join(PHOTO_DIR);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Falha ao criar a pasta '{}': {}", dir.display(), e))?;
+    remove_profile_photo_impl(root_dir)?;
+    let target = dir.join(format!("foto_perfil.{}", ext));
+    std::fs::write(&target, &bytes).map_err(|e| format!("Falha ao salvar a foto: {}", e))?;
+    Ok(format!("{}/foto_perfil.{}", PHOTO_DIR, ext))
+}
+
+pub fn remove_profile_photo_impl(root_dir: &Path) -> Result<(), String> {
+    for p in photo_files(root_dir).into_iter().filter(|p| p.is_file()) {
+        std::fs::remove_file(&p).map_err(|e| format!("Falha ao remover '{}': {}", p.display(), e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn get_profile_photo(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    Ok(profile_photo_impl(&state.root_dir))
+}
+
+/// Abre o diálogo de imagem e grava a escolhida como foto de perfil. `None` se cancelado.
+#[tauri::command]
+pub fn pick_profile_photo(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    let Some(src) = rfd::FileDialog::new()
+        .set_title("Selecionar foto de perfil")
+        .add_filter("Imagens PNG ou JPG", &["png", "jpg", "jpeg"])
+        .pick_file()
+    else {
+        return Ok(None);
+    };
+    set_profile_photo_impl(&state.root_dir, &src).map(Some)
+}
+
+#[tauri::command(async)]
+pub fn remove_profile_photo(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    remove_profile_photo_impl(&state.root_dir)
 }
 
 #[tauri::command]
@@ -715,6 +841,7 @@ pub async fn write_report(
         .take()
         .ok_or_else(|| "Nenhum destino selecionado".to_string())?;
     std::fs::write(&target, bytes).map_err(|e| format!("Falha ao salvar '{}': {}", target.display(), e))?;
+    state.remember_saved(&target);
     {
         use tauri::Manager;
         let _ = app.asset_protocol_scope().allow_file(&target);
@@ -723,7 +850,7 @@ pub async fn write_report(
 }
 
 /// Configurações livres (JSON) guardadas em app_metadata, ex.: modelos de relatório.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_setting(state: tauri::State<'_, AppState>, key: String) -> Result<Option<Value>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let raw: Option<String> = conn
@@ -736,7 +863,7 @@ pub fn get_setting(state: tauri::State<'_, AppState>, key: String) -> Result<Opt
     Ok(raw.and_then(|s| serde_json::from_str(&s).ok()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_setting(state: tauri::State<'_, AppState>, key: String, value: Value) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     conn.execute(
@@ -759,19 +886,19 @@ pub async fn suggest_file_links(state: tauri::State<'_, AppState>) -> Result<Vec
     linker::suggest_links(&conn, &state.root_dir)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apply_file_links(state: tauri::State<'_, AppState>, links: Vec<linker::LinkApply>) -> Result<usize, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     linker::apply_links(&conn, &state.root_dir, &links)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn find_duplicate_records(state: tauri::State<'_, AppState>) -> Result<Vec<linker::DupPair>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     linker::find_duplicates(&conn)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_app_stats(
     state: tauri::State<'_, AppState>,
 ) -> Result<AppStatsDto, String> {
@@ -784,7 +911,7 @@ pub fn get_app_stats(
 
 use crate::config;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_data_dir_info(state: tauri::State<'_, AppState>) -> Result<config::DataDirInfo, String> {
     let root = crate::strip_verbatim(&state.root_dir);
     let db = root.join("lattes.db");
@@ -811,7 +938,7 @@ pub fn pick_folder(title: Option<String>) -> Result<Option<String>, String> {
         .map(|p| p.to_string_lossy().to_string()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn inspect_data_dir(path: String) -> Result<config::DataDirInspection, String> {
     Ok(config::inspect(Path::new(path.trim())))
 }
@@ -883,6 +1010,30 @@ pub async fn extract_pdf_metadata(
     Ok(md)
 }
 
+/// DOI declarado dentro do comprovante PDF de um registro (sem rede).
+/// `None` quando o registro não tem PDF anexado ou o arquivo não traz DOI.
+#[tauri::command]
+pub async fn extract_record_doi(app: tauri::AppHandle, category: String, id: i64) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<AppState>();
+        let rel = {
+            let conn = state.db.lock().map_err(|e| e.to_string())?;
+            queries::get_record_by_id(&conn, &category, id)
+                .map_err(|e| format!("Registro não encontrado: {}", e))?
+                .path
+        };
+        let Some(rel) = rel.filter(|p| p.trim().to_lowercase().ends_with(".pdf")) else {
+            return Ok(None);
+        };
+        let full = resolve_inside_root(&state.root_dir, &rel)?;
+        let bytes = std::fs::read(&full).map_err(|e| format!("Falha ao ler '{}': {}", full.display(), e))?;
+        Ok(crate::tools::doi_in_pdf(&bytes))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Abre https://doi.org/<doi> no navegador padrão (só aceita DOIs).
 #[tauri::command]
 pub fn open_doi(doi: String) -> Result<(), String> {
@@ -946,25 +1097,25 @@ pub fn open_url(url: String) -> Result<(), String> {
 // CATEGORIAS PERSONALIZADAS
 // ==========================================
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_custom_categories(state: tauri::State<'_, AppState>) -> Result<Vec<crate::custom::CustomCategory>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::custom::list_categories(&conn).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_custom_category(state: tauri::State<'_, AppState>, category: crate::custom::CustomCategory) -> Result<crate::custom::CustomCategory, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::custom::save_category(&conn, &state.root_dir, category)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_custom_category(state: tauri::State<'_, AppState>, key: String, force: Option<bool>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::custom::delete_category(&conn, &key, force.unwrap_or(false))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reorder_custom_categories(state: tauri::State<'_, AppState>, keys: Vec<String>) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::custom::reorder(&conn, &keys).map_err(|e| e.to_string())
@@ -974,38 +1125,38 @@ pub fn reorder_custom_categories(state: tauri::State<'_, AppState>, keys: Vec<St
 // FERRAMENTAS
 // ==========================================
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn preview_file_renames(state: tauri::State<'_, AppState>) -> Result<Vec<crate::tools::RenameItem>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::tools::preview_renames(&conn, &state.root_dir)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apply_file_renames(state: tauri::State<'_, AppState>, items: Vec<crate::tools::RenameItem>) -> Result<crate::tools::ApplyResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     Ok(crate::tools::apply_renames(&conn, &state.root_dir, &items))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn check_files(state: tauri::State<'_, AppState>) -> Result<crate::tools::FileCheck, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::tools::check_files(&conn, &state.root_dir)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_missing_links(state: tauri::State<'_, AppState>, items: Vec<crate::tools::MissingFile>) -> Result<crate::tools::ApplyResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     Ok(crate::tools::clear_missing(&conn, &state.root_dir, &items))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_database(state: tauri::State<'_, AppState>) -> Result<crate::tools::BackupInfo, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::tools::backup(&conn, &state.root_dir)
 }
 
 /// Grava as planilhas no destino escolhido em `select_save_path(kind = "xlsx")`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_xlsx(state: tauri::State<'_, AppState>, sheets: Vec<crate::tools::Sheet>) -> Result<String, String> {
     let target = state
         .pending_save
@@ -1014,6 +1165,7 @@ pub fn export_xlsx(state: tauri::State<'_, AppState>, sheets: Vec<crate::tools::
         .take()
         .ok_or_else(|| "Nenhum destino selecionado".to_string())?;
     crate::tools::write_xlsx(&target, &sheets)?;
+    state.remember_saved(&target);
     Ok(target.to_string_lossy().to_string())
 }
 
@@ -1150,7 +1302,7 @@ pub fn pick_files() -> Result<Vec<BatchFile>, String> {
 }
 
 /// Arquivos importáveis de uma pasta (PDF e imagens), opcionalmente com as subpastas.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_folder_files(path: String, recursive: bool) -> Result<Vec<BatchFile>, String> {
     let dir = PathBuf::from(path.trim());
     if !dir.is_dir() {
@@ -1179,7 +1331,7 @@ pub fn list_folder_files(path: String, recursive: bool) -> Result<Vec<BatchFile>
 // BACKUP COMPLETO E RESTAURAÇÃO
 // ==========================================
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_estimate(state: tauri::State<'_, AppState>) -> Result<crate::backup::Estimate, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     Ok(crate::backup::estimate(&conn, &state.root_dir))
@@ -1220,6 +1372,9 @@ pub async fn create_backup(app: tauri::AppHandle, path: String, include_files: b
             let _ = app.emit("backup-progress", serde_json::json!({ "done": done, "total": total, "name": name }));
         });
         let _ = std::fs::remove_file(&snap);
+        if res.is_ok() {
+            state.remember_saved(&dest);
+        }
         res
     })
     .await

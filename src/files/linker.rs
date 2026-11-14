@@ -234,7 +234,7 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
                 }
             }
         }
-        pairs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1)));
+        pairs.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
         let (mut ur, mut uf) = (HashSet::new(), HashSet::new());
         for (s, ri, fi) in pairs {
             if ur.contains(&ri) || uf.contains(&fi) {
@@ -254,7 +254,7 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
             });
         }
     }
-    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap().then(a.category.cmp(&b.category)));
+    out.sort_by(|a, b| b.score.total_cmp(&a.score).then(a.category.cmp(&b.category)));
     Ok(out)
 }
 
@@ -330,7 +330,7 @@ pub fn find_duplicates(conn: &Connection) -> Result<Vec<DupPair>, String> {
             }
         }
     }
-    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    out.sort_by(|a, b| b.score.total_cmp(&a.score));
     Ok(out)
 }
 

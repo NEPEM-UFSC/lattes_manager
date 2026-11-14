@@ -20,7 +20,7 @@
 
 /* ---------- Componentes genéricos ---------- */
 .muted { color: var(--text-muted); }
-.ok { color: var(--success); }
+.ok { color: var(--success-text); }
 .mono { font-family: var(--font-mono); font-size: 12px; }
 
 .seg {

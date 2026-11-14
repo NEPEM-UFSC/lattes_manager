@@ -4,10 +4,12 @@ import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast, compareActivity } from "../utils.js";
 import { PALETTE } from "./charts.js";
-import { loadProfile, PROFILE_FIELDS } from "./profile.js";
+import { loadPhoto, loadProfile, PROFILE_FIELDS } from "./profile.js";
+import { makeSortable } from "../sortable.js";
 
 const PRESETS_KEY = "report_presets";
 const LAST_KEY = "report_last";
+const ORDER_KEY = "report_order";
 
 /** Título e linha de detalhes de um registro, por categoria. */
 function describe(cat, r) {
@@ -29,9 +31,32 @@ function describe(cat, r) {
   }
 }
 
+/** Link do registro para o QR code: a URL do registro, o DOI do identificador ou o primeiro endereço http(s) dos campos. */
+export function linkOf(r) {
+  const norm = (u) => {
+    try {
+      return new URL(u).href;
+    } catch {
+      return null;
+    }
+  };
+  if (r.url) {
+    const u = norm(r.url);
+    if (u) return u;
+  }
+  const doi = String(r.identifier || "").trim().replace(/^doi:\s*/i, "").replace(/^https?:\/\/(dx\.)?doi\.org\//i, "");
+  if (/^10\.\d{4,9}\/\S+$/.test(doi)) return norm(`https://doi.org/${doi}`);
+  for (const v of [r.identifier, r.titulo, r.descricao, r.journal, r.disciplina, r.curso, r.aluno]) {
+    const m = String(v || "").match(/https?:\/\/[^\s<>"']+/i);
+    const u = m && norm(m[0].replace(/[).,;:]+$/, ""));
+    if (u) return u;
+  }
+  return null;
+}
+
 let libsPromise = null;
 function loadLibs() {
-  if (window.PDFLib && window.fontkit) return Promise.resolve();
+  if (window.PDFLib && window.fontkit && window.qrcode) return Promise.resolve();
   const load = (src) =>
     new Promise((res, rej) => {
       const s = document.createElement("script");
@@ -40,7 +65,7 @@ function loadLibs() {
       s.onerror = () => rej(new Error(`Falha ao carregar ${src}`));
       document.head.appendChild(s);
     });
-  libsPromise ||= Promise.all([load("vendor/pdf-lib.min.js"), load("vendor/fontkit.umd.min.js")]);
+  libsPromise ||= Promise.all([load("vendor/pdf-lib.min.js"), load("vendor/fontkit.umd.min.js"), load("vendor/qrcode.js")]);
   return libsPromise;
 }
 
@@ -58,7 +83,9 @@ export class ReportBuilder {
     });
     this.data = null;
     this.sel = {}; // cat -> Set(tipos)
-    this.open_ = new Set(["producoes"]);
+    this.open_ = new Set(); // categorias com as subcategorias à mostra
+    this.catOrder = []; // ordem das seções no PDF (vazia = padrão)
+    this.tipoOrder = {}; // cat -> ordem das subcategorias
     this.order = "tipo"; // tipo = por atividade (ordem do Lattes)
     this.presets = [];
     this.busy = false;
@@ -68,13 +95,18 @@ export class ReportBuilder {
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `<div class="modal-dialog rb-dialog"><div class="loading-state" style="display:flex"><div class="spinner"></div><span>Carregando dados do currículo...</span></div></div>`;
     try {
-      const [data, profile, version, presets, last] = await Promise.all([
+      const [data, profile, version, presets, last, photo, order] = await Promise.all([
         api.getAllRecords(),
         loadProfile().catch(() => null),
         api.getAppVersion().catch(() => "1.0.0"),
         api.getSetting(PRESETS_KEY).catch(() => null),
         api.getSetting(LAST_KEY).catch(() => null),
+        loadPhoto().catch(() => null),
+        api.getSetting(ORDER_KEY).catch(() => null),
       ]);
+      this.catOrder = Array.isArray(order?.cats) ? order.cats : [];
+      this.tipoOrder = order?.tipos && typeof order.tipos === "object" ? order.tipos : {};
+      this.photo = photo;
       this.data = data || {};
       this.version = version;
       this.presets = Array.isArray(presets) ? presets : [];
@@ -89,7 +121,10 @@ export class ReportBuilder {
         resumo: p.resumo || "",
         include: { ...this.prof.include },
         includeResumo: last?.includeResumo ?? (Boolean(p.resumo) && this.prof.include.resumo !== false),
+        includeFoto: Boolean(photo) && (last?.includeFoto ?? this.prof.include.foto !== false),
         pages: last?.pages === "first" ? "first" : "all",
+        qr: Boolean(last?.qr),
+        qrCols: [3, 4, 5, 6].includes(last?.qrCols) ? last.qrCols : 4,
       };
       // ordem salva antes da v1.7 era "Ano ↓" por padrão: passa a valer a ordem por atividade
       if (last?.sel) this.applySel(last.sel, last.from, last.to, last.orderV === 2 ? last.order : "tipo");
@@ -102,14 +137,33 @@ export class ReportBuilder {
   }
 
   close() {
+    if (this.photo) URL.revokeObjectURL(this.photo.url);
+    this.photo = null;
     this.overlay.style.display = "none";
     this.overlay.innerHTML = "";
   }
 
+  /** Categorias na ordem escolhida (arrastando); as que não estão na lista seguem a ordem padrão. */
+  orderedCats() {
+    const keys = Object.keys(CATEGORY_SCHEMAS);
+    const rank = (k) => {
+      const i = this.catOrder.indexOf(k);
+      return i < 0 ? 1000 + keys.indexOf(k) : i;
+    };
+    return [...keys].sort((a, b) => rank(a) - rank(b));
+  }
+
+  /** [tipo, quantidade] na ordem escolhida; tipos novos entram no fim, na ordem do Lattes. */
   tiposOf(cat) {
     const c = {};
     for (const r of this.data[cat] || []) c[r.tipo || "Sem tipo"] = (c[r.tipo || "Sem tipo"] || 0) + 1;
-    return Object.entries(c).sort((a, b) => compareActivity(cat, a[0], b[0]));
+    const ord = this.tipoOrder[cat] || [];
+    const rank = (t) => (ord.includes(t) ? ord.indexOf(t) : Infinity);
+    return Object.entries(c).sort((a, b) => rank(a[0]) - rank(b[0]) || compareActivity(cat, a[0], b[0]));
+  }
+
+  saveOrder() {
+    api.setSetting(ORDER_KEY, { cats: this.catOrder, tipos: this.tipoOrder }).catch(() => {});
   }
 
   applySel(sel, from, to, order) {
@@ -147,13 +201,15 @@ export class ReportBuilder {
   /** Seções finais, na ordem das categorias, já filtradas e ordenadas. */
   sections() {
     const out = [];
-    for (const [cat, schema] of Object.entries(CATEGORY_SCHEMAS)) {
+    for (const cat of this.orderedCats()) {
+      const schema = CATEGORY_SCHEMAS[cat];
       const set = this.sel[cat];
       if (!set || !set.size) continue;
       const recs = (this.data[cat] || []).filter((r) => set.has(r.tipo || "Sem tipo") && this.inRange(r));
       if (!recs.length) continue;
-      // atividade (ordem do Lattes) → ano mais recente → título; nunca a ordem de cadastro
-      const act = (a, b) => compareActivity(cat, a.tipo || "Sem tipo", b.tipo || "Sem tipo");
+      // atividade (ordem das subcategorias) → ano mais recente → título; nunca a ordem de cadastro
+      const pos = new Map(this.tiposOf(cat).map(([t], i) => [t, i]));
+      const act = (a, b) => pos.get(a.tipo || "Sem tipo") - pos.get(b.tipo || "Sem tipo");
       const desc = (a, b) => (b.ano || 0) - (a.ano || 0);
       const label = (r) => String(describe(cat, r).title || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
       const byTitle = (a, b) => label(a).localeCompare(label(b), "pt-BR");
@@ -167,7 +223,7 @@ export class ReportBuilder {
         name: schema.group,
         color: PALETTE[cat] || "#6366f1",
         grouped: this.order === "tipo",
-        items: recs.map((r) => ({ ...describe(cat, r), ano: r.ano, tipo: r.tipo, path: r.path && r.path.trim() ? r.path : null })),
+        items: recs.map((r) => ({ ...describe(cat, r), ano: r.ano, tipo: r.tipo, path: r.path && r.path.trim() ? r.path : null, url: linkOf(r) })),
       });
     }
     return out;
@@ -177,33 +233,47 @@ export class ReportBuilder {
     const secs = this.sections();
     const nItems = secs.reduce((a, s) => a + s.items.length, 0);
     const nFiles = secs.reduce((a, s) => a + s.items.filter((i) => i.path).length, 0);
+    const nLinks = secs.reduce((a, s) => a + s.items.filter((i) => i.url).length, 0);
+    const nLinkSecs = secs.filter((s) => s.items.some((i) => i.url)).length;
     const f = this.form;
     const yearOpts = (v) => this.years.map((y) => `<option ${y === v ? "selected" : ""}>${y}</option>`).join("");
 
-    const cats = Object.entries(CATEGORY_SCHEMAS)
-      .map(([cat, schema]) => {
+    const cats = this.orderedCats()
+      .map((cat) => {
+        const schema = CATEGORY_SCHEMAS[cat];
         const tipos = this.tiposOf(cat);
         if (!tipos.length) return "";
         const set = this.sel[cat] || new Set();
-        const all = tipos.every(([t]) => set.has(t));
-        const some = !all && tipos.some(([t]) => set.has(t));
+        const nSel = tipos.filter(([t]) => set.has(t)).length;
+        const all = nSel === tipos.length;
+        const some = nSel > 0 && !all;
         const n = (this.data[cat] || []).filter((r) => set.has(r.tipo || "Sem tipo") && this.inRange(r)).length;
         const isOpen = this.open_.has(cat);
-        return `<div class="rb-cat ${set.size ? "on" : ""}" style="--c:${PALETTE[cat]}">
+        return `<div class="rb-cat ${set.size ? "on" : ""} ${isOpen ? "open" : ""}" data-key="${escapeHtml(cat)}" style="--c:${PALETTE[cat] || "#6366f1"}">
           <div class="rb-cat-h">
-            <label class="rb-check"><input type="checkbox" data-cat-all="${cat}" ${all ? "checked" : ""} ${some ? 'data-ind="1"' : ""}/><i></i></label>
-            <button type="button" class="rb-cat-name" data-toggle="${cat}">
+            <span class="rb-grip rb-grip-cat" title="Arraste para mudar a ordem das seções">⠿</span>
+            <label class="rb-check"><input type="checkbox" data-cat-all="${escapeHtml(cat)}" ${all ? "checked" : ""} ${some ? 'data-ind="1"' : ""}/><i></i></label>
+            <button type="button" class="rb-cat-name" data-toggle="${escapeHtml(cat)}" aria-expanded="${isOpen}">
               <span class="dot"></span>${escapeHtml(schema.group)}
               <span class="rb-count">${n ? `${n} selecionado(s)` : ""}</span>
-              <span class="chev ${isOpen ? "up" : ""}">⌄</span>
+              <span class="rb-nsub">${nSel}/${tipos.length} ${tipos.length === 1 ? "tipo" : "tipos"}</span>
+              <span class="chev">⌄</span>
             </button>
           </div>
-          ${isOpen ? `<div class="rb-tipos">${tipos
-            .map(([t, c]) => `<button type="button" class="rb-tipo ${set.has(t) ? "on" : ""}" data-cat="${cat}" data-tipo="${escapeHtml(t)}">${escapeHtml(t)}<b>${c}</b></button>`)
-            .join("")}</div>` : ""}
+          <div class="rb-sub"><div class="rb-sub-inner"><div class="rb-sub-list">${tipos
+            .map(
+              ([t, c]) => `<div class="rb-sub-item ${set.has(t) ? "on" : ""}" data-tipo="${escapeHtml(t)}">
+                <span class="rb-grip rb-grip-sub" title="Arraste para mudar a ordem dentro da seção">⠿</span>
+                <label class="rb-sub-check"><input type="checkbox" data-cat="${escapeHtml(cat)}" data-tipo-chk="${escapeHtml(t)}" ${set.has(t) ? "checked" : ""}/><span>${escapeHtml(t)}</span></label>
+                <b class="rb-sub-count">${c}</b>
+              </div>`
+            )
+            .join("")}</div></div></div>
         </div>`;
       })
       .join("");
+
+    const keepScroll = [".rb-main", ".rb-side"].map((sel) => this.overlay.querySelector(sel)?.scrollTop || 0);
 
     this.overlay.innerHTML = `
       <div class="modal-dialog rb-dialog">
@@ -248,7 +318,8 @@ export class ReportBuilder {
               </div>
             </div>
             <div class="rb-block">
-              <div class="rb-label">Seções e tipos <span class="muted">— clique na categoria para escolher os tipos</span></div>
+              <div class="rb-label rb-label-row"><span>Seções e tipos <span class="muted">— clique na categoria para ver os tipos; arraste ⠿ para mudar a ordem no PDF</span></span>
+                ${this.catOrder.length || Object.keys(this.tipoOrder).length ? '<button type="button" class="rb-link" data-x="reset-order" title="Volta à ordem do Currículo Lattes">↺ Ordem padrão</button>' : ""}</div>
               <div class="rb-cats">${cats}</div>
             </div>
           </section>
@@ -267,6 +338,20 @@ export class ReportBuilder {
             </div>
             <label class="rb-switch ${f.resumo ? "" : "disabled"}"><input type="checkbox" data-f="includeResumo" ${f.includeResumo && f.resumo ? "checked" : ""} ${f.resumo ? "" : "disabled"}/><i></i>
               <span>Incluir página com o resumo do CV${f.resumo ? "" : " (não encontrado no XML)"}</span></label>
+            <label class="rb-switch ${this.photo ? "" : "disabled"}"><input type="checkbox" data-f="includeFoto" ${f.includeFoto && this.photo ? "checked" : ""} ${this.photo ? "" : "disabled"}/><i></i>
+              ${this.photo ? `<img class="rb-photo-thumb" src="${this.photo.url}" alt=""/>` : ""}<span>Incluir foto de perfil na capa${this.photo ? "" : " (envie em Dados Gerais)"}</span></label>
+            <label class="rb-switch"><input type="checkbox" data-qr ${f.qr ? "checked" : ""}/><i></i>
+              <span>Gerar QR codes dos links</span></label>
+            <div class="rb-qr ${f.qr ? "open" : ""}"><div class="rb-qr-inner">
+              <p class="rb-qr-note">${
+                nLinks
+                  ? `Seção no fim do PDF com ${nLinks} QR code(s), agrupados em ${nLinkSecs} ${nLinkSecs === 1 ? "seção" : "seções"}. Só entram itens com DOI ou endereço http(s).`
+                  : "Nenhum item das seções escolhidas tem DOI ou endereço http(s); a seção de QR codes não será incluída."
+              }</p>
+              <div class="rb-qr-cols"><span>Colunas da grade</span>
+                <div class="seg">${[3, 4, 5, 6].map((n) => `<button type="button" data-qrcols="${n}" class="${f.qrCols === n ? "on" : ""}">${n}</button>`).join("")}</div>
+              </div>
+            </div></div>
             <div class="rb-label" style="margin-top:8px">Páginas de cada comprovante</div>
             <div class="seg rb-pages">
               <button type="button" data-pages="all" class="${f.pages === "all" ? "on" : ""}">Todas as páginas</button>
@@ -284,6 +369,10 @@ export class ReportBuilder {
           </aside>
         </div>
       </div>`;
+    [".rb-main", ".rb-side"].forEach((sel, i) => {
+      const el = this.overlay.querySelector(sel);
+      if (el) el.scrollTop = keepScroll[i];
+    });
     this.bind();
   }
 
@@ -303,6 +392,8 @@ export class ReportBuilder {
         this.applySel(p.sel, p.from, p.to, p.orderV === 2 ? p.order : "tipo");
         if (p.title) this.form.title = p.title;
         if (p.pages) this.form.pages = p.pages;
+        if ("qr" in p) this.form.qr = Boolean(p.qr);
+        if (p.qrCols) this.form.qrCols = p.qrCols;
         this.render();
       })
     );
@@ -341,13 +432,46 @@ export class ReportBuilder {
         this.render();
       })
     );
+    // abre/fecha sem redesenhar, para a transição de altura acontecer
     o.querySelectorAll("[data-toggle]").forEach((b) =>
       b.addEventListener("click", () => {
         const c = b.dataset.toggle;
-        this.open_.has(c) ? this.open_.delete(c) : this.open_.add(c);
-        this.render();
+        const open = !this.open_.has(c);
+        open ? this.open_.add(c) : this.open_.delete(c);
+        b.closest(".rb-cat").classList.toggle("open", open);
+        b.setAttribute("aria-expanded", String(open));
       })
     );
+    const scroller = o.querySelector(".rb-main");
+    makeSortable(o.querySelector(".rb-cats"), {
+      item: ".rb-cat",
+      handle: ".rb-grip-cat",
+      scroller,
+      onSort: (keys) => {
+        this.catOrder = keys;
+        this.saveOrder();
+        this.showOrderReset();
+      },
+    });
+    o.querySelectorAll(".rb-sub-list").forEach((list) =>
+      makeSortable(list, {
+        item: ".rb-sub-item",
+        handle: ".rb-grip-sub",
+        scroller,
+        key: (el) => el.dataset.tipo,
+        onSort: (tipos) => {
+          this.tipoOrder[list.closest(".rb-cat").dataset.key] = tipos;
+          this.saveOrder();
+          this.showOrderReset();
+        },
+      })
+    );
+    o.querySelector('[data-x="reset-order"]')?.addEventListener("click", () => {
+      this.catOrder = [];
+      this.tipoOrder = {};
+      this.saveOrder();
+      this.render();
+    });
     o.querySelectorAll("[data-cat-all]").forEach((c) =>
       c.addEventListener("change", () => {
         const cat = c.dataset.catAll;
@@ -355,17 +479,26 @@ export class ReportBuilder {
         this.render();
       })
     );
-    o.querySelectorAll("[data-tipo]").forEach((b) =>
-      b.addEventListener("click", () => {
-        const cat = b.dataset.cat;
-        const set = (this.sel[cat] ||= new Set());
-        set.has(b.dataset.tipo) ? set.delete(b.dataset.tipo) : set.add(b.dataset.tipo);
+    o.querySelectorAll("[data-tipo-chk]").forEach((c) =>
+      c.addEventListener("change", () => {
+        const set = (this.sel[c.dataset.cat] ||= new Set());
+        c.checked ? set.add(c.dataset.tipoChk) : set.delete(c.dataset.tipoChk);
         this.render();
       })
     );
     o.querySelectorAll("[data-f]").forEach((i) =>
       i.addEventListener(i.type === "checkbox" ? "change" : "input", () => {
         this.form[i.dataset.f] = i.type === "checkbox" ? i.checked : i.value;
+      })
+    );
+    o.querySelector("[data-qr]").addEventListener("change", (e) => {
+      this.form.qr = e.target.checked;
+      o.querySelector(".rb-qr").classList.toggle("open", this.form.qr);
+    });
+    o.querySelectorAll("[data-qrcols]").forEach((b) =>
+      b.addEventListener("click", () => {
+        this.form.qrCols = Number(b.dataset.qrcols);
+        o.querySelectorAll("[data-qrcols]").forEach((x) => x.classList.toggle("on", x === b));
       })
     );
     o.querySelectorAll("[data-pages]").forEach((b) =>
@@ -391,6 +524,11 @@ export class ReportBuilder {
     o.querySelector('[data-x="generate"]').addEventListener("click", () => this.generate());
   }
 
+  /** Mostra "↺ Ordem padrão" depois do primeiro arraste (o redesenho preserva a rolagem). */
+  showOrderReset() {
+    if (!this.overlay.querySelector('[data-x="reset-order"]')) this.render();
+  }
+
   /** [chave, rótulo, valor] dos campos preenchidos do perfil (exceto nome e resumo). */
   profileOptions() {
     const v = this.prof.values;
@@ -408,7 +546,7 @@ export class ReportBuilder {
   snapshot() {
     const sel = {};
     for (const [k, v] of Object.entries(this.sel)) if (v.size) sel[k] = [...v];
-    return { sel, from: this.from, to: this.to, order: this.order, orderV: 2, title: this.form.title, includeResumo: this.form.includeResumo, pages: this.form.pages };
+    return { sel, from: this.from, to: this.to, order: this.order, orderV: 2, title: this.form.title, includeResumo: this.form.includeResumo, includeFoto: this.form.includeFoto, pages: this.form.pages, qr: this.form.qr, qrCols: this.form.qrCols };
   }
 
   async generate() {
@@ -448,12 +586,14 @@ export class ReportBuilder {
       const periodLabel = this.from === first && this.to === last ? `${first} – ${last} (todo o período)` : `${this.from} – ${this.to}`;
       const rows = this.profileOptions().filter(([k]) => this.form.include[k]).map(([, l, v]) => [l, v]);
       const res = await (await import("../pdf/buildReport.js")).buildReport({
-        profile: { nome: this.form.nome, resumo: this.form.resumo, rows },
+        profile: { nome: this.form.nome, resumo: this.form.resumo, rows, photo: this.form.includeFoto && this.photo ? this.photo.bytes : null },
         title: this.form.title,
         subtitle: secs.map((s) => s.name).join(" · "),
         periodLabel,
         includeResumo: this.form.includeResumo,
         firstPageOnly: this.form.pages === "first",
+        qr: this.form.qr,
+        qrCols: this.form.qrCols,
         sections: secs,
         version: this.version,
         onProgress: ({ done, total, label }) => {
@@ -484,7 +624,9 @@ export class ReportBuilder {
         this.previewer.openAbsolute(saved);
         this.previewer.drawer.classList.contains("expanded") || this.previewer.toggleExpanded();
       });
-      prog.querySelector('[data-d="folder"]').addEventListener("click", () => api.revealInExplorer(saved).catch(() => {}));
+      prog.querySelector('[data-d="folder"]').addEventListener("click", () =>
+        api.revealInExplorer(saved).catch((e) => showToast(`Não foi possível mostrar na pasta: ${e}`, "error", 6000))
+      );
       prog.querySelector('[data-d="close"]').addEventListener("click", () => {
         this.busy = false;
         this.close();

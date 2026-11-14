@@ -75,6 +75,7 @@ function normalize(p) {
   const include = { ...(p.include || {}) };
   for (const [k, , , def] of PROFILE_FIELDS) if (!(k in include)) include[k] = def;
   if (!("resumo" in include)) include.resumo = true;
+  if (!("foto" in include)) include.foto = true;
   const values = { ...(p.values || {}) };
   for (const k of DATE_FIELDS) if (values[k]) values[k] = toBrDate(values[k]);
   return { values, include, extras: Array.isArray(p.extras) ? p.extras : [], fromXml: p.fromXml };
@@ -82,6 +83,24 @@ function normalize(p) {
 
 export function saveProfile(p) {
   return api.setSetting(KEY, { values: p.values, include: p.include, extras: p.extras });
+}
+
+/** Enquadramento da foto 3:4: centralizada na horizontal e a 35% do topo (rostos ficam no alto). */
+export const PHOTO_ASPECT = 3 / 4;
+export const PHOTO_FOCUS_Y = 0.35;
+/** Abaixo disso a foto pode ficar serrilhada na capa impressa. */
+const PHOTO_MIN = [600, 800];
+
+/** Foto de perfil salva: { rel, bytes, url, w, h } ou null. Quem recebe deve revogar `url`. */
+export async function loadPhoto() {
+  const rel = await api.getProfilePhoto().catch(() => null);
+  if (!rel) return null;
+  const bytes = await api.readFileBytes(rel);
+  const url = URL.createObjectURL(new Blob([bytes], { type: rel.endsWith(".png") ? "image/png" : "image/jpeg" }));
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  return { rel, bytes, url, w: img.naturalWidth, h: img.naturalHeight };
 }
 
 /** Linhas [rótulo, valor] escolhidas para a capa (exceto nome e resumo, que têm lugar próprio). */
@@ -101,6 +120,7 @@ export class ProfilePanel {
     this.el = container;
     this.onSaved = onSaved;
     this.p = null;
+    this.photo = null;
     this.collapsed = (() => {
       try {
         return localStorage.getItem("lattes.profile.collapsed") === "1";
@@ -114,7 +134,7 @@ export class ProfilePanel {
     this.el.style.display = "block";
     if (!this.p) {
       this.el.innerHTML = `<div class="pf-card pf-loading"><div class="spinner"></div></div>`;
-      this.p = await loadProfile();
+      [this.p, this.photo] = await Promise.all([loadProfile(), loadPhoto().catch(() => null)]);
     }
     this.render();
   }
@@ -133,7 +153,7 @@ export class ProfilePanel {
     this.el.innerHTML = `
       <div class="pf-card ${this.collapsed ? "collapsed" : ""}">
         <div class="pf-head">
-          <div class="pf-avatar">${escapeHtml(initials)}</div>
+          <div class="pf-avatar">${this.photo ? `<img src="${this.photo.url}" alt="Foto de perfil"/>` : escapeHtml(initials)}</div>
           <div class="pf-id">
             <h2>${escapeHtml(v.nome || "Seu perfil")}</h2>
             <p>${escapeHtml([v.cargo, v.departamento || v.unidade, v.instituicao].filter(Boolean).join(" · ") || "Preencha seus dados — eles alimentam a capa dos comprovantes")}</p>
@@ -152,6 +172,7 @@ export class ProfilePanel {
         ${this.collapsed ? "" : `
         <p class="pf-hint">Marque <b>📑</b> nos campos que devem aparecer na capa do PDF de comprovantes. Dados sensíveis (CPF, RG, nascimento) ficam desmarcados por padrão e só são guardados neste computador.</p>
         <div class="pf-groups">
+          ${this.photoSection()}
           ${groups
             .map(
               (g) => `<section class="pf-group"><h3>${escapeHtml(g)}</h3><div class="pf-grid">
@@ -194,8 +215,51 @@ export class ProfilePanel {
     this.bind();
   }
 
+  photoSection() {
+    const ph = this.photo;
+    const low = ph && (Math.min(ph.w, ph.h) < PHOTO_MIN[0] || Math.max(ph.w, ph.h) < PHOTO_MIN[1]);
+    return `<section class="pf-group"><h3>Foto de perfil</h3>
+      <div class="pf-photo">
+        <div class="pf-photo-prev">${ph ? `<img src="${ph.url}" alt="Foto de perfil"/>` : "<span>Sem foto</span>"}</div>
+        <div class="pf-photo-info">
+          <p>PNG ou JPG, de preferência em alta resolução (pelo menos ${PHOTO_MIN[0]} × ${PHOTO_MIN[1]} px). Na capa do relatório, a foto é enquadrada em 3 × 4 como nesta prévia.</p>
+          ${ph ? `<small class="${low ? "pf-photo-low" : ""}">${ph.w} × ${ph.h} px${low ? " · resolução baixa, pode ficar serrilhada na impressão" : ""}</small>` : ""}
+          <div class="pf-photo-actions">
+            <button type="button" class="btn btn-secondary btn-sm" data-pf="photo">📷 ${ph ? "Trocar foto" : "Enviar foto"}</button>
+            ${ph ? '<button type="button" class="btn btn-secondary btn-sm" data-pf="photo-rm">Remover</button>' : ""}
+            ${ph ? `<span class="pf-photo-inc"><button type="button" class="pf-inc ${this.p.include.foto ? "on" : ""}" data-inc="foto" title="Incluir a foto na capa dos comprovantes">📑</button> Na capa</span>` : ""}
+          </div>
+        </div>
+      </div>
+    </section>`;
+  }
+
+  async reloadPhoto() {
+    if (this.photo) URL.revokeObjectURL(this.photo.url);
+    this.photo = await loadPhoto().catch(() => null);
+    this.render();
+  }
+
   bind() {
     const $ = (s) => this.el.querySelector(s);
+    $('[data-pf="photo"]')?.addEventListener("click", async () => {
+      try {
+        if (!(await api.pickProfilePhoto())) return;
+        await this.reloadPhoto();
+        showToast("Foto de perfil atualizada", "success", 1800);
+      } catch (e) {
+        showToast(`Erro ao enviar a foto: ${e}`, "error", 5000);
+      }
+    });
+    $('[data-pf="photo-rm"]')?.addEventListener("click", async () => {
+      try {
+        await api.removeProfilePhoto();
+        await this.reloadPhoto();
+        showToast("Foto removida", "info", 1800);
+      } catch (e) {
+        showToast(`Erro ao remover a foto: ${e}`, "error");
+      }
+    });
     this.el.querySelectorAll("[data-k]").forEach((i) => {
       const isDate = DATE_FIELDS.has(i.dataset.k);
       i.addEventListener("input", (e) => {
