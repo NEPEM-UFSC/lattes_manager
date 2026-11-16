@@ -24,6 +24,18 @@ const mockState = {
       orientacoes: 27,
       bancas: 81,
     },
+    with_file_by_category: {
+      dadosgerais: 1,
+      formacao: 30,
+      encargos: 5,
+      disciplinas: 28,
+      projetos: 3,
+      producoes: 120,
+      patentes: 4,
+      eventos: 20,
+      orientacoes: 25,
+      bancas: 70,
+    },
     total_mappings: 49,
     db_path: "d:\\Desktop\\UFSC\\lattes\\lattes.db",
   },
@@ -80,6 +92,7 @@ const mockState = {
       },
     ],
   },
+  settings: {},
 };
 
 function mockHandler(cmd, args = {}) {
@@ -193,6 +206,35 @@ function mockHandler(cmd, args = {}) {
       return null;
     }
 
+    case "batch_update_records": {
+      const cat = args.category;
+      const ids = new Set((args.ids || []).map(Number));
+      const list = mockState.records[cat] || [];
+      let updated = 0;
+      for (const r of list) {
+        if (!ids.has(Number(r.id))) continue;
+        if (args.ano != null) r.ano = Number(args.ano);
+        if (args.tipo != null) r.tipo = args.tipo === "" ? null : args.tipo;
+        if (args.qualis != null && cat === "producoes") r.qualis = args.qualis === "" ? null : args.qualis;
+        updated += 1;
+      }
+      return updated;
+    }
+
+    case "batch_delete_records": {
+      const cat = args.category;
+      const ids = new Set((args.ids || []).map(Number));
+      const list = mockState.records[cat] || [];
+      const before = list.length;
+      mockState.records[cat] = list.filter((r) => !ids.has(Number(r.id)));
+      const deleted = before - mockState.records[cat].length;
+      mockState.stats.total_records = Math.max(0, mockState.stats.total_records - deleted);
+      if (mockState.stats.counts_by_category[cat]) {
+        mockState.stats.counts_by_category[cat] = Math.max(0, mockState.stats.counts_by_category[cat] - deleted);
+      }
+      return deleted;
+    }
+
     case "select_source_file":
       return "C:\\Users\\tiago\\Downloads\\comprovante_exemplo.pdf";
 
@@ -209,6 +251,36 @@ function mockHandler(cmd, args = {}) {
         total_mappings: 49,
         warnings: [],
       };
+
+    case "get_all_records":
+      return JSON.parse(JSON.stringify(mockState.records));
+
+    case "get_app_version":
+      return "1.0.0";
+
+    case "get_lattes_profile":
+      return {
+        nome: "Pesquisador UFSC",
+        instituicao: "Universidade Federal de Santa Catarina",
+        cargo: "Professor Magistério Superior",
+        lattes_id: "0000000000000000",
+        lattes_url: "https://lattes.cnpq.br/",
+        orcid: "0000-0002-0000-0000",
+        atualizacao: "14/11/2026",
+      };
+
+    case "get_data_dir_info":
+      return {
+        data_dir: mockState.stats.db_path,
+        is_custom: false,
+      };
+
+    case "get_setting":
+      return mockState.settings[args.key] ?? null;
+
+    case "set_setting":
+      mockState.settings[args.key] = args.value;
+      return null;
 
     default:
       console.warn(`[Mock] Unhandled command: ${cmd}`);
@@ -286,6 +358,22 @@ export const api = {
       id: Number(id),
       deleteFile: Boolean(deleteFile),
       delete_file: Boolean(deleteFile),
+    }),
+
+  batchUpdateRecords: (category, ids, { ano = null, tipo = null, qualis = null } = {}) =>
+    invokeCommand("batch_update_records", {
+      category,
+      ids: (ids || []).map(Number),
+      ano: ano !== null && ano !== undefined && ano !== "" ? Number(ano) : null,
+      tipo: tipo !== null && tipo !== undefined ? tipo : null,
+      qualis: qualis !== null && qualis !== undefined ? qualis : null,
+    }),
+
+  batchDeleteRecords: (category, ids, deleteFiles = false) =>
+    invokeCommand("batch_delete_records", {
+      category,
+      ids: (ids || []).map(Number),
+      deleteFiles: Boolean(deleteFiles),
     }),
 
   getSubfolderMappings: (categoryGroup = null) =>
@@ -375,7 +463,7 @@ export const api = {
   inspectBackup: (path) => invokeCommand("inspect_backup", { path }),
   restoreBackup: (path, restoreDb, restoreFiles, overwrite) => invokeCommand("restore_backup", { path, restoreDb, restoreFiles, overwrite }),
   /** Escuta o progresso do backup/restauração: fn({done,total,name}). Devolve a função para parar. */
-  onBackupProgress: async (fn) => (window.__TAURI__?.event?.listen ? window.__TAURI__.event.listen("backup-progress", (e) => fn(e.payload)) : () => {}),
+  onBackupProgress: async (fn) => (window.__TAURI__?.event?.listen ? window.__TAURI__.event.listen("backup-progress", (e) => fn(e.payload)) : () => { }),
   // importação em lote
   pickFiles: () => invokeCommand("pick_files"),
   listFolderFiles: (path, recursive = true) => invokeCommand("list_folder_files", { path, recursive }),

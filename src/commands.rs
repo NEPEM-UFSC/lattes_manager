@@ -5,7 +5,7 @@ use crate::db::queries;
 use crate::files::{shell, storage};
 use crate::migration::calamine_importer;
 use crate::AppState;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -261,6 +261,201 @@ pub fn delete_record_impl(
         .map_err(|e| format!("Falha ao excluir registro: {}", e))
 }
 
+fn validate_batch_category(conn: &Connection, category: &str) -> Result<String, String> {
+    if crate::custom::is_custom(category) {
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM custom_categories WHERE key = ?1",
+                [category],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .is_some();
+        if exists {
+            return Ok(category.to_string());
+        }
+        return Err(format!("Categoria inválida: '{}'", category));
+    }
+    crate::db::schema::normalize_category(category)
+        .map(str::to_string)
+        .ok_or_else(|| format!("Categoria inválida: '{}'", category))
+}
+
+fn dedup_ids(ids: &[i64]) -> Vec<i64> {
+    let mut seen = std::collections::HashSet::with_capacity(ids.len());
+    ids.iter().copied().filter(|id| seen.insert(*id)).collect()
+}
+
+pub fn batch_update_records_impl(
+    db: &Mutex<Connection>,
+    category: &str,
+    ids: &[i64],
+    ano: Option<i64>,
+    tipo: Option<String>,
+    qualis: Option<String>,
+) -> Result<usize, String> {
+    let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let table = validate_batch_category(&conn, category)?;
+    let unique_ids = dedup_ids(ids);
+    if unique_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let eff_qualis = if table == "producoes" { qualis } else { None };
+    if ano.is_none() && tipo.is_none() && eff_qualis.is_none() {
+        return Ok(0);
+    }
+
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let mut sets: Vec<&'static str> = Vec::new();
+    let mut base_params: Vec<rusqlite::types::Value> = Vec::new();
+    if let Some(y) = ano {
+        sets.push("ano = ?");
+        base_params.push(rusqlite::types::Value::Integer(y));
+    }
+    for (col_sql, val) in [("tipo = ?", tipo), ("qualis = ?", eff_qualis)] {
+        if let Some(s) = val {
+            sets.push(col_sql);
+            let t = s.trim().to_string();
+            base_params.push(if t.is_empty() {
+                rusqlite::types::Value::Null
+            } else {
+                rusqlite::types::Value::Text(t)
+            });
+        }
+    }
+    sets.push("log = ?");
+    base_params.push(rusqlite::types::Value::Text(now));
+
+    let is_cust = crate::custom::is_custom(&table);
+    let sql = if is_cust {
+        format!(
+            "UPDATE custom_records SET {} WHERE category = ? AND id = ?",
+            sets.join(", ")
+        )
+    } else {
+        format!("UPDATE {} SET {} WHERE id = ?", table, sets.join(", "))
+    };
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Falha ao iniciar transação: {}", e))?;
+    let mut updated = 0usize;
+    {
+        let mut stmt = tx
+            .prepare(&sql)
+            .map_err(|e| format!("Falha ao preparar atualização em lote: {}", e))?;
+        for id in unique_ids {
+            let mut row_params = base_params.clone();
+            if is_cust {
+                row_params.push(rusqlite::types::Value::Text(table.clone()));
+            }
+            row_params.push(rusqlite::types::Value::Integer(id));
+            updated += stmt
+                .execute(rusqlite::params_from_iter(row_params))
+                .map_err(|e| format!("Falha ao atualizar registro {}: {}", id, e))?;
+        }
+    }
+    tx.commit()
+        .map_err(|e| format!("Falha ao concluir transação: {}", e))?;
+    Ok(updated)
+}
+
+pub fn batch_delete_records_impl(
+    db: &Mutex<Connection>,
+    root_dir: &Path,
+    category: &str,
+    ids: &[i64],
+    delete_files: bool,
+) -> Result<usize, String> {
+    let unique_ids = dedup_ids(ids);
+    let (paths_to_delete, deleted) = {
+        let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+        let table = validate_batch_category(&conn, category)?;
+        if unique_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let is_cust = crate::custom::is_custom(&table);
+        let select_sql = if is_cust {
+            "SELECT path FROM custom_records WHERE category = ?1 AND id = ?2".to_string()
+        } else {
+            format!("SELECT path FROM {} WHERE id = ?1", table)
+        };
+        let delete_sql = if is_cust {
+            "DELETE FROM custom_records WHERE category = ?1 AND id = ?2".to_string()
+        } else {
+            format!("DELETE FROM {} WHERE id = ?1", table)
+        };
+
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Falha ao iniciar transação: {}", e))?;
+        let mut collected_paths = Vec::new();
+        let mut count = 0usize;
+        {
+            let mut sel_stmt = if delete_files {
+                Some(
+                    tx.prepare(&select_sql)
+                        .map_err(|e| format!("Falha ao preparar consulta em lote: {}", e))?,
+                )
+            } else {
+                None
+            };
+            let mut del_stmt = tx
+                .prepare(&delete_sql)
+                .map_err(|e| format!("Falha ao preparar exclusão em lote: {}", e))?;
+
+            for id in unique_ids {
+                if let Some(ref mut s) = sel_stmt {
+                    let path_opt: Option<String> = if is_cust {
+                        s.query_row(rusqlite::params![&table, id], |r| r.get::<_, Option<String>>(0))
+                            .ok()
+                            .flatten()
+                    } else {
+                        s.query_row(rusqlite::params![id], |r| r.get::<_, Option<String>>(0))
+                            .ok()
+                            .flatten()
+                    };
+                    if let Some(p) = path_opt {
+                        let t = p.trim();
+                        if !t.is_empty() {
+                            collected_paths.push(t.to_string());
+                        }
+                    }
+                }
+                let n = if is_cust {
+                    del_stmt.execute(rusqlite::params![&table, id])
+                } else {
+                    del_stmt.execute(rusqlite::params![id])
+                }
+                .map_err(|e| format!("Falha ao excluir registro {}: {}", id, e))?;
+                count += n;
+            }
+        }
+        tx.commit()
+            .map_err(|e| format!("Falha ao concluir transação: {}", e))?;
+        (collected_paths, count)
+    };
+
+    if delete_files {
+        let mut seen = std::collections::HashSet::new();
+        for p in paths_to_delete {
+            if !seen.insert(p.clone()) {
+                continue;
+            }
+            if let Ok(full_path) = resolve_inside_root(root_dir, &p) {
+                if full_path.is_file() {
+                    let _ = std::fs::remove_file(&full_path);
+                }
+            }
+        }
+    }
+
+    Ok(deleted)
+}
+
 pub fn get_subfolder_mappings_impl(
     db: &Mutex<Connection>,
     category_group: Option<&str>,
@@ -409,6 +604,28 @@ pub fn delete_record(
     delete_file: bool,
 ) -> Result<(), String> {
     delete_record_impl(&state.db, &state.root_dir, &category, id, delete_file)
+}
+
+#[tauri::command(async)]
+pub fn batch_update_records(
+    state: tauri::State<'_, AppState>,
+    category: String,
+    ids: Vec<i64>,
+    ano: Option<i64>,
+    tipo: Option<String>,
+    qualis: Option<String>,
+) -> Result<usize, String> {
+    batch_update_records_impl(&state.db, &category, &ids, ano, tipo, qualis)
+}
+
+#[tauri::command(async)]
+pub fn batch_delete_records(
+    state: tauri::State<'_, AppState>,
+    category: String,
+    ids: Vec<i64>,
+    delete_files: bool,
+) -> Result<usize, String> {
+    batch_delete_records_impl(&state.db, &state.root_dir, &category, &ids, delete_files)
 }
 
 #[tauri::command(async)]
@@ -1175,9 +1392,7 @@ pub fn export_xlsx(state: tauri::State<'_, AppState>, sheets: Vec<crate::tools::
 
 static INDEX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Atualiza o índice de textos dos comprovantes vinculados (só o que mudou).
-/// O texto é extraído sem segurar o banco; devolve quantos documentos de treino existem.
-pub fn update_doc_index(state: &AppState) -> Result<usize, String> {
+fn update_doc_index_with_docs(state: &AppState) -> Result<Vec<crate::classify::TrainDoc>, String> {
     let _g = INDEX_LOCK.lock().map_err(|e| e.to_string())?;
     let (docs, stale) = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
@@ -1190,7 +1405,13 @@ pub fn update_doc_index(state: &AppState) -> Result<usize, String> {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         crate::classify::store_index(&conn, &rows);
     }
-    Ok(docs.len())
+    Ok(docs)
+}
+
+/// Atualiza o índice de textos dos comprovantes vinculados (só o que mudou).
+/// O texto é extraído sem segurar o banco; devolve quantos documentos de treino existem.
+pub fn update_doc_index(state: &AppState) -> Result<usize, String> {
+    Ok(update_doc_index_with_docs(state)?.len())
 }
 
 /// Sugere categoria/tipo, campos e registros existentes para um PDF ou imagem.
@@ -1204,7 +1425,8 @@ pub async fn analyze_document(app: tauri::AppHandle, path: String, text: Option<
         if !p.is_file() {
             return Err(format!("Arquivo não encontrado: {}", p.display()));
         }
-        let ntrain = update_doc_index(&state)?;
+        let docs = update_doc_index_with_docs(&state)?;
+        let ntrain = docs.len();
         let is_pdf = p.extension().map(|e| e.eq_ignore_ascii_case("pdf")).unwrap_or(false);
         let text = match text {
             Some(t) => t,
@@ -1218,10 +1440,8 @@ pub async fn analyze_document(app: tauri::AppHandle, path: String, text: Option<
             a.needs_ocr = true;
         }
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let docs = crate::classify::training_docs(&conn, &state.root_dir);
-        let (model, knn) = crate::classify::build_all(&conn, &docs);
         let valid: std::collections::HashSet<String> = crate::tools::all_categories(&conn).into_iter().collect();
-        a.sugestoes = crate::classify::suggest(&model, &knn, &text, &name, &valid, None);
+        a.sugestoes = crate::classify::suggest_cached(&conn, &docs, &text, &name, &valid, None);
         a.sugestoes.truncate(5);
         a.campos = crate::classify::extract_fields(&text);
         let top: Vec<String> = a.sugestoes.iter().take(2).map(|s| s.category.clone()).collect();
@@ -1438,4 +1658,128 @@ pub async fn restore_backup(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn batch_update_native_producoes_and_ignore_qualis_elsewhere() {
+        let db = Mutex::new(crate::db::open_in_memory().unwrap());
+        let (p1, p2, e1) = {
+            let conn = db.lock().unwrap();
+            let a = queries::insert_record(&conn, "producoes", &json!({ "ano": 2020, "tipo": "Artigo", "titulo": "Paper A", "qualis": "B1" }), None, None).unwrap();
+            let b = queries::insert_record(&conn, "producoes", &json!({ "ano": 2021, "tipo": "Capítulo", "titulo": "Paper B", "qualis": "B2" }), None, None).unwrap();
+            let c = queries::insert_record(&conn, "eventos", &json!({ "ano": 2019, "tipo": "Congresso", "descricao": "Ev 1" }), None, None).unwrap();
+            (a.id, b.id, c.id)
+        };
+
+        // Empty ids returns 0 without error
+        assert_eq!(
+            batch_update_records_impl(&db, "producoes", &[], Some(2024), None, None).unwrap(),
+            0
+        );
+
+        // Deduped ids: p1 listed twice counts once
+        let count = batch_update_records_impl(
+            &db,
+            "producoes",
+            &[p1, p2, p1],
+            Some(2024),
+            Some("  Artigo Completo ".into()),
+            Some("A1".into()),
+        )
+        .unwrap();
+        assert_eq!(count, 2);
+
+        let conn = db.lock().unwrap();
+        let r1 = queries::get_record_by_id(&conn, "producoes", p1).unwrap();
+        let r2 = queries::get_record_by_id(&conn, "producoes", p2).unwrap();
+        assert_eq!(r1.ano, Some(2024));
+        assert_eq!(r1.tipo.as_deref(), Some("Artigo Completo"));
+        assert_eq!(r1.qualis.as_deref(), Some("A1"));
+        assert_eq!(r2.qualis.as_deref(), Some("A1"));
+        drop(conn);
+
+        // Blank string clears field to NULL
+        let cleared = batch_update_records_impl(&db, "producoes", &[p1], None, None, Some("   ".into())).unwrap();
+        assert_eq!(cleared, 1);
+        let r1_after = queries::get_record_by_id(&db.lock().unwrap(), "producoes", p1).unwrap();
+        assert_eq!(r1_after.qualis, None);
+
+        // Only qualis on non-producoes is ignored and returns 0 cleanly
+        assert_eq!(
+            batch_update_records_impl(&db, "eventos", &[e1], None, None, Some("A1".into())).unwrap(),
+            0
+        );
+        // Updating ano + qualis on non-producoes updates ano and ignores qualis
+        assert_eq!(
+            batch_update_records_impl(&db, "eventos", &[e1], Some(2023), None, Some("A1".into())).unwrap(),
+            1
+        );
+        let ev_after = queries::get_record_by_id(&db.lock().unwrap(), "eventos", e1).unwrap();
+        assert_eq!(ev_after.ano, Some(2023));
+
+        // Invalid category errors
+        assert!(batch_update_records_impl(&db, "nao_existe", &[1], Some(2024), None, None).is_err());
+        assert!(batch_update_records_impl(&db, "x_inexistente", &[1], Some(2024), None, None).is_err());
+    }
+
+    #[test]
+    fn batch_update_and_delete_custom_and_files() {
+        let root = std::env::temp_dir().join(format!("lattes_batch_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("files")).unwrap();
+        let f1 = root.join("files").join("doc1.pdf");
+        let f2 = root.join("files").join("doc2.pdf");
+        std::fs::write(&f1, b"pdf1").unwrap();
+        std::fs::write(&f2, b"pdf2").unwrap();
+
+        let outside = std::env::temp_dir().join(format!("lattes_outside_{}.txt", uuid::Uuid::new_v4()));
+        std::fs::write(&outside, b"keep").unwrap();
+
+        let db = Mutex::new(crate::db::open_in_memory().unwrap());
+        let (p1, p2, p3, c1) = {
+            let conn = db.lock().unwrap();
+            let a = queries::insert_record(&conn, "producoes", &json!({ "ano": 2020, "titulo": "D1", "path": "files\\doc1.pdf" }), None, None).unwrap();
+            let b = queries::insert_record(&conn, "producoes", &json!({ "ano": 2021, "titulo": "D2", "path": "files\\doc2.pdf" }), None, None).unwrap();
+            let c = queries::insert_record(&conn, "producoes", &json!({ "ano": 2022, "titulo": "D3", "path": outside.to_string_lossy().to_string() }), None, None).unwrap();
+            conn.execute(
+                "INSERT INTO custom_categories (key, name, folder) VALUES ('x_premios', 'Prêmios', '12_premios')",
+                [],
+            )
+            .unwrap();
+            let d = queries::insert_record(&conn, "x_premios", &json!({ "ano": 2018, "tipo": "Prêmio", "titulo": "P1" }), None, None).unwrap();
+            (a.id, b.id, c.id, d.id)
+        };
+
+        // Custom category batch update
+        assert_eq!(
+            batch_update_records_impl(&db, "x_premios", &[c1], Some(2025), Some("Honra".into()), Some("A1".into())).unwrap(),
+            1
+        );
+        let cust_after = queries::get_record_by_id(&db.lock().unwrap(), "x_premios", c1).unwrap();
+        assert_eq!(cust_after.ano, Some(2025));
+        assert_eq!(cust_after.tipo.as_deref(), Some("Honra"));
+
+        // Batch delete without deleting files keeps f1 on disk
+        assert_eq!(batch_delete_records_impl(&db, &root, "producoes", &[p1], false).unwrap(), 1);
+        assert!(f1.exists());
+
+        // Batch delete with delete_files=true deletes f2 inside root, ignores path outside root, returns count
+        assert_eq!(batch_delete_records_impl(&db, &root, "producoes", &[p2, p3, p2], true).unwrap(), 2);
+        assert!(!f2.exists());
+        assert!(outside.exists());
+
+        // Custom category batch delete
+        assert_eq!(batch_delete_records_impl(&db, &root, "x_premios", &[c1], false).unwrap(), 1);
+        assert!(queries::get_record_by_id(&db.lock().unwrap(), "x_premios", c1).is_err());
+
+        // Empty ids returns 0
+        assert_eq!(batch_delete_records_impl(&db, &root, "producoes", &[], true).unwrap(), 0);
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_file(&outside);
+    }
 }

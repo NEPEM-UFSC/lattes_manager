@@ -63,32 +63,71 @@ fn tokens(s: &str) -> Vec<String> {
         .collect()
 }
 
-/// Pontuação 0..1 de quanto o nome do arquivo corresponde ao título.
-pub fn link_score(title: &str, filename: &str) -> f64 {
-    let stem = Path::new(filename).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    // remove prefixo sequencial "001_", "12 - "
-    let stem = stem.trim_start_matches(|c: char| c.is_ascii_digit()).trim_start_matches(['_', ' ', '-']);
-    let nt = normalize_title(title);
-    let nf = normalize_title(stem);
-    let lf = nf.chars().count();
-    if lf >= 12 && nt.starts_with(&nf) {
+struct PreFile {
+    path: String,
+    dir: String,
+    nf: String,
+    lf: usize,
+    ft: Vec<String>,
+}
+
+impl PreFile {
+    fn from_rel(path: String) -> Self {
+        let dir = norm_rel(&path)
+            .rsplit_once('\\')
+            .map(|(d, _)| d.to_string())
+            .unwrap_or_default();
+        let name = path.rsplit('\\').next().unwrap_or(&path).to_string();
+        Self::from_parts(path, dir, &name)
+    }
+
+    fn from_filename(filename: &str) -> Self {
+        Self::from_parts(String::new(), String::new(), filename)
+    }
+
+    fn from_parts(path: String, dir: String, filename: &str) -> Self {
+        let stem = Path::new(filename)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        // remove prefixo sequencial "001_", "12 - "
+        let trimmed = stem
+            .trim_start_matches(|c: char| c.is_ascii_digit())
+            .trim_start_matches(['_', ' ', '-']);
+        let nf = normalize_title(trimmed);
+        let lf = nf.chars().count();
+        let ft = tokens(trimmed);
+        Self { path, dir, nf, lf, ft }
+    }
+}
+
+fn score_pre(nt: &str, tt_cache: &mut Option<HashSet<String>>, title_raw: &str, pf: &PreFile) -> f64 {
+    if pf.lf >= 12 && nt.starts_with(&pf.nf) {
         return 1.0;
     }
-    if lf >= 18 && nt.contains(&nf) {
+    if pf.lf >= 18 && nt.contains(&pf.nf) {
         return 0.75; // trecho do meio do título: plausível, mas ambíguo
     }
-    let ft = tokens(stem);
-    if ft.len() < 3 {
+    if pf.ft.len() < 3 {
         return 0.0;
     }
-    let tt: HashSet<String> = tokens(title).into_iter().collect();
-    let last = ft.len() - 1;
-    let hit = ft
+    let tt = tt_cache.get_or_insert_with(|| tokens(title_raw).into_iter().collect());
+    let last = pf.ft.len() - 1;
+    let hit = pf
+        .ft
         .iter()
         .enumerate()
         .filter(|(i, w)| tt.contains(*w) || (*i == last && tt.iter().any(|t| t.starts_with(w.as_str()))))
         .count();
-    0.9 * hit as f64 / ft.len() as f64
+    0.9 * hit as f64 / pf.ft.len() as f64
+}
+
+/// Pontuação 0..1 de quanto o nome do arquivo corresponde ao título.
+pub fn link_score(title: &str, filename: &str) -> f64 {
+    let nt = normalize_title(title);
+    let pf = PreFile::from_filename(filename);
+    let mut tt = None;
+    score_pre(&nt, &mut tt, title, &pf)
 }
 
 /// Conjunto de trigramas de um título normalizado.
@@ -197,9 +236,15 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
 
     let mut out = Vec::new();
     for table in ENTITY_TABLES {
-        let recs: Vec<&Rec> = all[table]
+        let recs: Vec<(&Rec, String)> = all[table]
             .iter()
-            .filter(|r| r.path.as_deref().map(|p| p.trim().is_empty()).unwrap_or(true) && normalize_title(&r.titulo).len() >= 8)
+            .filter_map(|r| {
+                if !r.path.as_deref().map(|p| p.trim().is_empty()).unwrap_or(true) {
+                    return None;
+                }
+                let r_norm = normalize_title(&r.titulo);
+                (r_norm.len() >= 8).then_some((r, r_norm))
+            })
             .collect();
         if recs.is_empty() {
             continue;
@@ -211,23 +256,23 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
         files.retain(|f| !linked.contains(&norm_rel(f)));
         files.sort();
         files.dedup();
+        let files_pre: Vec<PreFile> = files.into_iter().map(PreFile::from_rel).collect();
 
         let mut pairs: Vec<(f64, usize, usize)> = Vec::new();
-        for (ri, r) in recs.iter().enumerate() {
+        for (ri, (r, r_norm)) in recs.iter().enumerate() {
             let expected = r
                 .tipo
                 .as_ref()
                 .and_then(|t| mapping.get(table).and_then(|m| m.get(&t.to_lowercase())).cloned())
                 .or_else(|| r.folder.as_deref().filter(|f| f.contains('\\')).map(norm_rel));
-            for (fi, f) in files.iter().enumerate() {
-                let name = f.rsplit('\\').next().unwrap_or(f);
-                let mut s = link_score(&r.titulo, name);
+            let mut r_tokens: Option<HashSet<String>> = None;
+            for (fi, pf) in files_pre.iter().enumerate() {
+                let mut s = score_pre(r_norm, &mut r_tokens, &r.titulo, pf);
                 if s < 0.5 {
                     continue;
                 }
                 if let Some(exp) = &expected {
-                    let dir = norm_rel(f).rsplit_once('\\').map(|(d, _)| d.to_string()).unwrap_or_default();
-                    s += if &dir == exp { 0.05 } else { -0.1 };
+                    s += if &pf.dir == exp { 0.05 } else { -0.1 };
                 }
                 if s >= 0.55 {
                     pairs.push((s.min(1.0), ri, fi));
@@ -242,14 +287,14 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
             }
             ur.insert(ri);
             uf.insert(fi);
-            let r = recs[ri];
+            let r = recs[ri].0;
             out.push(LinkSuggestion {
                 category: table.to_string(),
                 id: r.id,
                 titulo: r.titulo.clone(),
                 tipo: r.tipo.clone(),
                 ano: r.ano,
-                path: files[fi].clone(),
+                path: files_pre[fi].path.clone(),
                 score: (s * 100.0).round() / 100.0,
             });
         }
@@ -371,5 +416,32 @@ mod tests {
         if let Some(m) = s.iter().find(|x| x.titulo.starts_with("MGIDI: towards")) {
             assert!(m.path.ends_with("001_mgidi towards an eff.pdf"));
         }
+    }
+
+    #[test]
+    fn suggest_links_precomputes_and_matches() {
+        let root = std::env::temp_dir().join(format!("lattes_linker_test_{}", uuid::Uuid::new_v4()));
+        let sub = root.join("5_producoes").join("artigos_completos");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("001_mgidi towards an eff.pdf"), b"pdf").unwrap();
+
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES ('Produções', 'Artigo Completo', '5_producoes\\artigos_completos\\')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO producoes (ano, tipo, titulo) VALUES (2024, 'Artigo Completo', 'MGIDI: towards an effective multivariate selection in biological experiments')",
+            [],
+        )
+        .unwrap();
+
+        let res = suggest_links(&conn, &root).unwrap();
+        assert_eq!(res.len(), 1);
+        assert_eq!(res[0].score, 1.0);
+        assert!(res[0].path.ends_with("001_mgidi towards an eff.pdf"));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

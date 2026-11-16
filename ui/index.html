@@ -34,6 +34,14 @@
       </div>
 
       <nav class="sidebar-nav">
+        <ul class="nav-list nav-list-top">
+          <li class="nav-item active" data-category="home">
+            <button class="nav-link" id="nav-home">
+              <span class="nav-icon">🏠</span>
+              <span class="nav-label">Home</span>
+            </button>
+          </li>
+        </ul>
         <div class="nav-section-label">CATEGORIAS</div>
         <ul id="nav-category-list" class="nav-list">
           <li class="nav-item" data-category="dadosgerais">
@@ -71,7 +79,7 @@
               <span class="badge badge-count" id="badge-projetos">0</span>
             </button>
           </li>
-          <li class="nav-item active" data-category="producoes">
+          <li class="nav-item" data-category="producoes">
             <button class="nav-link">
               <span class="nav-icon">📄</span>
               <span class="nav-label">Produções</span>
@@ -190,10 +198,12 @@
                 </div>
               </button>
               <button id="btn-new-from-pdf" role="menuitem"><span>✨</span>
-                <div><b>Novo a partir de arquivo</b><small>PDF ou imagem: o app sugere a atividade e preenche os campos</small></div>
+                <div><b>Novo a partir de arquivo</b><small>PDF ou imagem: o app sugere a atividade e preenche os
+                    campos</small></div>
               </button>
               <button id="btn-batch-import" role="menuitem"><span>🗂️</span>
-                <div><b>Importação em lote</b><small>Uma pasta ou vários arquivos de uma vez: o app classifica, preenche e cadastra</small></div>
+                <div><b>Importação em lote</b><small>Uma pasta ou vários arquivos de uma vez: o app classifica, preenche
+                    e cadastra</small></div>
               </button>
             </div>
           </div>
@@ -206,8 +216,9 @@
 
       <!-- CONTENT BODY -->
       <div class="content-body">
+        <div id="home-container" class="home-container"></div>
         <!-- Records Table Container -->
-        <div id="table-container" class="table-container">
+        <div id="table-container" class="table-container" style="display: none;">
           <div id="profile-panel" class="profile-panel" style="display:none"></div>
           <div id="filter-bar" class="filter-bar"></div>
           <div class="table-toolbar">
@@ -228,6 +239,9 @@
               <button id="btn-add-doi" class="btn-icon-subtle"
                 title="Cadastrar uma produção a partir do DOI (dados + PDF de acesso aberto)">⚡ Adicionar por
                 DOI</button>
+              <button id="btn-preview-comprovantes" class="btn-icon-subtle"
+                title="Pré-visualizar, no visualizador interno, um PDF com os comprovantes dos registros exibidos (nada é salvo no disco)">👁️ Preview
+                comprovantes</button>
               <button id="btn-linker" class="btn-icon-subtle"
                 title="Procurar comprovantes nas pastas e revisar duplicatas">🔗 Vincular comprovantes</button>
               <button id="btn-refresh" class="btn-icon-subtle" title="Atualizar dados">🔄 Atualizar</button>
@@ -430,7 +444,8 @@
   <script type="module" src="js/app.js"></script>
   <div id="drop-overlay" class="drop-overlay">
     <div class="drop-card">
-      <div class="drop-icon">📄</div><b>Solte os PDFs ou imagens para cadastrar</b><span>Um arquivo: o app sugere a atividade e preenche os campos.
+      <div class="drop-icon">📄</div><b>Solte os PDFs ou imagens para cadastrar</b><span>Um arquivo: o app sugere a
+        atividade e preenche os campos.
         Vários: importação em lote, com revisão antes de salvar.</span>
     </div>
   </div>

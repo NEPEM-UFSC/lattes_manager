@@ -25,6 +25,7 @@ window.LATTES_ACCENTS = {
     r.dataset.variant = variant;
     r.dataset.motion = t.motion || "full";
     r.dataset.density = t.density || "normal";
+    r.dataset.fontsize = t.fontSize || "md";
     r.style.setProperty("--primary", a[0]);
     r.style.setProperty("--primary-hover", a[1]);
   } catch (e) { }

@@ -69,7 +69,7 @@ export class BatchImport {
   }
 
   tiposOf(cat) {
-    const g = CATEGORY_SCHEMAS[cat]?.group?.toLowerCase();
+    const g = (CATEGORY_SCHEMAS[cat]?.dbGroup || CATEGORY_SCHEMAS[cat]?.group)?.toLowerCase();
     return (this.getMappings() || []).filter((m) => m.category_group.toLowerCase() === g);
   }
 

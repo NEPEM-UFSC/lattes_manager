@@ -116,21 +116,23 @@ export function coverRows(p, include = p.include) {
 }
 
 export class ProfilePanel {
-  constructor({ container, onSaved }) {
+  constructor({ container, onSaved, onNewRecord = null, onModeChange = null }) {
     this.el = container;
     this.onSaved = onSaved;
+    this.onNewRecord = onNewRecord;
+    this.onModeChange = onModeChange;
     this.p = null;
     this.photo = null;
-    this.collapsed = (() => {
-      try {
-        return localStorage.getItem("lattes.profile.collapsed") === "1";
-      } catch {
-        return false;
-      }
-    })();
+    this.mode = "both"; // both | records | profile
+    this.recordsCount = 0;
+    this.collapsed = false;
+    this.photoMenuOpen = false;
+    this._globalBound = false;
   }
 
   async show() {
+    this.collapsed = this.mode === "records";
+    this.photoMenuOpen = false;
     this.el.style.display = "block";
     if (!this.p) {
       this.el.innerHTML = `<div class="pf-card pf-loading"><div class="spinner"></div></div>`;
@@ -139,13 +141,45 @@ export class ProfilePanel {
     this.render();
   }
 
+  setRecordsCount(n) {
+    this.recordsCount = Number(n) || 0;
+    this.el?.querySelectorAll(".pf-rec-count").forEach((el) => {
+      el.textContent = String(this.recordsCount);
+    });
+  }
+
   hide() {
+    this.setPhotoMenu(false);
     this.el.style.display = "none";
+  }
+
+  setPhotoMenu(open) {
+    this.photoMenuOpen = Boolean(open);
+    const pop = this.el?.querySelector(".pf-photo-pop");
+    const editBtn = this.el?.querySelector(".pf-avatar-edit");
+    if (pop) pop.hidden = !this.photoMenuOpen;
+    if (editBtn) editBtn.setAttribute("aria-expanded", String(this.photoMenuOpen));
+  }
+
+  avatarMarkup(initials) {
+    if (this.photo) {
+      return `<img src="${this.photo.url}" alt="Foto de perfil"/>`;
+    }
+    const hasInitials = initials && initials !== "?";
+    return `
+      <div class="pf-avatar-fallback" aria-label="Avatar sem foto">
+        <svg viewBox="0 0 64 72" class="pf-avatar-svg" aria-hidden="true">
+          <circle cx="32" cy="24" r="13" fill="currentColor" opacity="0.92"></circle>
+          <path d="M10 64c0-12.5 9.8-21 22-21s22 8.5 22 21" fill="currentColor" opacity="0.82"></path>
+        </svg>
+        ${hasInitials ? `<span class="pf-avatar-initials">${escapeHtml(initials)}</span>` : ""}
+      </div>`;
   }
 
   render() {
     const p = this.p;
     const v = p.values;
+    this.collapsed = this.mode === "records";
     const groups = [...new Set(PROFILE_FIELDS.map((f) => f[2]))];
     const filled = PROFILE_FIELDS.filter(([k]) => String(v[k] || "").trim()).length;
     const nCapa = coverRows(p).length;
@@ -153,7 +187,25 @@ export class ProfilePanel {
     this.el.innerHTML = `
       <div class="pf-card ${this.collapsed ? "collapsed" : ""}">
         <div class="pf-head">
-          <div class="pf-avatar">${this.photo ? `<img src="${this.photo.url}" alt="Foto de perfil"/>` : escapeHtml(initials)}</div>
+          <div class="pf-avatar-wrap">
+            <div class="pf-avatar" data-pf="photo-toggle" role="button" tabindex="0" title="Editar ou adicionar foto de perfil">
+              ${this.avatarMarkup(initials)}
+            </div>
+            <button
+              type="button"
+              class="pf-avatar-edit"
+              data-pf="photo-toggle"
+              aria-haspopup="dialog"
+              aria-expanded="${String(this.photoMenuOpen)}"
+              title="Opções de foto de perfil"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 20h9"></path>
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+              </svg>
+            </button>
+            ${this.photoPopoverHtml()}
+          </div>
           <div class="pf-id">
             <h2>${escapeHtml(v.nome || "Seu perfil")}</h2>
             <p>${escapeHtml([v.cargo, v.departamento || v.unidade, v.instituicao].filter(Boolean).join(" · ") || "Preencha seus dados — eles alimentam a capa dos comprovantes")}</p>
@@ -166,16 +218,21 @@ export class ProfilePanel {
           <div class="pf-actions">
             <button type="button" class="btn btn-secondary btn-sm" data-pf="xml" title="Preenche os campos vazios com os dados do XML do Lattes">🧬 Importar do XML</button>
             <button type="button" class="btn btn-primary btn-sm" data-pf="save">💾 Salvar perfil</button>
-            <button type="button" class="pf-toggle" data-pf="toggle" title="${this.collapsed ? "Expandir" : "Recolher"}">${this.collapsed ? "⌄" : "⌃"}</button>
           </div>
         </div>
-        ${this.collapsed ? "" : `
+        <div class="pf-mode-bar" role="toolbar" aria-label="Exibição de Dados Gerais">
+          <div class="pf-mode-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected="${this.mode === "both"}" class="pf-mode-tab ${this.mode === "both" ? "on" : ""}" data-pf-mode="both">📐 Ficha + Tabela</button>
+            <button type="button" role="tab" aria-selected="${this.mode === "records"}" class="pf-mode-tab ${this.mode === "records" ? "on" : ""}" data-pf-mode="records">📋 Tabela de Registros <span class="pf-rec-count">${this.recordsCount}</span></button>
+            <button type="button" role="tab" aria-selected="${this.mode === "profile"}" class="pf-mode-tab ${this.mode === "profile" ? "on" : ""}" data-pf-mode="profile">👤 Ficha Cadastral <span class="pf-tab-count">${filled}/${PROFILE_FIELDS.length}</span></button>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm pf-new-btn" data-pf="new-record">+ Novo Registro</button>
+        </div>
         <p class="pf-hint">Marque <b>📑</b> nos campos que devem aparecer na capa do PDF de comprovantes. Dados sensíveis (CPF, RG, nascimento) ficam desmarcados por padrão e só são guardados neste computador.</p>
         <div class="pf-groups">
-          ${this.photoSection()}
           ${groups
-            .map(
-              (g) => `<section class="pf-group"><h3>${escapeHtml(g)}</h3><div class="pf-grid">
+          .map(
+            (g) => `<section class="pf-group"><h3>${escapeHtml(g)}</h3><div class="pf-grid">
               ${PROFILE_FIELDS.filter((f) => f[2] === g)
                 .map(
                   ([k, label, , , sens]) => `<label class="pf-field ${sens ? "sens" : ""}">
@@ -188,8 +245,8 @@ export class ProfilePanel {
                 )
                 .join("")}
             </div></section>`
-            )
-            .join("")}
+          )
+          .join("")}
           <section class="pf-group"><h3>Resumo do currículo</h3>
             <div class="pf-inp pf-resumo">
               <textarea class="form-textarea" data-k="resumo" rows="5">${escapeHtml(v.resumo || "")}</textarea>
@@ -199,49 +256,110 @@ export class ProfilePanel {
           <section class="pf-group"><h3>Campos extras <span class="muted">— qualquer informação adicional</span></h3>
             <div class="pf-extras">
               ${p.extras
-                .map(
-                  (x, i) => `<div class="pf-extra">
+          .map(
+            (x, i) => `<div class="pf-extra">
                   <input class="form-input" data-x="${i}" data-xk="label" placeholder="Rótulo, ex.: Portaria de nomeação" value="${escapeHtml(x.label || "")}"/>
                   <input class="form-input" data-x="${i}" data-xk="value" placeholder="Valor" value="${escapeHtml(x.value || "")}"/>
                   <button type="button" class="pf-inc ${x.include ? "on" : ""}" data-xinc="${i}" title="Incluir na capa">📑</button>
                   <button type="button" class="pf-rm" data-xrm="${i}" title="Remover">&times;</button></div>`
-                )
-                .join("")}
+          )
+          .join("")}
               <button type="button" class="btn btn-secondary btn-sm" data-pf="extra">+ Adicionar campo</button>
             </div>
           </section>
-        </div>`}
-      </div>`;
+        </div>
+      </div>
+      ${this.mode === "profile"
+        ? ""
+        : `<div class="pf-records-bar">
+            <div class="pf-records-title">
+              <strong>🗂️ Registros e Comprovantes — Dados Gerais</strong>
+              <small>Identificação, Endereço, Licenças, Idiomas, Prêmios e títulos, Texto inicial e Outras informações relevantes</small>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" data-pf="new-record">+ Novo Registro</button>
+          </div>`
+      }`;
     this.bind();
   }
 
-  photoSection() {
+  photoPopoverHtml() {
     const ph = this.photo;
     const low = ph && (Math.min(ph.w, ph.h) < PHOTO_MIN[0] || Math.max(ph.w, ph.h) < PHOTO_MIN[1]);
-    return `<section class="pf-group"><h3>Foto de perfil</h3>
-      <div class="pf-photo">
-        <div class="pf-photo-prev">${ph ? `<img src="${ph.url}" alt="Foto de perfil"/>` : "<span>Sem foto</span>"}</div>
-        <div class="pf-photo-info">
-          <p>PNG ou JPG, de preferência em alta resolução (pelo menos ${PHOTO_MIN[0]} × ${PHOTO_MIN[1]} px). Na capa do relatório, a foto é enquadrada em 3 × 4 como nesta prévia.</p>
-          ${ph ? `<small class="${low ? "pf-photo-low" : ""}">${ph.w} × ${ph.h} px${low ? " · resolução baixa, pode ficar serrilhada na impressão" : ""}</small>` : ""}
-          <div class="pf-photo-actions">
-            <button type="button" class="btn btn-secondary btn-sm" data-pf="photo">📷 ${ph ? "Trocar foto" : "Enviar foto"}</button>
-            ${ph ? '<button type="button" class="btn btn-secondary btn-sm" data-pf="photo-rm">Remover</button>' : ""}
-            ${ph ? `<span class="pf-photo-inc"><button type="button" class="pf-inc ${this.p.include.foto ? "on" : ""}" data-inc="foto" title="Incluir a foto na capa dos comprovantes">📑</button> Na capa</span>` : ""}
-          </div>
+    return `
+      <div class="pf-photo-pop" role="dialog" aria-label="Opções da foto de perfil" ${this.photoMenuOpen ? "" : "hidden"}>
+        <div class="pf-pop-head">
+          <b>Foto de perfil</b>
+          <small>PNG ou JPG (ideal ≥ ${PHOTO_MIN[0]} × ${PHOTO_MIN[1]} px) · enquadramento 3 × 4 na capa.</small>
         </div>
-      </div>
-    </section>`;
+        ${ph ? `<div class="pf-pop-res ${low ? "low" : ""}">${ph.w} × ${ph.h} px${low ? " · resolução baixa para impressão" : " · boa resolução"}</div>` : ""}
+        <div class="pf-pop-actions">
+          <button type="button" class="pf-pop-btn" data-pf="photo">📷 ${ph ? "Trocar foto…" : "Adicionar foto…"}</button>
+          ${ph
+            ? `<button type="button" class="pf-pop-btn pf-pop-toggle ${this.p.include.foto ? "on" : ""}" data-inc="foto">
+                <span>📑</span>
+                <span class="pf-pop-cover-lbl">${this.p.include.foto ? "Incluída na capa" : "Incluir na capa"}</span>
+              </button>
+              <button type="button" class="pf-pop-btn danger" data-pf="photo-rm">🗑️ Remover foto</button>`
+            : ""
+          }
+        </div>
+      </div>`;
   }
 
   async reloadPhoto() {
     if (this.photo) URL.revokeObjectURL(this.photo.url);
     this.photo = await loadPhoto().catch(() => null);
+    this.photoMenuOpen = false;
     this.render();
   }
 
   bind() {
     const $ = (s) => this.el.querySelector(s);
+    if (!this._globalBound) {
+      this._globalBound = true;
+      document.addEventListener("click", (e) => {
+        if (!this.photoMenuOpen) return;
+        if (!e.target.closest?.(".pf-avatar-wrap")) {
+          this.setPhotoMenu(false);
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && this.photoMenuOpen) {
+          this.setPhotoMenu(false);
+        }
+      });
+    }
+
+    this.el.querySelectorAll("[data-pf-mode]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        const nextMode = btn.dataset.pfMode || "both";
+        if (this.mode === nextMode) return;
+        this.mode = nextMode;
+        this.collapsed = nextMode === "records";
+        this.render();
+        this.onModeChange?.(this.mode);
+      })
+    );
+
+    this.el.querySelectorAll('[data-pf="new-record"]').forEach((btn) =>
+      btn.addEventListener("click", () => this.onNewRecord?.())
+    );
+
+    this.el.querySelectorAll('[data-pf="photo-toggle"]').forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.setPhotoMenu(!this.photoMenuOpen);
+      });
+      if (el.getAttribute("role") === "button") {
+        el.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            this.setPhotoMenu(!this.photoMenuOpen);
+          }
+        });
+      }
+    });
+
     $('[data-pf="photo"]')?.addEventListener("click", async () => {
       try {
         if (!(await api.pickProfilePhoto())) return;
@@ -284,7 +402,12 @@ export class ProfilePanel {
         const k = b.dataset.inc;
         this.p.include[k] = !this.p.include[k];
         b.classList.toggle("on", this.p.include[k]);
-        this.el.querySelector(".pf-tag-cover").textContent = `📑 ${coverRows(this.p).length} na capa dos comprovantes`;
+        if (k === "foto") {
+          const lbl = b.querySelector(".pf-pop-cover-lbl");
+          if (lbl) lbl.textContent = this.p.include.foto ? "Incluída na capa" : "Incluir na capa";
+        }
+        const coverTag = this.el.querySelector(".pf-tag-cover");
+        if (coverTag) coverTag.textContent = `📑 ${coverRows(this.p).length} na capa dos comprovantes`;
       })
     );
     this.el.querySelectorAll("[data-x]").forEach((i) => i.addEventListener("input", () => (this.p.extras[Number(i.dataset.x)][i.dataset.xk] = i.value)));
@@ -306,39 +429,32 @@ export class ProfilePanel {
       this.render();
       this.el.querySelector(`[data-x="${this.p.extras.length - 1}"]`)?.focus();
     });
-    $('[data-pf="toggle"]').addEventListener("click", () => {
-      this.collapsed = !this.collapsed;
-      try {
-        localStorage.setItem("lattes.profile.collapsed", this.collapsed ? "1" : "0");
-      } catch {}
-      this.render();
-    });
-    $('[data-pf="save"]').addEventListener("click", async () => {
-      try {
-        await saveProfile(this.p);
-        showToast("Perfil salvo", "success", 1800);
-        this.render();
-        this.onSaved && this.onSaved(this.p);
-      } catch (e) {
-        showToast(`Erro ao salvar: ${e}`, "error");
-      }
-    });
-    $('[data-pf="xml"]').addEventListener("click", async () => {
-      try {
-        const x = await api.getLattesProfile();
-        let n = 0;
-        for (const [k, val] of Object.entries(x || {})) {
-          if (typeof val === "string" && val.trim() && !String(this.p.values[k] || "").trim()) {
-            this.p.values[k] = DATE_FIELDS.has(k) ? toBrDate(val) : val;
-            n++;
-          }
+      $('[data-pf="save"]')?.addEventListener("click", async () => {
+        try {
+          await saveProfile(this.p);
+          showToast("Perfil salvo", "success", 1800);
+          this.render();
+          this.onSaved && this.onSaved(this.p);
+        } catch (e) {
+          showToast(`Erro ao salvar: ${e}`, "error");
         }
-        if (this.collapsed) this.collapsed = false;
-        this.render();
-        showToast(n ? `${n} campo(s) preenchido(s) com o XML — revise e salve` : "Nada novo no XML (campos já preenchidos)", "info", 3500);
-      } catch (e) {
-        showToast(`XML do Lattes não encontrado: ${e}`, "error", 5000);
-      }
-    });
-  }
+      });
+      $('[data-pf="xml"]').addEventListener("click", async () => {
+        try {
+          const x = await api.getLattesProfile();
+          let n = 0;
+          for (const [k, val] of Object.entries(x || {})) {
+            if (typeof val === "string" && val.trim() && !String(this.p.values[k] || "").trim()) {
+              this.p.values[k] = DATE_FIELDS.has(k) ? toBrDate(val) : val;
+              n++;
+            }
+          }
+          if (this.collapsed) this.collapsed = false;
+          this.render();
+          showToast(n ? `${n} campo(s) preenchido(s) com o XML — revise e salve` : "Nada novo no XML (campos já preenchidos)", "info", 3500);
+        } catch (e) {
+          showToast(`XML do Lattes não encontrado: ${e}`, "error", 5000);
+        }
+      });
+    }
 }

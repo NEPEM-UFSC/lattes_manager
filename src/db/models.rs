@@ -37,6 +37,13 @@ impl SubfolderMapping {
 // 2. Entity Models (All 10 Tables)
 // ==========================================
 
+fn optional_url(row: &Row<'_>) -> Option<String> {
+    row.get::<_, Option<String>>("url")
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct DadosGeraisRecord {
     pub id: i64,
@@ -48,6 +55,7 @@ pub struct DadosGeraisRecord {
     pub descricao: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl DadosGeraisRecord {
@@ -62,6 +70,7 @@ impl DadosGeraisRecord {
             descricao: row.get("descricao")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -78,6 +87,7 @@ pub struct FormacaoRecord {
     pub horas: Option<i64>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl FormacaoRecord {
@@ -93,6 +103,7 @@ impl FormacaoRecord {
             horas: row.get("horas")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -109,6 +120,7 @@ pub struct EncargosRecord {
     pub horas: Option<i64>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl EncargosRecord {
@@ -124,6 +136,7 @@ impl EncargosRecord {
             horas: row.get("horas")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -142,6 +155,7 @@ pub struct DisciplinasRecord {
     pub alunos: Option<i64>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl DisciplinasRecord {
@@ -159,6 +173,7 @@ impl DisciplinasRecord {
             alunos: row.get("alunos")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -174,6 +189,7 @@ pub struct ProjetosRecord {
     pub descricao: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl ProjetosRecord {
@@ -188,6 +204,7 @@ impl ProjetosRecord {
             descricao: row.get("descricao")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -205,6 +222,7 @@ pub struct ProducoesRecord {
     pub qualis: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl ProducoesRecord {
@@ -221,6 +239,7 @@ impl ProducoesRecord {
             qualis: row.get("qualis")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -236,6 +255,7 @@ pub struct PatentesRecord {
     pub descricao: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl PatentesRecord {
@@ -250,6 +270,7 @@ impl PatentesRecord {
             descricao: row.get("descricao")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -265,6 +286,7 @@ pub struct EventosRecord {
     pub descricao: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl EventosRecord {
@@ -279,6 +301,7 @@ impl EventosRecord {
             descricao: row.get("descricao")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -295,6 +318,7 @@ pub struct OrientacoesRecord {
     pub titulo: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl OrientacoesRecord {
@@ -310,6 +334,7 @@ impl OrientacoesRecord {
             titulo: row.get("titulo")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -326,6 +351,7 @@ pub struct BancasRecord {
     pub titulo: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
+    pub url: Option<String>,
 }
 
 impl BancasRecord {
@@ -341,6 +367,7 @@ impl BancasRecord {
             titulo: row.get("titulo")?,
             log: row.get("log")?,
             path: row.get("path")?,
+            url: optional_url(row),
         })
     }
 }
@@ -369,7 +396,7 @@ pub struct RecordDto {
     pub aluno: Option<String>,
     pub log: Option<String>,
     pub path: Option<String>,
-    /// Link opcional do registro (coluna `url` de todas as tabelas, preenchida por `queries::fill_urls`).
+    /// Link opcional do registro (coluna `url` de todas as tabelas).
     pub url: Option<String>,
 }
 
@@ -386,6 +413,7 @@ impl From<DadosGeraisRecord> for RecordDto {
             descricao: r.descricao,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -405,6 +433,7 @@ impl From<FormacaoRecord> for RecordDto {
             horas: r.horas,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -424,6 +453,7 @@ impl From<EncargosRecord> for RecordDto {
             horas: r.horas,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -445,6 +475,7 @@ impl From<DisciplinasRecord> for RecordDto {
             alunos: r.alunos,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -463,6 +494,7 @@ impl From<ProjetosRecord> for RecordDto {
             descricao: r.descricao,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -483,6 +515,7 @@ impl From<ProducoesRecord> for RecordDto {
             qualis: r.qualis,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -501,6 +534,7 @@ impl From<PatentesRecord> for RecordDto {
             descricao: r.descricao,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -519,6 +553,7 @@ impl From<EventosRecord> for RecordDto {
             descricao: r.descricao,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -538,6 +573,7 @@ impl From<OrientacoesRecord> for RecordDto {
             titulo: r.titulo,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -557,6 +593,7 @@ impl From<BancasRecord> for RecordDto {
             titulo: r.titulo,
             log: r.log,
             path: r.path,
+            url: r.url,
             ..Default::default()
         }
     }
@@ -591,6 +628,8 @@ impl From<SubfolderMapping> for SubfolderMappingDto {
 pub struct AppStatsDto {
     pub total_records: i64,
     pub counts_by_category: HashMap<String, i64>,
+    #[serde(default)]
+    pub with_file_by_category: HashMap<String, i64>,
     pub total_mappings: i64,
     pub db_path: String,
 }

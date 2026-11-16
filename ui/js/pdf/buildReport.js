@@ -116,13 +116,13 @@ export async function buildReport(cfg) {
   let logo = null;
   try {
     logo = await doc.embedPng(new Uint8Array(await (await fetch("img/logo.png")).arrayBuffer()));
-  } catch {}
+  } catch { }
 
   let photo = null;
   if (cfg.profile.photo) {
     try {
       photo = await doc.embedJpg(await preparePhoto(cfg.profile.photo));
-    } catch {}
+    } catch { }
   }
 
   const sections = cfg.sections.filter((s) => s.items.length);
@@ -155,8 +155,8 @@ export async function buildReport(cfg) {
     for (let i = 0; i < 9; i++) p.drawLine({ start: { x: W - 260 + i * 26, y: H - bandH }, end: { x: W + i * 26, y: H - bandH + 260 }, thickness: 0.6, color: hex(C.white), opacity: 0.08 });
 
     if (logo) {
-      rrect(p, M, H - 70, 64, 64, 16, { color: hex("#0b1120"), opacity: 0.92 });
-      const d = logo.scaleToFit(54, 54);
+      // logo com fundo transparente direto sobre a faixa da capa
+      const d = logo.scaleToFit(64, 64);
       p.drawImage(logo, { x: M + (64 - d.width) / 2, y: H - 70 - 64 + (64 - d.height) / 2, width: d.width, height: d.height });
     }
     text(p, "LATTES MANAGER", M + 78, H - 98, { font: F.bold, size: 9, color: C.white, opacity: 0.85 });
@@ -187,10 +187,14 @@ export async function buildReport(cfg) {
     if (cfg.subtitle) text(p, ellipsize(cfg.subtitle, F.reg, 11, textW), M, y - 22, { size: 11, color: C.white, opacity: 0.85 });
 
     // cartão de identificação
+    const totalWithoutFile = totalItems - totalFiles;
+    const contentLabel = totalWithoutFile > 0
+      ? `${plural(totalItems, "documento", "documentos")} · ${totalWithoutFile} sem comprovante`
+      : plural(totalItems, "documento", "documentos");
     const rows = [
       ...(cfg.profile.rows || []),
       ["Período", cfg.periodLabel],
-      ["Conteúdo", `${plural(totalItems, "item", "itens")} · ${plural(totalFiles, "comprovante anexado", "comprovantes anexados")}`],
+      ["Conteúdo", contentLabel],
     ].filter((r) => r[1]);
     // muitos campos: duas colunas (valores longos ocupam a linha toda)
     const fullW = W - 2 * M - 44;
@@ -281,7 +285,11 @@ export async function buildReport(cfg) {
     text(p, `SEÇÃO ${num}`, nx, H - 62, { font: F.semi, size: 9, color: C.white, opacity: 0.8 });
     text(p, ellipsize(s.name, F.bold, 24, W - nx - M), nx, H - 90, { font: F.bold, size: 24, color: C.white });
     const withFile = s.items.filter((i) => i.path).length;
-    text(p, `${plural(s.items.length, "item", "itens")} · ${withFile} com comprovante · ${s.items.length - withFile} sem comprovante`, nx, H - 110, { size: 10, color: C.white, opacity: 0.85 });
+    const withoutFile = s.items.length - withFile;
+    const countSummary = withoutFile > 0
+      ? `${plural(s.items.length, "documento", "documentos")} · ${withoutFile} sem comprovante`
+      : plural(s.items.length, "documento", "documentos");
+    text(p, countSummary, nx, H - 110, { size: 10, color: C.white, opacity: 0.85 });
 
     let y = H - 180;
     const colX = M + 46;
@@ -305,7 +313,7 @@ export async function buildReport(cfg) {
         rrect(p, M, y + 4, W - 2 * M, 22, 6, { color: hex(s.color), opacity: 0.1 });
         p.drawRectangle({ x: M, y: y - 18, width: 3, height: 22, color: hex(s.color) });
         text(p, ellipsize(tipo, F.bold, 10.5, W - 2 * M - 120), M + 12, y - 11, { font: F.bold, size: 10.5, color: C.ink });
-        const cnt = plural(n, "item", "itens");
+        const cnt = plural(n, "documento", "documentos");
         text(p, cnt, W - M - 10 - width(cnt, F.semi, 8.5), y - 10.5, { font: F.semi, size: 8.5, color: C.muted });
         it.tipoPage = doc.getPageCount();
         y -= 32;
@@ -503,7 +511,7 @@ export async function buildReport(cfg) {
       const cell = size / (n + 4); // 2 módulos de margem branca em cada lado
       let d = "";
       for (let r = 0; r < n; r++) {
-        for (let c = 0; c < n; ) {
+        for (let c = 0; c < n;) {
           if (!q.isDark(r, c)) {
             c++;
             continue;
@@ -585,7 +593,11 @@ export async function buildReport(cfg) {
   {
     let ti = 0;
     let p = tocPages[0];
-    let y = pageHeader(p, "Sumário", `${sections.length} seções · ${totalItems} itens · ${totalFiles} comprovantes · clique para navegar`);
+    const totalWithoutFile = totalItems - totalFiles;
+    const tocSub = totalWithoutFile > 0
+      ? `${sections.length} seções · ${plural(totalItems, "documento", "documentos")} · ${totalWithoutFile} sem comprovante · clique para navegar`
+      : `${sections.length} seções · ${plural(totalItems, "documento", "documentos")} · clique para navegar`;
+    let y = pageHeader(p, "Sumário", tocSub);
     const [W] = A4;
     const line = (fn) => {
       if (y < FOOT_H + 40) { p = tocPages[++ti] || p; y = A4[1] - 70; }
@@ -596,7 +608,7 @@ export async function buildReport(cfg) {
         rrect(pg, M, yy + 13, 26, 18, 6, { color: hex(s.color) });
         text(pg, pad2(si + 1), M + 13 - width(pad2(si + 1), F.bold, 9) / 2, yy - 0.5, { font: F.bold, size: 9, color: C.white });
         text(pg, s.name, M + 38, yy, { font: F.bold, size: 12, color: C.ink });
-        const right = `${plural(s.items.length, "item", "itens")}    p. ${s.startPage}`;
+        const right = `${plural(s.items.length, "documento", "documentos")}    p. ${s.startPage}`;
         const rw = width(right, F.semi, 10);
         const lx = M + 38 + width(s.name, F.bold, 12) + 8;
         pg.drawLine({ start: { x: lx, y: yy + 3 }, end: { x: W - M - rw - 8, y: yy + 3 }, thickness: 0.7, color: hex(C.line), dashArray: [1.5, 3] });
@@ -681,9 +693,9 @@ export async function buildReport(cfg) {
       page: s.startPage,
       children: s.grouped && s.tipos.length > 1
         ? s.tipos.map(([tipo, n]) => {
-            const its = s.items.filter((i) => (i.tipo || "Sem tipo") === tipo);
-            return { title: `${tipo} (${n})`, page: its[0]?.tipoPage || its[0]?.listPage || s.startPage, children: its.map(itemMark) };
-          })
+          const its = s.items.filter((i) => (i.tipo || "Sem tipo") === tipo);
+          return { title: `${tipo} (${n})`, page: its[0]?.tipoPage || its[0]?.listPage || s.startPage, children: its.map(itemMark) };
+        })
         : s.items.map(itemMark),
     })
   );

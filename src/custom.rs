@@ -98,6 +98,26 @@ pub fn keys(conn: &Connection) -> Vec<String> {
     list_categories(conn).map(|v| v.into_iter().map(|c| c.key).collect()).unwrap_or_default()
 }
 
+/// Contagem `(total, com_comprovante)` por chave de categoria personalizada.
+pub fn counts_with_files(conn: &Connection) -> std::collections::HashMap<String, (i64, i64)> {
+    let Ok(mut st) = conn.prepare(
+        "SELECT c.key,
+                COUNT(r.id),
+                COUNT(CASE WHEN r.path IS NOT NULL AND TRIM(r.path) <> '' THEN 1 END)
+         FROM custom_categories c
+         LEFT JOIN custom_records r ON r.category = c.key
+         GROUP BY c.key",
+    ) else {
+        return std::collections::HashMap::new();
+    };
+    let Ok(rows) = st.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+    }) else {
+        return std::collections::HashMap::new();
+    };
+    rows.flatten().collect()
+}
+
 /// Próxima pasta numerada da raiz ("12_premios") quando o usuário não escolhe uma.
 fn next_root_folder(root: &Path, name: &str) -> String {
     let max = crate::config::category_folders(root)
@@ -237,11 +257,11 @@ fn row_to_dto(r: &rusqlite::Row) -> Result<RecordDto> {
         journal: None,
         qualis: None,
         aluno: None,
-        url: None,
+        url: r.get::<_, Option<String>>(11).ok().flatten().filter(|s| !s.trim().is_empty()),
     })
 }
 
-const COLS: &str = "id, category, ano, tipo, identifier, file, folder, titulo, descricao, log, path";
+const COLS: &str = "id, category, ano, tipo, identifier, file, folder, titulo, descricao, log, path, url";
 
 pub fn list(conn: &Connection, category: &str, search: Option<&str>, year: Option<i64>, tipo: Option<&str>) -> Result<Vec<RecordDto>> {
     let mut st = conn.prepare(&format!("SELECT {} FROM custom_records WHERE category = ?1 ORDER BY ano DESC, id DESC", COLS))?;

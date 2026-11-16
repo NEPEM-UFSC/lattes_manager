@@ -30,6 +30,112 @@ export function showToast(message, type = "info", duration = 3500) {
   }, duration);
 }
 
+/** Paleta curada de cores distintas para tipos de registro (legenda + pills + tabela). */
+export const TIPO_PALETTE = [
+  "#2563eb", // Azul royal
+  "#059669", // Esmeralda
+  "#7c3aed", // Violeta
+  "#d97706", // Âmbar
+  "#0891b2", // Ciano
+  "#db2777", // Magenta
+  "#dc2626", // Coral
+  "#4f46e5", // Índigo
+  "#ea580c", // Laranja
+  "#0d9488", // Teal
+  "#9333ea", // Roxo
+  "#0284c7", // Azul celeste
+  "#65a30d", // Oliva vivo
+  "#e11d48", // Carmesim
+];
+
+const fold = (s) =>
+  String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+// Regras ordenadas da mais específica para a mais geral para evitar colisões dentro de uma mesma categoria.
+const TIPO_COLOR_RULES = [
+  [/^identificacao$|identificacao/, 0],
+  [/^endereco$|endereco/, 4],
+  [/licenca\b|maternidade|paternidade|adocao/, 5],
+  [/idiomas?/, 9],
+  [/premios?|titulos?/, 3],
+  [/texto inicial|curriculo lattes/, 2],
+  [/outras informacoes|informacoes relevantes/, 7],
+  [/artigos? (completos?|publicados?)/, 0],
+  [/artigos? aceitos?/, 13],
+  [/^livros?\b|livros? (publicados?|organizados?)/, 2],
+  [/capitulos?/, 1],
+  [/textos? em jornais|jornais|revistas/, 4],
+  [/trabalhos? completos?/, 6],
+  [/resumos? expandidos?/, 3],
+  [/resumos? completos?/, 7],
+  [/resumos?/, 8],
+  [/trabalhos?\s*\/\s*palestras?|apresenta|palestras?/, 5],
+  [/\bcursos?\b/, 9],
+  [/material didatico|didatico/, 10],
+  [/midias?|blog/, 11],
+  [/radio|tv|televis/, 12],
+  [/pos-?doutorado/, 10],
+  [/qualificacao de doutorado/, 11],
+  [/doutorado|\btese\b/, 0],
+  [/qualificacao de mestrado/, 9],
+  [/mestrado|dissertacao/, 1],
+  [/especializa|\bmba\b/, 2],
+  [/pos-?graduacao|\bpos\b/, 2],
+  [/graduacao|conclusao de curso|\btcc\b/, 3],
+  [/iniciacao cientifica|\bic\b/, 5],
+  [/aperfeicoamento/, 4],
+  [/monitoria/, 8],
+  [/estagio/, 12],
+  [/concurso/, 6],
+  [/outra natureza/, 7],
+  [/pesquisa/, 0],
+  [/extensao/, 9],
+  [/ensino/, 3],
+  [/desenvolvimento/, 2],
+  [/patente/, 0],
+  [/programas? de computador|software/, 2],
+  [/cultivar protegida/, 1],
+  [/cultivar/, 12],
+  [/participacao/, 0],
+  [/organizacao/, 2],
+  [/direcao|diretor/, 6],
+  [/chefia|chefe/, 8],
+  [/coordenacao|coordenador/, 0],
+  [/supervisao/, 2],
+  [/comissao|comite|colegiado/, 1],
+  [/curta duracao/, 13],
+  [/formacao academica|titulacao/, 11],
+];
+
+/** Cor determinística de cada tipo (compartilhada entre pílulas de filtro e badges da tabela). */
+export function tipoColor(tipo) {
+  const f = fold(tipo);
+  if (!f || f === "sem tipo" || f === "-") return "#64748b";
+  for (const [re, idx] of TIPO_COLOR_RULES) {
+    if (re.test(f)) return TIPO_PALETTE[idx];
+  }
+  let h = 2166136261;
+  for (let i = 0; i < f.length; i++) {
+    h ^= f.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return TIPO_PALETTE[(h >>> 0) % TIPO_PALETTE.length];
+}
+
+export function renderTipoBadge(tipo, fallback = "—") {
+  const raw = String(tipo ?? "").trim();
+  const label = raw || fallback;
+  if (!raw && fallback === "—") {
+    return `<span class="badge badge-tipo badge-tipo-empty">—</span>`;
+  }
+  const color = tipoColor(label);
+  return `<span class="badge badge-tipo" style="--tc:${color}"><span class="badge-tipo-dot" aria-hidden="true"></span><span>${escapeHtml(label)}</span></span>`;
+}
+
 export function renderQualisBadge(qualis) {
   if (!qualis) {
     return `<span class="badge badge-qualis badge-qualis-none">—</span>`;
@@ -59,23 +165,36 @@ export function renderFileBadge(record) {
   </button>`;
 }
 
+/** Subcategorias padrão do menu "Dados gerais" do Lattes (garantidas no seed automático). */
+export const DEFAULT_DADOS_GERAIS_MAPPINGS = [
+  { description: "Identificação", folder: "1_dados_gerais\\identificacao\\" },
+  { description: "Endereço", folder: "1_dados_gerais\\endereco\\" },
+  { description: "Licença Maternidade, Paternidade e Adoção", folder: "1_dados_gerais\\licencas\\" },
+  { description: "Idiomas", folder: "1_dados_gerais\\idiomas\\" },
+  { description: "Prêmios e títulos", folder: "1_dados_gerais\\premios_titulos\\" },
+  { description: "Texto inicial do Currículo Lattes", folder: "1_dados_gerais\\texto_inicial\\" },
+  { description: "Outras informações relevantes", folder: "1_dados_gerais\\outras_informacoes\\" },
+];
+
 export const CATEGORY_SCHEMAS = {
   dadosgerais: {
     name: "Dados Gerais",
-    subtitle: "Informações pessoais, identificação e vínculos institucionais",
+    subtitle: "Ficha cadastral, identificação, endereço, licenças, idiomas, prêmios e títulos e informações relevantes",
     group: "Dados gerais",
+    icon: "👤",
+    folder: "1_dados_gerais",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Tipo", width: "160px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "Geral")}</span>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Tipo", width: "1%", render: (r) => renderTipoBadge(r.tipo, "Geral") },
       { key: "descricao", label: "Descrição", render: (r) => escapeHtml(r.descricao || "—") },
-      { key: "file", label: "Comprovante", width: "110px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Atualização", width: "130px", render: (r) => renderLog(r.log) },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
-      { name: "ano", label: "Ano de Referência", type: "number", required: true, placeholder: "2024", width: "half" },
-      { name: "tipo", label: "Tipo de Registro", type: "tipo_select", required: true, width: "half" },
-      { name: "descricao", label: "Descrição Detalhada", type: "textarea", required: true, placeholder: "Informe os detalhes do documento...", width: "full" },
+      { name: "ano", label: "Ano de Referência", type: "number", required: false, placeholder: "Ex: 2025 (opcional)", width: "half" },
+      { name: "tipo", label: "Tipo / Subcategoria", type: "tipo_select", required: true, width: "half" },
+      { name: "descricao", label: "Descrição / Conteúdo", type: "textarea", required: true, placeholder: "Informe os detalhes (ex.: idioma e nível, prêmio e entidade, período de licença, texto inicial ou outra informação relevante)...", width: "full" },
     ],
   },
 
@@ -83,14 +202,16 @@ export const CATEGORY_SCHEMAS = {
     name: "Formação Acadêmica",
     subtitle: "Graduação, especialização, mestrado, doutorado e pós-doutorado",
     group: "Formação",
+    icon: "🎓",
+    folder: "2_formacao",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Nível / Grau", width: "160px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Nível / Grau", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "descricao", label: "Curso / Instituição", render: (r) => escapeHtml(r.descricao || "—") },
-      { key: "horas", label: "Carga Horária", width: "100px", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h</span>` : "—" },
-      { key: "file", label: "Comprovante", width: "110px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "110px", render: (r) => renderLog(r.log) },
+      { key: "horas", label: "Horas", width: "1%", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h</span>` : "—" },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano de Conclusão / Início", type: "number", required: true, placeholder: "2020", width: "half" },
@@ -104,14 +225,16 @@ export const CATEGORY_SCHEMAS = {
     name: "Encargos e Funções",
     subtitle: "Cargos de gestão, representações de colegiado e comissões institucionais",
     group: "Encargos",
+    icon: "🏛️",
+    folder: "3_atuacao",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Tipo de Encargo", width: "170px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Tipo de Encargo", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "descricao", label: "Portaria / Função Exercida", render: (r) => escapeHtml(r.descricao || "—") },
-      { key: "horas", label: "Horas Semanais", width: "110px", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h/sem</span>` : "—" },
-      { key: "file", label: "Comprovante", width: "110px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "110px", render: (r) => renderLog(r.log) },
+      { key: "horas", label: "Horas", width: "1%", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h/sem</span>` : "—" },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano de Vigência", type: "number", required: true, placeholder: "2024", width: "half" },
@@ -125,16 +248,18 @@ export const CATEGORY_SCHEMAS = {
     name: "Disciplinas Ministradas",
     subtitle: "Cursos de graduação e pós-graduação, turmas e cargas horárias",
     group: "Disciplinas",
+    icon: "📚",
+    folder: "3_atuacao",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Nível", width: "120px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
-      { key: "curso", label: "Curso", width: "160px", render: (r) => escapeHtml(r.curso || "—") },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Nível", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
+      { key: "curso", label: "Curso", width: "18%", render: (r) => escapeHtml(r.curso || "—") },
       { key: "disciplina", label: "Disciplina", render: (r) => `<strong>${escapeHtml(r.disciplina || "—")}</strong>` },
-      { key: "horas", label: "Horas", width: "70px", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h</span>` : "—" },
-      { key: "alunos", label: "Alunos", width: "70px", render: (r) => r.alunos != null ? `${r.alunos}` : "—" },
-      { key: "file", label: "Comprovante", width: "100px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "100px", render: (r) => renderLog(r.log) },
+      { key: "horas", label: "Horas", width: "1%", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h</span>` : "—" },
+      { key: "alunos", label: "Alunos", width: "1%", render: (r) => r.alunos != null ? `${r.alunos}` : "—" },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano / Semestre", type: "number", required: true, placeholder: "2024", width: "half" },
@@ -150,13 +275,15 @@ export const CATEGORY_SCHEMAS = {
     name: "Projetos de Pesquisa e Extensão",
     subtitle: "Projetos cadastrados, fomentos e termos de cooperação técnico-científica",
     group: "Projetos",
+    icon: "🔬",
+    folder: "4_projetos",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Tipo de Projeto", width: "170px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Tipo de Projeto", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "descricao", label: "Título / Descrição do Projeto", render: (r) => escapeHtml(r.descricao || "—") },
-      { key: "file", label: "Comprovante", width: "110px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "110px", render: (r) => renderLog(r.log) },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano de Início", type: "number", required: true, placeholder: "2024", width: "half" },
@@ -169,15 +296,17 @@ export const CATEGORY_SCHEMAS = {
     name: "Produções Intelectuais",
     subtitle: "Artigos em periódicos, livros, capítulos e trabalhos em anais com estratos Qualis",
     group: "Produções",
+    icon: "📄",
+    folder: "5_producoes",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Tipo de Produção", width: "170px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Tipo de Produção", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "titulo", label: "Título da Obra", render: (r) => `<strong>${escapeHtml(r.titulo || "—")}</strong>` },
-      { key: "journal", label: "Periódico / Editora / Evento", width: "200px", render: (r) => escapeHtml(r.journal || "—") },
-      { key: "qualis", label: "Qualis", width: "70px", render: (r) => renderQualisBadge(r.qualis) },
-      { key: "file", label: "Comprovante", width: "100px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "100px", render: (r) => renderLog(r.log) },
+      { key: "journal", label: "Periódico / Editora / Evento", width: "22%", render: (r) => escapeHtml(r.journal || "—") },
+      { key: "qualis", label: "Qualis", width: "1%", render: (r) => renderQualisBadge(r.qualis) },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano de Publicação", type: "number", required: true, placeholder: "2024", width: "half" },
@@ -200,13 +329,15 @@ export const CATEGORY_SCHEMAS = {
     name: "Patentes e Registros",
     subtitle: "Propriedade intelectual, pedidos no INPI e registros computacionais",
     group: "Patentes",
+    icon: "💡",
+    folder: "6_patentes",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Tipo", width: "160px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Tipo", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "descricao", label: "Título do Registro / Software", render: (r) => escapeHtml(r.descricao || "—") },
-      { key: "file", label: "Comprovante", width: "110px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "110px", render: (r) => renderLog(r.log) },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano do Registro", type: "number", required: true, placeholder: "2024", width: "half" },
@@ -219,13 +350,15 @@ export const CATEGORY_SCHEMAS = {
     name: "Participação em Eventos",
     subtitle: "Congressos, simpósios, conferências científicas e mesas-redondas",
     group: "Eventos",
+    icon: "🎙️",
+    folder: "9_eventos",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Tipo de Participação", width: "160px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Tipo de Participação", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "descricao", label: "Nome do Evento / Cidade", render: (r) => escapeHtml(r.descricao || "—") },
-      { key: "file", label: "Comprovante", width: "110px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "110px", render: (r) => renderLog(r.log) },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano do Evento", type: "number", required: true, placeholder: "2024", width: "half" },
@@ -238,14 +371,16 @@ export const CATEGORY_SCHEMAS = {
     name: "Orientações e Supervisões",
     subtitle: "Iniciação científica, TCC, dissertações de mestrado e teses de doutorado",
     group: "Orientações",
+    icon: "👥",
+    folder: "10_orientacoes",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Nível", width: "150px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
-      { key: "aluno", label: "Orientando(a)", width: "180px", render: (r) => `<strong>${escapeHtml(r.aluno || "—")}</strong>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Nível", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
+      { key: "aluno", label: "Orientando(a)", width: "20%", render: (r) => `<strong>${escapeHtml(r.aluno || "—")}</strong>` },
       { key: "titulo", label: "Título do Trabalho", render: (r) => escapeHtml(r.titulo || "—") },
-      { key: "file", label: "Comprovante", width: "100px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "100px", render: (r) => renderLog(r.log) },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano de Conclusão / Vigência", type: "number", required: true, placeholder: "2024", width: "half" },
@@ -259,14 +394,16 @@ export const CATEGORY_SCHEMAS = {
     name: "Bancas Examinadoras",
     subtitle: "Participações em bancas de mestrado, doutorado, qualificação e concursos",
     group: "Bancas",
+    icon: "⚖️",
+    folder: "11_bancas",
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Nível da Banca", width: "160px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
-      { key: "aluno", label: "Candidato(a)", width: "180px", render: (r) => `<strong>${escapeHtml(r.aluno || "—")}</strong>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Nível da Banca", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
+      { key: "aluno", label: "Candidato(a)", width: "20%", render: (r) => `<strong>${escapeHtml(r.aluno || "—")}</strong>` },
       { key: "titulo", label: "Título da Defesa", render: (r) => escapeHtml(r.titulo || "—") },
-      { key: "file", label: "Comprovante", width: "100px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "100px", render: (r) => renderLog(r.log) },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano da Defesa", type: "number", required: true, placeholder: "2024", width: "half" },
@@ -297,13 +434,13 @@ export function registerCustomCategory(c, index = 0) {
     color: CUSTOM_COLORS[index % CUSTOM_COLORS.length],
     folder: c.folder,
     columns: [
-      { key: "id", label: "#", width: "50px", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "70px", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Subcategoria", width: "170px", render: (r) => `<span class="badge badge-tipo">${escapeHtml(r.tipo || "—")}</span>` },
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Subcategoria", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "titulo", label: tl, render: (r) => `<strong>${escapeHtml(r.titulo || "—")}</strong>` },
-      { key: "descricao", label: dl, width: "240px", render: (r) => escapeHtml(r.descricao || "—") },
-      { key: "file", label: "Comprovante", width: "100px", render: (r) => renderFileBadge(r) },
-      { key: "log", label: "Data", width: "100px", render: (r) => renderLog(r.log) },
+      { key: "descricao", label: dl, width: "22%", render: (r) => escapeHtml(r.descricao || "—") },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
       { name: "ano", label: "Ano", type: "number", required: true, placeholder: String(new Date().getFullYear()), width: "half" },
@@ -319,13 +456,172 @@ export function unregisterCustomCategories() {
   for (const [k, s] of Object.entries(CATEGORY_SCHEMAS)) if (s.custom) delete CATEGORY_SCHEMAS[k];
 }
 
+export const DEFAULT_CATEGORY_META = {};
+for (const [k, s] of Object.entries(CATEGORY_SCHEMAS)) {
+  s.dbGroup = s.group;
+  DEFAULT_CATEGORY_META[k] = {
+    name: s.name,
+    group: s.group,
+    subtitle: s.subtitle || "",
+    icon: s.icon || "🗂️",
+  };
+}
+
+const CATEGORY_OVERRIDES_STORAGE_KEY = "lattes_category_overrides_v1";
+
+function sanitizeOverrides(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [k, val] of Object.entries(raw)) {
+    if (!DEFAULT_CATEGORY_META[k] || !val || typeof val !== "object") continue;
+    const def = DEFAULT_CATEGORY_META[k];
+    const clean = {};
+    if (typeof val.name === "string" && val.name.trim() && val.name.trim() !== def.name) clean.name = val.name.trim();
+    if (typeof val.group === "string" && val.group.trim() && val.group.trim() !== def.group) clean.group = val.group.trim();
+    if (typeof val.subtitle === "string" && val.subtitle.trim() !== def.subtitle) clean.subtitle = val.subtitle.trim();
+    if (typeof val.icon === "string" && val.icon.trim() && val.icon.trim() !== def.icon) clean.icon = val.icon.trim();
+    if (Object.keys(clean).length) out[k] = clean;
+  }
+  return out;
+}
+
+export function readSavedCategoryOverrides() {
+  try {
+    const raw = localStorage.getItem(CATEGORY_OVERRIDES_STORAGE_KEY);
+    if (!raw) return {};
+    return sanitizeOverrides(JSON.parse(raw));
+  } catch {
+    return {};
+  }
+}
+
+export function writeSavedCategoryOverrides(overrides) {
+  const clean = sanitizeOverrides(overrides);
+  try {
+    if (!Object.keys(clean).length) localStorage.removeItem(CATEGORY_OVERRIDES_STORAGE_KEY);
+    else localStorage.setItem(CATEGORY_OVERRIDES_STORAGE_KEY, JSON.stringify(clean));
+  } catch {}
+  return clean;
+}
+
+export function hasCategoryOverride(key) {
+  const ov = readSavedCategoryOverrides();
+  return Boolean(ov[key] && Object.keys(ov[key]).length);
+}
+
+/** Aplica personalizações de nome, título no menu, subtítulo e ícone às categorias padrão. */
+export function applyCategoryOverrides(overridesObj = null) {
+  const ov = overridesObj && typeof overridesObj === "object" ? sanitizeOverrides(overridesObj) : readSavedCategoryOverrides();
+  for (const [k, def] of Object.entries(DEFAULT_CATEGORY_META)) {
+    const s = CATEGORY_SCHEMAS[k];
+    if (!s) continue;
+    s.dbGroup = def.group;
+    const item = ov[k] || {};
+    s.name = item.name || def.name;
+    s.group = item.group || def.group;
+    s.subtitle = item.subtitle !== undefined ? item.subtitle : def.subtitle;
+    s.icon = item.icon || def.icon;
+  }
+  return ov;
+}
+
+export function saveCategoryOverride(key, patch) {
+  const def = DEFAULT_CATEGORY_META[key];
+  if (!def) return readSavedCategoryOverrides();
+  const current = readSavedCategoryOverrides();
+  const next = { ...current };
+  const merged = { ...(next[key] || {}), ...patch };
+  const name = String(merged.name ?? def.name).trim() || def.name;
+  const group = String(merged.group ?? def.group).trim() || name;
+  const subtitle = merged.subtitle !== undefined ? String(merged.subtitle).trim() : def.subtitle;
+  const icon = String(merged.icon ?? def.icon).trim() || def.icon;
+  const entry = {};
+  if (name !== def.name) entry.name = name;
+  if (group !== def.group) entry.group = group;
+  if (subtitle !== def.subtitle) entry.subtitle = subtitle;
+  if (icon !== def.icon) entry.icon = icon;
+  if (Object.keys(entry).length) next[key] = entry;
+  else delete next[key];
+  const saved = writeSavedCategoryOverrides(next);
+  applyCategoryOverrides(saved);
+  return saved;
+}
+
+export function resetCategoryOverride(key) {
+  const current = readSavedCategoryOverrides();
+  if (key) delete current[key];
+  const saved = writeSavedCategoryOverrides(current);
+  applyCategoryOverrides(saved);
+  return saved;
+}
+
+/** Converte o category_group do SQLite para o rótulo atual (quando uma categoria padrão foi renomeada). */
+export function displayGroupLabel(rawGroup) {
+  const target = String(rawGroup || "").trim().toLowerCase();
+  if (!target) return rawGroup || "";
+  for (const s of Object.values(CATEGORY_SCHEMAS)) {
+    const db = (s.dbGroup || s.group || "").toLowerCase();
+    if (db === target) return s.group || s.name || rawGroup;
+  }
+  return rawGroup || "";
+}
+
+applyCategoryOverrides();
+
+export const DEFAULT_CATEGORY_ORDER = Object.keys(CATEGORY_SCHEMAS);
+const CATEGORY_ORDER_STORAGE_KEY = "lattes_category_order_v1";
+
+export function readSavedCategoryOrder() {
+  try {
+    const raw = localStorage.getItem(CATEGORY_ORDER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((k) => typeof k === "string" && k) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeSavedCategoryOrder(keys) {
+  try {
+    if (!Array.isArray(keys) || !keys.length) localStorage.removeItem(CATEGORY_ORDER_STORAGE_KEY);
+    else localStorage.setItem(CATEGORY_ORDER_STORAGE_KEY, JSON.stringify(keys));
+  } catch {}
+}
+
+/** Reordena CATEGORY_SCHEMAS in-place mantendo categorias padrão e personalizadas unificadas. */
+export function applyCategoryOrder(orderKeys = null) {
+  const saved = Array.isArray(orderKeys) ? orderKeys : readSavedCategoryOrder();
+  const existing = Object.keys(CATEGORY_SCHEMAS);
+  const seen = new Set();
+  const finalOrder = [];
+  if (Array.isArray(saved)) {
+    for (const k of saved) {
+      if (CATEGORY_SCHEMAS[k] && !seen.has(k)) {
+        seen.add(k);
+        finalOrder.push(k);
+      }
+    }
+  }
+  for (const k of existing) {
+    if (!seen.has(k)) {
+      seen.add(k);
+      finalOrder.push(k);
+    }
+  }
+  const snapshot = {};
+  for (const k of finalOrder) snapshot[k] = CATEGORY_SCHEMAS[k];
+  for (const k of existing) delete CATEGORY_SCHEMAS[k];
+  Object.assign(CATEGORY_SCHEMAS, snapshot);
+  return finalOrder;
+}
+
 /** Cor de qualquer categoria. */
 export function categoryColor(cat, palette = {}) {
   return palette[cat] || CATEGORY_SCHEMAS[cat]?.color || "#6366f1";
 }
 
 // ---------- Ordem das atividades (como no Currículo Lattes) ----------
-const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
 /** Sequência das atividades dentro de cada seção, na ordem em que aparecem no Lattes. */
 const ACTIVITY_ORDER = {

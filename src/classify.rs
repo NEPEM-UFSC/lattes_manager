@@ -12,11 +12,14 @@ use crate::db::queries;
 use crate::files::naming::fold;
 use pdf_extract::Document;
 use regex::Regex;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::Serialize;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub const SCHEMA_SQL: &str = "CREATE TABLE IF NOT EXISTS doc_index (path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, tokens TEXT NOT NULL DEFAULT '', chars INTEGER DEFAULT 0);";
 
@@ -164,17 +167,38 @@ fn file_sig(p: &Path) -> Option<(i64, i64)> {
     Some((m.len() as i64, mtime))
 }
 
+/// Carrega `doc_index` em lote (`path -> (size, mtime, tokens)`).
+pub fn load_doc_index(conn: &Connection) -> HashMap<String, (i64, i64, String)> {
+    let mut out = HashMap::new();
+    let Ok(mut stmt) = conn.prepare("SELECT path, size, mtime, tokens FROM doc_index") else {
+        return out;
+    };
+    let Ok(rows) = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, Option<i64>>(1)?.unwrap_or(-1),
+            r.get::<_, Option<i64>>(2)?.unwrap_or(-1),
+            r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+        ))
+    }) else {
+        return out;
+    };
+    for row in rows.flatten() {
+        out.insert(row.0, (row.1, row.2, row.3));
+    }
+    out
+}
+
 /// Caminhos cujo texto ainda não está no índice (ou mudou).
 pub fn stale_paths(conn: &Connection, root: &Path, docs: &[TrainDoc]) -> Vec<String> {
+    let index = load_doc_index(conn);
     docs.iter()
         .filter(|d| {
             let Some((size, mtime)) = file_sig(&crate::files::rel_join(root, &d.path)) else { return false };
-            let cached: Option<(i64, i64)> = conn
-                .query_row("SELECT size, mtime FROM doc_index WHERE path = ?1", [&d.path], |r| Ok((r.get(0)?, r.get(1)?)))
-                .optional()
-                .ok()
-                .flatten();
-            cached != Some((size, mtime))
+            match index.get(&d.path) {
+                Some((s, m, _)) => *s != size || *m != mtime,
+                None => true,
+            }
         })
         .map(|d| d.path.clone())
         .collect()
@@ -196,17 +220,24 @@ pub fn extract_for_index(root: &Path, paths: &[String]) -> Vec<(String, i64, i64
 }
 
 pub fn store_index(conn: &Connection, rows: &[(String, i64, i64, String, i64)]) {
-    for (p, s, m, t, c) in rows {
-        let _ = conn.execute(
-            "INSERT INTO doc_index (path, size, mtime, tokens, chars) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(path) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, tokens=excluded.tokens, chars=excluded.chars",
-            params![p, s, m, t, c],
-        );
+    if rows.is_empty() {
+        return;
     }
+    let _ = conn.execute_batch("SAVEPOINT doc_index_batch;");
+    if let Ok(mut stmt) = conn.prepare(
+        "INSERT INTO doc_index (path, size, mtime, tokens, chars) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(path) DO UPDATE SET size=excluded.size, mtime=excluded.mtime, tokens=excluded.tokens, chars=excluded.chars",
+    ) {
+        for (p, s, m, t, c) in rows {
+            let _ = stmt.execute(params![p, s, m, t, c]);
+        }
+    }
+    let _ = conn.execute_batch("RELEASE SAVEPOINT doc_index_batch;");
+    INDEX_EPOCH.fetch_add(1, Ordering::Release);
 }
 
 // ---------------- modelo ----------------
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Model {
     /// classe "cat|tipo" → (nº de documentos, contagem por palavra, total de palavras)
     classes: HashMap<String, (usize, HashMap<String, usize>, usize)>,
@@ -268,16 +299,21 @@ pub fn with_bigrams(words: &[String]) -> HashSet<String> {
     s
 }
 
-pub fn build_model(conn: &Connection, docs: &[TrainDoc]) -> (Model, Vec<HashSet<String>>) {
+fn build_model_from_index(docs: &[TrainDoc], index: &HashMap<String, (i64, i64, String)>) -> (Model, Vec<HashSet<String>>) {
     let mut m = Model::default();
-    let mut all = Vec::new();
+    let mut all = Vec::with_capacity(docs.len());
     for d in docs {
-        let it: String = conn.query_row("SELECT tokens FROM doc_index WHERE path = ?1", [&d.path], |r| r.get(0)).unwrap_or_default();
-        let toks = doc_tokens(&it, &d.record_text);
+        let it = index.get(&d.path).map(|(_, _, t)| t.as_str()).unwrap_or("");
+        let toks = doc_tokens(it, &d.record_text);
         m.add(&class_key(&d.category, &d.tipo), &toks, 1);
         all.push(toks);
     }
     (m, all)
+}
+
+pub fn build_model(conn: &Connection, docs: &[TrainDoc]) -> (Model, Vec<HashSet<String>>) {
+    let index = load_doc_index(conn);
+    build_model_from_index(docs, &index)
 }
 
 /// Pistas fortes por categoria (somadas ao log-escore).
@@ -401,7 +437,7 @@ pub fn classify(model: &Model, text: &str, file_name: &str, valid: &HashSet<Stri
 // ---------------- vizinhos mais próximos (TF-IDF + cosseno) ----------------
 
 /// Documentos de treino como vetores TF-IDF normalizados.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Knn {
     docs: Vec<(String, HashMap<String, f64>)>,
     idf: HashMap<String, f64>,
@@ -503,11 +539,112 @@ pub fn suggest(model: &Model, knn: &Knn, text: &str, file_name: &str, valid: &Ha
     v
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct CacheKey {
+    db_path: Option<String>,
+    ndocs: usize,
+    docs_hash: u64,
+    index_sig: (i64, i64, i64, i64, i64, i64, u64),
+}
+
+struct CachedClassifier {
+    key: CacheKey,
+    bundle: Arc<(Model, Knn)>,
+}
+
+static MODEL_CACHE: OnceLock<Mutex<Option<CachedClassifier>>> = OnceLock::new();
+static INDEX_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+fn hash_docs(docs: &[TrainDoc]) -> u64 {
+    let mut h = DefaultHasher::new();
+    docs.len().hash(&mut h);
+    for d in docs {
+        d.category.hash(&mut h);
+        d.tipo.hash(&mut h);
+        d.path.hash(&mut h);
+        d.record_text.hash(&mut h);
+    }
+    h.finish()
+}
+
+fn hash_index_map(index: &HashMap<String, (i64, i64, String)>) -> u64 {
+    let mut entries: Vec<(&String, &(i64, i64, String))> = index.iter().collect();
+    entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    let mut h = DefaultHasher::new();
+    entries.len().hash(&mut h);
+    for (p, (s, m, t)) in entries {
+        p.hash(&mut h);
+        s.hash(&mut h);
+        m.hash(&mut h);
+        t.hash(&mut h);
+    }
+    h.finish()
+}
+
+fn file_index_sig(conn: &Connection) -> (i64, i64, i64, i64, i64, i64, u64) {
+    let (cnt, sum_sz, sum_mt, sum_ch, sum_len, max_rid) = conn
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(size), 0), COALESCE(SUM(mtime), 0), COALESCE(SUM(chars), 0), COALESCE(SUM(LENGTH(tokens)), 0), COALESCE(MAX(rowid), 0) FROM doc_index",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        )
+        .unwrap_or((0, 0, 0, 0, 0, 0));
+    (cnt, sum_sz, sum_mt, sum_ch, sum_len, max_rid, INDEX_EPOCH.load(Ordering::Acquire))
+}
+
+fn cached_models(conn: &Connection, docs: &[TrainDoc]) -> Arc<(Model, Knn)> {
+    let db_path = conn.path().filter(|p| !p.is_empty()).map(str::to_owned);
+    let docs_hash = hash_docs(docs);
+    let (index_sig, preloaded) = if db_path.is_some() {
+        (file_index_sig(conn), None)
+    } else {
+        let index = load_doc_index(conn);
+        let ih = hash_index_map(&index);
+        ((index.len() as i64, 0, 0, 0, 0, 0, ih), Some(index))
+    };
+    let key = CacheKey { db_path, ndocs: docs.len(), docs_hash, index_sig };
+
+    let cell = MODEL_CACHE.get_or_init(|| Mutex::new(None));
+    {
+        let guard = cell.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(cached) = guard.as_ref() {
+            if cached.key == key {
+                return Arc::clone(&cached.bundle);
+            }
+        }
+    }
+
+    let index = preloaded.unwrap_or_else(|| load_doc_index(conn));
+    let (m, toks) = build_model_from_index(docs, &index);
+    let items: Vec<(String, HashSet<String>)> = docs
+        .iter()
+        .zip(toks)
+        .map(|(d, t)| (class_key(&d.category, &d.tipo), t))
+        .collect();
+    let bundle = Arc::new((m, Knn::build(&items)));
+
+    let mut guard = cell.lock().unwrap_or_else(|e| e.into_inner());
+    *guard = Some(CachedClassifier { key, bundle: Arc::clone(&bundle) });
+    bundle
+}
+
+/// Versão em cache de `suggest`: reutiliza `(Model, Knn)` sem clonar quando a base não mudou.
+pub fn suggest_cached(
+    conn: &Connection,
+    docs: &[TrainDoc],
+    text: &str,
+    file_name: &str,
+    valid: &HashSet<String>,
+    skip: Option<usize>,
+) -> Vec<Suggestion> {
+    let bundle = cached_models(conn, docs);
+    suggest(&bundle.0, &bundle.1, text, file_name, valid, skip)
+}
+
 /// Modelo completo (NB + vizinhos) a partir do índice.
 pub fn build_all(conn: &Connection, docs: &[TrainDoc]) -> (Model, Knn) {
-    let (m, toks) = build_model(conn, docs);
-    let items: Vec<(String, HashSet<String>)> = docs.iter().zip(toks).map(|(d, t)| (class_key(&d.category, &d.tipo), t)).collect();
-    (m, Knn::build(&items))
+    let bundle = cached_models(conn, docs);
+    (bundle.0.clone(), bundle.1.clone())
 }
 
 // ---------------- extração de campos ----------------
@@ -707,6 +844,77 @@ mod tests {
         assert_eq!(r[0].category, "eventos");
         let r = classify(&m, "Participou da banca examinadora de defesa de dissertação", "", &valid);
         assert_eq!(r[0].category, "bancas");
+    }
+
+    #[test]
+    fn doc_index_batch_and_model_cache_invalidate() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA_SQL).unwrap();
+        store_index(
+            &conn,
+            &[
+                ("a.pdf".to_string(), 100, 1000, "banca examinadora mestrado".to_string(), 26),
+                ("b.pdf".to_string(), 200, 2000, "congresso brasileiro ouvinte".to_string(), 27),
+            ],
+        );
+        let idx = load_doc_index(&conn);
+        assert_eq!(idx.len(), 2);
+        assert_eq!(idx.get("a.pdf").map(|x| x.0), Some(100));
+
+        let docs = vec![
+            TrainDoc { category: "bancas".into(), tipo: "Mestrado".into(), path: "a.pdf".into(), record_text: "defesa".into() },
+            TrainDoc { category: "eventos".into(), tipo: "Participação".into(), path: "b.pdf".into(), record_text: "evento".into() },
+        ];
+        let valid: HashSet<String> = ["bancas", "eventos"].iter().map(|s| s.to_string()).collect();
+
+        let (m1, _) = build_all(&conn, &docs);
+        assert_eq!(m1.ndocs, 2);
+        let s1 = suggest_cached(&conn, &docs, "banca examinadora mestrado", "a.pdf", &valid, None);
+        assert_eq!(s1[0].category, "bancas");
+
+        // Second call with another in-memory DB having a different doc_index must not hit stale cache
+        let conn2 = Connection::open_in_memory().unwrap();
+        conn2.execute_batch(SCHEMA_SQL).unwrap();
+        store_index(
+            &conn2,
+            &[
+                ("c.pdf".to_string(), 50, 500, "portaria designar chefia".to_string(), 23),
+                ("d.pdf".to_string(), 60, 600, "".to_string(), 0),
+            ],
+        );
+        let docs2 = vec![
+            TrainDoc { category: "encargos".into(), tipo: "Chefia".into(), path: "c.pdf".into(), record_text: "portaria".into() },
+            TrainDoc { category: "eventos".into(), tipo: "Congresso".into(), path: "d.pdf".into(), record_text: "evento".into() },
+        ];
+        let valid2: HashSet<String> = ["bancas", "eventos", "encargos"].iter().map(|s| s.to_string()).collect();
+        let (m2, _) = build_all(&conn2, &docs2);
+        assert_eq!(m2.ndocs, 2);
+        let s2 = suggest_cached(&conn2, &docs2, "portaria designar chefia", "c.pdf", &valid2, None);
+        assert_eq!(s2[0].category, "encargos");
+
+        // Updating doc_index on existing connection invalidates cache
+        store_index(
+            &conn2,
+            &[("d.pdf".to_string(), 61, 601, "palestra workshop simposio certificado".to_string(), 38)],
+        );
+        let s3 = suggest_cached(&conn2, &docs2, "palestra workshop simposio", "", &valid2, None);
+        assert_eq!(s3[0].category, "eventos");
+
+        // Batch stale_paths detects missing and changed files
+        let root = std::env::temp_dir().join(format!("lattes_cls_test_{}", uuid::Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(&root);
+        let f_ok = root.join("ok.pdf");
+        std::fs::write(&f_ok, b"abc").unwrap();
+        let (ok_sz, ok_mt) = file_sig(&f_ok).unwrap();
+        store_index(&conn2, &[("ok.pdf".into(), ok_sz, ok_mt, "ok".into(), 2)]);
+        let docs_stale = vec![
+            TrainDoc { category: "encargos".into(), tipo: "Chefia".into(), path: "ok.pdf".into(), record_text: "".into() },
+            TrainDoc { category: "encargos".into(), tipo: "Chefia".into(), path: "d.pdf".into(), record_text: "".into() },
+        ];
+        let f_changed = root.join("d.pdf");
+        std::fs::write(&f_changed, b"changed").unwrap();
+        assert_eq!(stale_paths(&conn2, &root, &docs_stale), vec!["d.pdf".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

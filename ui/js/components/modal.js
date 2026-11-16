@@ -1,8 +1,26 @@
 // Record Create / Edit Modal Component
 
-import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
+import { CATEGORY_SCHEMAS, DEFAULT_DADOS_GERAIS_MAPPINGS, escapeHtml, showToast } from "../utils.js";
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
+import { FieldHistory } from "./fieldHistory.js";
+
+const foldKey = (s) =>
+  String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+
+const DADOS_GERAIS_PLACEHOLDERS = {
+  identificacao: "Ex: RG, CPF, portaria de nomeação, alteração de nome ou documento de identificação...",
+  endereco: "Ex: Endereço profissional/residencial atualizado, sala, ramal ou comprovante de lotação...",
+  "licenca maternidade, paternidade e adocao": "Ex: Licença maternidade/paternidade/adoção — período (dd/mm/aaaa a dd/mm/aaaa), processo ou portaria...",
+  idiomas: "Ex: Inglês (compreende bem, fala bem, lê bem, escreve bem) — Certificado de proficiência...",
+  "premios e titulos": "Ex: Prêmio / Menção Honrosa — entidade promotora e premiação...",
+  "texto inicial do curriculo lattes": "Cole ou descreva o texto inicial / resumo biográfico exibido no Currículo Lattes...",
+  "outras informacoes relevantes": "Ex: Informações complementares relevantes para o Currículo Lattes ou progressão docente...",
+};
 
 export class RecordModal {
   constructor({ onSaved }) {
@@ -33,6 +51,13 @@ export class RecordModal {
     this.metaPanel = document.getElementById("meta-panel");
     this.meta = null;
     this.metaToken = 0;
+
+    // histórico de preenchimento: valores já usados no mesmo campo, na mesma categoria
+    this.history = new FieldHistory(this.dynamicFields, () => ({
+      category: this.category,
+      tipo: document.getElementById("field-tipo")?.value || "",
+      excludeId: this.currentRecord?.id ?? null,
+    }));
 
     this.bindEvents();
   }
@@ -67,6 +92,7 @@ export class RecordModal {
     this.btnSave.textContent = "Salvar Registro";
 
     this.renderFormFields(schema);
+    this.history.load(category);
     this.clearSelectedFile();
     this.resetMeta();
     this.overlay.style.display = "flex";
@@ -90,6 +116,7 @@ export class RecordModal {
     this.btnSave.textContent = "Salvar Alterações";
 
     this.renderFormFields(schema, record);
+    this.history.load(category);
     this.resetMeta();
 
     if (record.file) {
@@ -102,6 +129,7 @@ export class RecordModal {
   }
 
   close() {
+    this.history.close();
     this.resetMeta();
     this.overlay.style.display = "none";
     this.currentRecord = null;
@@ -112,9 +140,20 @@ export class RecordModal {
     if (!schema) return;
     let html = "";
 
-    const groupMappings = this.mappings.filter(
-      (m) => m.category_group.toLowerCase() === schema.group.toLowerCase()
+    let groupMappings = this.mappings.filter(
+      (m) => m.category_group.toLowerCase() === (schema.dbGroup || schema.group).toLowerCase()
     );
+    if (this.category === "dadosgerais") {
+      const merged = [...groupMappings];
+      const seen = new Set(merged.map((m) => foldKey(m.description)));
+      for (const def of DEFAULT_DADOS_GERAIS_MAPPINGS) {
+        if (!seen.has(foldKey(def.description))) {
+          merged.push({ category_group: "Dados gerais", ...def });
+          seen.add(foldKey(def.description));
+        }
+      }
+      groupMappings = merged;
+    }
 
     for (const field of schema.fields) {
       const isFull = field.width === "full";
@@ -159,9 +198,10 @@ export class RecordModal {
       } else if (field.type === "link") {
         html += `<input type="text" inputmode="url" spellcheck="false" autocomplete="off" id="field-${field.name}" name="${field.name}" class="form-input" value="${escapeHtml(val)}" placeholder="${escapeHtml(field.placeholder || "")}" title="Endereço http(s); sem o https:// ele é completado ao salvar" />`;
       } else if (field.type === "textarea") {
-        html += `<textarea id="field-${field.name}" name="${field.name}" class="form-textarea" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""}>${escapeHtml(val)}</textarea>`;
+        html += `<textarea id="field-${field.name}" name="${field.name}" class="form-textarea" data-history="1" autocomplete="off" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""}>${escapeHtml(val)}</textarea>`;
       } else {
-        html += `<input type="${field.type || "text"}" id="field-${field.name}" name="${field.name}" class="form-input" value="${escapeHtml(val)}" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""} />`;
+        const hist = (field.type || "text") === "text" ? 'data-history="1" autocomplete="off"' : "";
+        html += `<input type="${field.type || "text"}" id="field-${field.name}" name="${field.name}" class="form-input" ${hist} value="${escapeHtml(val)}" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""} />`;
       }
 
       html += `</div>`;
@@ -191,6 +231,13 @@ export class RecordModal {
 
     // Attach change listener on tipo select to update folder destination
     const tipoSelect = document.getElementById("field-tipo");
+    const syncDadosGeraisPlaceholder = () => {
+      if (this.category !== "dadosgerais") return;
+      const descEl = document.getElementById("field-descricao");
+      if (!descEl) return;
+      const defaultPh = schema.fields.find((f) => f.name === "descricao")?.placeholder || "";
+      descEl.placeholder = DADOS_GERAIS_PLACEHOLDERS[foldKey(tipoSelect?.value)] || defaultPh;
+    };
     if (tipoSelect) {
       tipoSelect.addEventListener("change", () => {
         const selectedOption = tipoSelect.selectedOptions[0];
@@ -199,6 +246,7 @@ export class RecordModal {
           document.getElementById("field-folder").value = folder;
           this.targetSubfolderPath.textContent = `Destino: ${folder.replace(/[\\/]+$/, "")}\\`;
         }
+        syncDadosGeraisPlaceholder();
       });
       // Trigger initial folder text
       const initialSelected = tipoSelect.selectedOptions[0];
@@ -206,6 +254,7 @@ export class RecordModal {
       if (folder) {
         this.targetSubfolderPath.textContent = `Destino: ${folder.replace(/[\\/]+$/, "")}\\`;
       }
+      syncDadosGeraisPlaceholder();
     }
   }
 

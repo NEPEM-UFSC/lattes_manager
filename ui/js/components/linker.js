@@ -105,6 +105,40 @@ export class LinkerModal {
         </footer>
       </div>`;
     this.bind();
+    this.syncSelectionUi();
+  }
+
+  syncSelectionUi() {
+    const o = this.overlay;
+    if (this.tab === "links") {
+      const n = this.sel.size;
+      const total = this.links.length;
+      const all = o.querySelector("[data-all-links]");
+      if (all) {
+        all.checked = total > 0 && n === total;
+        all.indeterminate = n > 0 && n < total;
+      }
+      const status = o.querySelector(".modal-footer .muted");
+      if (status) {
+        status.textContent = `${n} vínculo(s) selecionado(s) · confiança alta vem marcada`;
+      }
+      const btn = o.querySelector('[data-x="apply"]');
+      if (btn) {
+        btn.disabled = n === 0;
+        btn.textContent = `Vincular ${n} comprovante(s)`;
+      }
+    } else {
+      const n = this.dropSel.size;
+      const status = o.querySelector(".modal-footer .muted");
+      if (status) {
+        status.textContent = `${n} registro(s) marcado(s) para exclusão · arquivos no disco não são apagados`;
+      }
+      const btn = o.querySelector('[data-x="drop"]');
+      if (btn) {
+        btn.disabled = n === 0;
+        btn.textContent = `Excluir ${n} duplicata(s)`;
+      }
+    }
   }
 
   bind() {
@@ -120,20 +154,21 @@ export class LinkerModal {
       this.sel = e.target.checked ? new Set(this.links.map((l) => l._i)) : new Set();
       this.render();
     });
-    o.querySelectorAll("[data-l]").forEach((c) =>
-      c.addEventListener("change", () => {
+    o.querySelector(".lk-body")?.addEventListener("change", (e) => {
+      const c = e.target;
+      if (!(c instanceof HTMLInputElement)) return;
+      if (c.matches("[data-l]")) {
         const i = Number(c.dataset.l);
         c.checked ? this.sel.add(i) : this.sel.delete(i);
-        this.render();
-      })
-    );
-    o.querySelectorAll("[data-d]").forEach((c) =>
-      c.addEventListener("change", () => {
+        c.closest("tr")?.classList.toggle("off", !c.checked);
+        this.syncSelectionUi();
+      } else if (c.matches("[data-d]")) {
         const i = Number(c.dataset.d);
         c.checked ? this.dropSel.add(i) : this.dropSel.delete(i);
-        this.render();
-      })
-    );
+        c.closest(".lk-dup")?.classList.toggle("on", c.checked);
+        this.syncSelectionUi();
+      }
+    });
     o.querySelectorAll("[data-peek]").forEach((b) =>
       b.addEventListener("click", () => {
         const l = this.links[Number(b.dataset.peek)];

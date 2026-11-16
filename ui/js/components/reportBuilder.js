@@ -69,6 +69,62 @@ function loadLibs() {
   return libsPromise;
 }
 
+/**
+ * PDF de pré-visualização dos comprovantes de uma categoria, montado só em memória
+ * (nada é gravado em disco). `records` = registros visíveis na tabela; entram apenas os
+ * que têm comprovante, agrupados por atividade (ordem do gerador) → ano mais recente → título.
+ * Devolve o resultado de `buildReport` ({ bytes, pages, attached, failed }) ou null se não houver comprovantes.
+ */
+export async function buildCategoryPreview(cat, records, { onProgress } = {}) {
+  const schema = CATEGORY_SCHEMAS[cat];
+  const recs = (records || []).filter((r) => r.path && String(r.path).trim());
+  if (!schema || !recs.length) return null;
+
+  const [, profile, version, order] = await Promise.all([
+    loadLibs(),
+    loadProfile().catch(() => null),
+    api.getAppVersion().catch(() => "1.0.0"),
+    api.getSetting(ORDER_KEY).catch(() => null),
+  ]);
+
+  const ord = (order?.tipos && order.tipos[cat]) || [];
+  const tipoRank = (t) => (ord.includes(t) ? ord.indexOf(t) : Infinity);
+  const tipos = [...new Set(recs.map((r) => r.tipo || "Sem tipo"))].sort((a, b) => tipoRank(a) - tipoRank(b) || compareActivity(cat, a, b));
+  const pos = new Map(tipos.map((t, i) => [t, i]));
+  const label = (r) => String(describe(cat, r).title || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  recs.sort(
+    (a, b) =>
+      pos.get(a.tipo || "Sem tipo") - pos.get(b.tipo || "Sem tipo") ||
+      (b.ano || 0) - (a.ano || 0) ||
+      label(a).localeCompare(label(b), "pt-BR")
+  );
+
+  const years = recs.map((r) => r.ano).filter((y) => y > 1950 && y < 2100);
+  const periodLabel = years.length ? `${Math.min(...years)} – ${Math.max(...years)}` : "";
+
+  return (await import("../pdf/buildReport.js")).buildReport({
+    profile: { nome: profile?.values?.nome || "", resumo: "", rows: [], photo: null },
+    title: `Comprovantes · ${schema.group}`,
+    subtitle: "Pré-visualização",
+    periodLabel,
+    includeResumo: false,
+    firstPageOnly: false,
+    qr: false,
+    qrCols: 4,
+    sections: [
+      {
+        cat,
+        name: schema.group,
+        color: PALETTE[cat] || "#6366f1",
+        grouped: true,
+        items: recs.map((r) => ({ ...describe(cat, r), ano: r.ano, tipo: r.tipo, path: r.path, url: linkOf(r) })),
+      },
+    ],
+    version,
+    onProgress,
+  });
+}
+
 export class ReportBuilder {
   constructor({ previewer, onLink, onEditProfile }) {
     this.previewer = previewer;
@@ -163,7 +219,7 @@ export class ReportBuilder {
   }
 
   saveOrder() {
-    api.setSetting(ORDER_KEY, { cats: this.catOrder, tipos: this.tipoOrder }).catch(() => {});
+    api.setSetting(ORDER_KEY, { cats: this.catOrder, tipos: this.tipoOrder }).catch(() => { });
   }
 
   applySel(sel, from, to, order) {
@@ -296,8 +352,8 @@ export class ReportBuilder {
                 <button type="button" class="rb-preset" data-preset="tudo">📚 Tudo</button>
                 <button type="button" class="rb-preset" data-preset="nada">✕ Limpar</button>
                 ${this.presets
-                  .map((p, i) => `<span class="rb-preset saved"><button type="button" data-saved="${i}">⭐ ${escapeHtml(p.name)}</button><button type="button" class="rm" data-rm-saved="${i}" title="Excluir modelo">&times;</button></span>`)
-                  .join("")}
+        .map((p, i) => `<span class="rb-preset saved"><button type="button" data-saved="${i}">⭐ ${escapeHtml(p.name)}</button><button type="button" class="rm" data-rm-saved="${i}" title="Excluir modelo">&times;</button></span>`)
+        .join("")}
                 <button type="button" class="rb-preset ghost" data-x="save-preset">+ Salvar seleção como modelo</button>
               </div>
             </div>
@@ -330,11 +386,11 @@ export class ReportBuilder {
             <div class="rb-fields-head"><span>Dados na capa</span><button type="button" class="rb-link" data-x="profile">✏️ Editar em Dados Gerais</button></div>
             <div class="rb-pfields">
               ${this.profileOptions()
-                .map(
-                  ([k, label, val]) => `<label class="rb-pf ${f.include[k] ? "on" : ""}" title="${escapeHtml(val)}"><input type="checkbox" data-inc="${escapeHtml(k)}" ${f.include[k] ? "checked" : ""}/>
+        .map(
+          ([k, label, val]) => `<label class="rb-pf ${f.include[k] ? "on" : ""}" title="${escapeHtml(val)}"><input type="checkbox" data-inc="${escapeHtml(k)}" ${f.include[k] ? "checked" : ""}/>
                   <span><b>${escapeHtml(label)}</b><small>${escapeHtml(val)}</small></span></label>`
-                )
-                .join("") || '<div class="muted" style="font-size:12px">Nenhum dado no perfil. Preencha em Dados Gerais.</div>'}
+        )
+        .join("") || '<div class="muted" style="font-size: calc(12px * var(--font-scale, 1))">Nenhum dado no perfil. Preencha em Dados Gerais.</div>'}
             </div>
             <label class="rb-switch ${f.resumo ? "" : "disabled"}"><input type="checkbox" data-f="includeResumo" ${f.includeResumo && f.resumo ? "checked" : ""} ${f.resumo ? "" : "disabled"}/><i></i>
               <span>Incluir página com o resumo do CV${f.resumo ? "" : " (não encontrado no XML)"}</span></label>
@@ -343,11 +399,10 @@ export class ReportBuilder {
             <label class="rb-switch"><input type="checkbox" data-qr ${f.qr ? "checked" : ""}/><i></i>
               <span>Gerar QR codes dos links</span></label>
             <div class="rb-qr ${f.qr ? "open" : ""}"><div class="rb-qr-inner">
-              <p class="rb-qr-note">${
-                nLinks
-                  ? `Seção no fim do PDF com ${nLinks} QR code(s), agrupados em ${nLinkSecs} ${nLinkSecs === 1 ? "seção" : "seções"}. Só entram itens com DOI ou endereço http(s).`
-                  : "Nenhum item das seções escolhidas tem DOI ou endereço http(s); a seção de QR codes não será incluída."
-              }</p>
+              <p class="rb-qr-note">${nLinks
+        ? `Seção no fim do PDF com ${nLinks} QR code(s), agrupados em ${nLinkSecs} ${nLinkSecs === 1 ? "seção" : "seções"}. Só entram itens com DOI ou endereço http(s).`
+        : "Nenhum item das seções escolhidas tem DOI ou endereço http(s); a seção de QR codes não será incluída."
+      }</p>
               <div class="rb-qr-cols"><span>Colunas da grade</span>
                 <div class="seg">${[3, 4, 5, 6].map((n) => `<button type="button" data-qrcols="${n}" class="${f.qrCols === n ? "on" : ""}">${n}</button>`).join("")}</div>
               </div>
@@ -359,7 +414,7 @@ export class ReportBuilder {
             </div>
             <div class="rb-summary">
               <div><b>${secs.length}</b><span>seções</span></div>
-              <div><b>${nItems}</b><span>itens</span></div>
+              <div><b>${nItems}</b><span>documentos</span></div>
               <div><b>${nFiles}</b><span>comprovantes</span></div>
             </div>
             ${nItems - nFiles > 0 ? `<div class="rb-note">⚠️ ${nItems - nFiles} item(ns) sem comprovante aparecerão na lista marcados como “sem comprovante”.
@@ -400,7 +455,7 @@ export class ReportBuilder {
     o.querySelectorAll("[data-rm-saved]").forEach((b) =>
       b.addEventListener("click", async () => {
         this.presets.splice(Number(b.dataset.rmSaved), 1);
-        await api.setSetting(PRESETS_KEY, this.presets).catch(() => {});
+        await api.setSetting(PRESETS_KEY, this.presets).catch(() => { });
         this.render();
       })
     );
@@ -562,7 +617,7 @@ export class ReportBuilder {
       return showToast(`Erro: ${e}`, "error");
     }
     if (!target) return;
-    api.setSetting(LAST_KEY, this.snapshot()).catch(() => {});
+    api.setSetting(LAST_KEY, this.snapshot()).catch(() => { });
 
     this.busy = true;
     const dlg = this.overlay.querySelector(".rb-dialog");

@@ -1,6 +1,6 @@
 // Subfolders Management Component
 
-import { escapeHtml, showToast } from "../utils.js";
+import { escapeHtml, showToast, displayGroupLabel } from "../utils.js";
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 
@@ -27,6 +27,20 @@ export class SubfoldersView {
     });
 
     this.form.addEventListener("submit", (e) => this.handleSubmitNewMapping(e));
+
+    this.container.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button[data-action='open-folder']");
+      if (!btn) return;
+      const folder = btn.dataset.folder;
+      if (folder) {
+        try {
+          await api.openFolder(folder);
+          showToast(`Abrindo pasta: ${folder}`, "info", 2000);
+        } catch (err) {
+          showToast(`Erro ao abrir pasta: ${err}`, "error");
+        }
+      }
+    });
   }
 
   setMappings(mappings) {
@@ -47,8 +61,8 @@ export class SubfoldersView {
     let html = `
       <div class="table-toolbar">
         <div style="display:flex; align-items:center; gap:12px;">
-          <span style="font-size:14px; font-weight:700; color:var(--text-primary);">Mapeamentos de Subpastas</span>
-          <span style="font-size:12px; color:var(--text-secondary);">${filtered.length} de ${this.mappings.length} pastas</span>
+          <span style="font-size: calc(14px * var(--font-scale, 1)); font-weight:700; color:var(--text-primary);">Mapeamentos de Subpastas</span>
+          <span style="font-size: calc(12px * var(--font-scale, 1)); color:var(--text-secondary);">${filtered.length} de ${this.mappings.length} pastas</span>
         </div>
 
         <div style="display:flex; align-items:center; gap:10px;">
@@ -59,7 +73,7 @@ export class SubfoldersView {
                 (g) =>
                   `<option value="${escapeHtml(g)}" ${
                     this.selectedGroup.toLowerCase() === g.toLowerCase() ? "selected" : ""
-                  }>${escapeHtml(g)}</option>`
+                  }>${escapeHtml(displayGroupLabel(g))}</option>`
               )
               .join("")}
           </select>
@@ -90,9 +104,9 @@ export class SubfoldersView {
                       (m) => `
               <tr data-id="${m.id}">
                 <td>${m.id}</td>
-                <td><span class="badge badge-tipo">${escapeHtml(m.category_group)}</span></td>
+                <td><span class="badge badge-tipo">${escapeHtml(displayGroupLabel(m.category_group))}</span></td>
                 <td><strong>${escapeHtml(m.description)}</strong></td>
-                <td><code style="font-family:var(--font-mono); color:#475569; font-size:12px;">${escapeHtml(m.folder)}</code></td>
+                <td><code style="font-family:var(--font-mono); font-size: calc(12px * var(--font-scale, 1)); background:var(--app-bg); padding:4px 8px; border-radius:4px; color:var(--text-primary); border:1px solid var(--border-light);">${escapeHtml(m.folder)}</code></td>
                 <td style="text-align: right;">
                   <button type="button" class="action-btn action-btn-primary" data-action="open-folder" data-folder="${escapeHtml(
                     m.folder
@@ -123,20 +137,6 @@ export class SubfoldersView {
     if (btnAdd) {
       btnAdd.addEventListener("click", () => this.openModal());
     }
-
-    this.container.addEventListener("click", async (e) => {
-      const btn = e.target.closest("button[data-action='open-folder']");
-      if (!btn) return;
-      const folder = btn.dataset.folder;
-      if (folder) {
-        try {
-          await api.openFolder(folder);
-          showToast(`Abrindo pasta: ${folder}`, "info", 2000);
-        } catch (err) {
-          showToast(`Erro ao abrir pasta: ${err}`, "error");
-        }
-      }
-    });
   }
 
   openModal() {

@@ -21,10 +21,11 @@ export const MODES = { light: "Claro", dark: "Escuro", system: "Automático", pa
 /** variantes: tema-base claro/escuro + tonalidade própria */
 const VARIANT_BASE = { papel: "light", grafite: "dark", oceano: "dark" };
 export const DENSITIES = { normal: "Confortável", compact: "Compacta" };
+export const FONT_SIZES = { xs: "Muito pequeno", sm: "Pequeno", md: "Médio (padrão)", lg: "Grande", xl: "Muito grande" };
 export const MOTION = { full: "Fluido", reduced: "Reduzido" };
 
 const KEY = "lattes.theme";
-const DEFAULT = { mode: "system", accent: "azul", density: "normal", motion: "full", easyClose: false };
+const DEFAULT = { mode: "system", accent: "azul", density: "normal", fontSize: "md", motion: "full", easyClose: false };
 const media = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
 export function getTheme() {
@@ -53,6 +54,7 @@ export function applyTheme(next) {
   const root = document.documentElement;
   root.dataset.theme = resolvedMode(t);
   root.dataset.density = t.density;
+  root.dataset.fontsize = t.fontSize || "md";
   root.dataset.variant = VARIANT_BASE[t.mode] ? t.mode : "";
   root.dataset.motion = t.motion || "full";
   const a = ACCENTS[t.accent] || ACCENTS.azul;

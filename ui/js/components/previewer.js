@@ -110,6 +110,68 @@ export class Previewer {
     this.show();
   }
 
+  /**
+   * Abre o visualizador mostrando o progresso da montagem de um PDF em memória.
+   * Devolve um token: `isActive(token)` fica falso se o usuário fechar ou abrir outra coisa.
+   */
+  openPending(title, subtitle = "") {
+    this.releaseBlob();
+    this.list = [];
+    this.index = -1;
+    this.current = null;
+    this.pendingToken = Symbol("pending");
+    this.filenameEl.textContent = title;
+    this.filepathEl.textContent = subtitle;
+    this.filepathEl.title = "";
+    this.counterEl.textContent = "–";
+    this.btnPrev.disabled = this.btnNext.disabled = true;
+    this.setFileActions(false);
+    this.drawer.classList.add("open");
+    this.backdrop.classList.toggle("on", this.drawer.classList.contains("expanded"));
+    this.syncDock();
+    this.contentEl.innerHTML = `<div class="viewer-loading viewer-building">
+        <div class="spinner"></div>
+        <p class="viewer-building-step">Carregando bibliotecas…</p>
+        <div class="viewer-building-bar"><div class="viewer-building-fill" style="width:0%"></div></div>
+      </div>`;
+    return this.pendingToken;
+  }
+
+  isActive(token) {
+    return Boolean(token) && this.pendingToken === token && this.isOpen();
+  }
+
+  setProgress(token, label, pct = null) {
+    if (!this.isActive(token)) return;
+    const step = this.contentEl.querySelector(".viewer-building-step");
+    const fill = this.contentEl.querySelector(".viewer-building-fill");
+    if (step) step.textContent = label;
+    if (fill && pct != null) fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  }
+
+  /** Mostra um PDF a partir dos bytes (blob: URL em memória — nenhum arquivo é gravado). */
+  openPdfBytes(bytes, title, subtitle = "") {
+    this.releaseBlob();
+    this.pendingToken = null;
+    this.blobUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    this.list = [{ id: "__blob", blobUrl: this.blobUrl, file: title, subtitle }];
+    this.index = 0;
+    this.show();
+  }
+
+  releaseBlob() {
+    if (this.blobUrl) URL.revokeObjectURL(this.blobUrl);
+    this.blobUrl = null;
+  }
+
+  /** 📂 e ↗ só fazem sentido para arquivos em disco. */
+  setFileActions(on) {
+    for (const id of ["btn-drawer-reveal", "btn-drawer-open-system"]) {
+      const b = document.getElementById(id);
+      if (b) b.disabled = !on;
+    }
+  }
+
   step(d) {
     if (this.list.length < 2) return;
     this.index = (this.index + d + this.list.length) % this.list.length;
@@ -118,6 +180,10 @@ export class Previewer {
 
   async show() {
     const rec = this.list[this.index];
+    if (rec.blobUrl) return this.showBlob(rec);
+    this.pendingToken = null;
+    if (this.blobUrl) this.releaseBlob();
+    this.setFileActions(true);
     const rel = rec.path || null;
     const name = rec.file || (rel || rec.absPath || "").split(/[\\/]/).pop() || "comprovante";
     this.current = { path: rel, absPath: rec.absPath || null, name };
@@ -155,6 +221,20 @@ export class Previewer {
     } else {
       this.renderFallback(name, rel, `Arquivos .${ext.toUpperCase()} não têm visualização interna.`);
     }
+  }
+
+  showBlob(rec) {
+    this.current = null;
+    this.filenameEl.textContent = rec.file;
+    this.filepathEl.textContent = rec.subtitle || "";
+    this.filepathEl.title = "";
+    this.counterEl.textContent = "1 / 1";
+    this.btnPrev.disabled = this.btnNext.disabled = true;
+    this.setFileActions(false);
+    this.drawer.classList.add("open");
+    this.backdrop.classList.toggle("on", this.drawer.classList.contains("expanded"));
+    this.syncDock();
+    this.contentEl.innerHTML = `<iframe class="viewer-pdf" src="${escapeHtml(rec.blobUrl)}#view=FitH" title="${escapeHtml(rec.file)}"></iframe>`;
   }
 
   renderImage(url, name) {
@@ -239,7 +319,7 @@ export class Previewer {
         <div class="preview-fallback-icon">⚠️</div>
         <h3 class="preview-fallback-title">Arquivo não encontrado</h3>
         <p class="preview-fallback-desc">O comprovante <b>${escapeHtml(name)}</b> está registrado, mas não existe mais no disco.<br><code>${escapeHtml(rel || "")}</code></p>
-        <p class="preview-fallback-desc muted" style="font-size:11px">${escapeHtml(err)}</p>
+        <p class="preview-fallback-desc muted" style="font-size: calc(11px * var(--font-scale, 1))">${escapeHtml(err)}</p>
       </div>`;
   }
 
@@ -266,6 +346,9 @@ export class Previewer {
     this.syncDock();
     this.contentEl.innerHTML = "";
     this.current = null;
+    this.pendingToken = null;
+    this.releaseBlob();
+    this.setFileActions(true);
   }
 
   async openInSystem() {

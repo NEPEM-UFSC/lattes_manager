@@ -13,16 +13,18 @@ fn table_of(category: &str) -> Option<&'static str> {
     }
 }
 
-/// Preenche `url` nos registros: a coluna existe em todas as tabelas, mas não nos structs de cada uma.
+/// Preenche `url` nos registros: mantida como fallback quando `url` ainda não foi carregada.
 pub fn fill_urls(conn: &Connection, category: &str, recs: &mut [RecordDto]) -> Result<()> {
     let Some(table) = table_of(category) else { return Ok(()) };
-    if recs.is_empty() {
+    if recs.is_empty() || recs.iter().all(|r| r.url.is_some()) {
         return Ok(());
     }
     let mut st = conn.prepare(&format!("SELECT id, url FROM {} WHERE url IS NOT NULL AND url <> ''", table))?;
     let urls: HashMap<i64, String> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_>>()?;
     for r in recs.iter_mut() {
-        r.url = urls.get(&r.id).cloned();
+        if r.url.is_none() {
+            r.url = urls.get(&r.id).cloned();
+        }
     }
     Ok(())
 }
@@ -39,18 +41,6 @@ fn store_url(conn: &Connection, category: &str, id: i64, data: &Value) -> Result
 
 /// Fetches filtered records for a given category.
 pub fn get_records(
-    conn: &Connection,
-    category: &str,
-    search: Option<&str>,
-    year: Option<i64>,
-    tipo: Option<&str>,
-) -> Result<Vec<RecordDto>> {
-    let mut recs = get_records_base(conn, category, search, year, tipo)?;
-    fill_urls(conn, category, &mut recs)?;
-    Ok(recs)
-}
-
-fn get_records_base(
     conn: &Connection,
     category: &str,
     search: Option<&str>,
@@ -113,7 +103,7 @@ pub fn list_dadosgerais(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<DadosGeraisRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path FROM dadosgerais WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM dadosgerais WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -146,7 +136,7 @@ pub fn list_formacao(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<FormacaoRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path FROM formacao WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM formacao WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -179,7 +169,7 @@ pub fn list_encargos(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<EncargosRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path FROM encargos WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM encargos WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -212,7 +202,7 @@ pub fn list_disciplinas(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<DisciplinasRecord>> {
-    let mut sql = "SELECT id, ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path FROM disciplinas WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path, url FROM disciplinas WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -246,7 +236,7 @@ pub fn list_projetos(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<ProjetosRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path FROM projetos WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM projetos WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -279,7 +269,7 @@ pub fn list_producoes(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<ProducoesRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path FROM producoes WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url FROM producoes WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -313,7 +303,7 @@ pub fn list_patentes(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<PatentesRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path FROM patentes WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM patentes WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -346,7 +336,7 @@ pub fn list_eventos(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<EventosRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path FROM eventos WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM eventos WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -379,7 +369,7 @@ pub fn list_orientacoes(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<OrientacoesRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path FROM orientacoes WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM orientacoes WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -413,7 +403,7 @@ pub fn list_bancas(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<BancasRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path FROM bancas WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM bancas WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -472,17 +462,27 @@ pub fn add_subfolder_mapping(conn: &Connection, group: &str, description: &str, 
 /// App statistics
 pub fn get_app_stats(conn: &Connection, db_path: &str) -> Result<AppStatsDto> {
     let mut counts = HashMap::new();
+    let mut with_file = HashMap::new();
     let mut total_records: i64 = 0;
 
     for table in ENTITY_TABLES {
-        let count: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |r| r.get(0))?;
+        let (count, wf): (i64, i64) = conn.query_row(
+            &format!(
+                "SELECT COUNT(*), COUNT(CASE WHEN path IS NOT NULL AND TRIM(path) <> '' THEN 1 END) FROM {}",
+                table
+            ),
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
         counts.insert(table.to_string(), count);
+        with_file.insert(table.to_string(), wf);
         total_records += count;
     }
 
-    for c in crate::custom::list_categories(conn).unwrap_or_default() {
-        total_records += c.count;
-        counts.insert(c.key, c.count);
+    for (key, (count, wf)) in crate::custom::counts_with_files(conn) {
+        total_records += count;
+        counts.insert(key.clone(), count);
+        with_file.insert(key, wf);
     }
 
     let total_mappings: i64 = conn.query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0))?;
@@ -490,6 +490,7 @@ pub fn get_app_stats(conn: &Connection, db_path: &str) -> Result<AppStatsDto> {
     Ok(AppStatsDto {
         total_records,
         counts_by_category: counts,
+        with_file_by_category: with_file,
         total_mappings,
         db_path: db_path.to_string(),
     })
@@ -525,13 +526,6 @@ pub fn json_i64(val: &Value, key: &str) -> Option<i64> {
 }
 
 pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<RecordDto> {
-    let mut rec = [get_record_by_id_base(conn, category, id)?];
-    fill_urls(conn, category, &mut rec)?;
-    let [rec] = rec;
-    Ok(rec)
-}
-
-fn get_record_by_id_base(conn: &Connection, category: &str, id: i64) -> Result<RecordDto> {
     if crate::custom::is_custom(category) {
         return crate::custom::get(conn, category, id);
     }
@@ -539,61 +533,61 @@ fn get_record_by_id_base(conn: &Connection, category: &str, id: i64) -> Result<R
     match norm {
         "dadosgerais" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path FROM dadosgerais WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM dadosgerais WHERE id = ?1",
             )?;
             stmt.query_row([id], DadosGeraisRecord::from_row).map(Into::into)
         }
         "formacao" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path FROM formacao WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM formacao WHERE id = ?1",
             )?;
             stmt.query_row([id], FormacaoRecord::from_row).map(Into::into)
         }
         "encargos" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path FROM encargos WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM encargos WHERE id = ?1",
             )?;
             stmt.query_row([id], EncargosRecord::from_row).map(Into::into)
         }
         "disciplinas" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path FROM disciplinas WHERE id = ?1",
+                "SELECT id, ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path, url FROM disciplinas WHERE id = ?1",
             )?;
             stmt.query_row([id], DisciplinasRecord::from_row).map(Into::into)
         }
         "projetos" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path FROM projetos WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM projetos WHERE id = ?1",
             )?;
             stmt.query_row([id], ProjetosRecord::from_row).map(Into::into)
         }
         "producoes" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path FROM producoes WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url FROM producoes WHERE id = ?1",
             )?;
             stmt.query_row([id], ProducoesRecord::from_row).map(Into::into)
         }
         "patentes" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path FROM patentes WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM patentes WHERE id = ?1",
             )?;
             stmt.query_row([id], PatentesRecord::from_row).map(Into::into)
         }
         "eventos" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path FROM eventos WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM eventos WHERE id = ?1",
             )?;
             stmt.query_row([id], EventosRecord::from_row).map(Into::into)
         }
         "orientacoes" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path FROM orientacoes WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM orientacoes WHERE id = ?1",
             )?;
             stmt.query_row([id], OrientacoesRecord::from_row).map(Into::into)
         }
         "bancas" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path FROM bancas WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM bancas WHERE id = ?1",
             )?;
             stmt.query_row([id], BancasRecord::from_row).map(Into::into)
         }

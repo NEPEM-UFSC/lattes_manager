@@ -4,16 +4,62 @@ import { api } from "../api.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 
 // ---------- formatação de textos ----------
-const LOWER_PT = new Set(["a", "à", "ao", "aos", "as", "às", "com", "da", "das", "de", "do", "dos", "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para", "pela", "pelas", "pelo", "pelos", "por", "sem", "sob", "sobre", "um", "uma", "y", "del", "la", "van", "von", "der", "di", "du", "le"]);
+const LOWER_PT = new Set(["a", "à", "ao", "aos", "as", "às", "com", "da", "das", "de", "do", "dos", "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para", "pela", "pelas", "pelo", "pelos", "por", "sem", "sob", "sobre", "um", "uma", "entre", "após", "contra", "y", "del", "la", "van", "von", "der", "di", "du", "le"]);
 const LOWER_EN = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "nor", "of", "on", "or", "over", "the", "to", "via", "with", "vs"]);
-const ROMAN = /^(i{1,3}|iv|v|vi{0,3}|ix|x{1,3})$/i;
+const ROMAN = /^(?:xl|x{1,3}(?:ix|iv|v?i{0,3})?|(?:ix|iv|v?i{1,3}|v))$/i;
+
+const ACRONYMS = {
+  ufsc: "UFSC", ufsm: "UFSM", udesc: "UDESC", unesp: "UNESP", usp: "USP",
+  ufrgs: "UFRGS", ufs: "UFS", utfpr: "UTFPR", ufv: "UFV", ufpel: "UFPel",
+  ufg: "UFG", ufms: "UFMS", ufmt: "UFMT", ufpr: "UFPR", ufrpe: "UFRPE",
+  unideau: "UNIDEAU", ideau: "IDEAU", cnpq: "CNPq", capes: "CAPES",
+  fapesc: "FAPESC", fapergs: "FAPERGS", fapesp: "FAPESP", fapemig: "FAPEMIG",
+  inpi: "INPI", ibge: "IBGE", embrapa: "Embrapa", epagri: "Epagri",
+  rbras: "RBras", seagro: "SEAGRO", sepe: "SEPE", sepex: "SEPEX",
+  sica: "SICA", combraf: "COMBRAF", cbmp: "CBMP", sbmp: "SBMP", rbmp: "RBMP",
+  sbpc: "SBPC", sodebras: "SODEBRAS", rbas: "RBAS", geafip: "GEAFIP",
+  ccr: "CCR", dcaa: "DCAA", gems: "GEMS", "gems-r": "GEMS-R", sigpex: "SIGPEX",
+  pdse: "PDSE", rgv: "RGV", moop: "MOOP", tbm: "TBM", gamlss: "GAMLSS",
+  anova: "ANOVA", reml: "REML", blup: "BLUP", ammi: "AMMI", mgidi: "MGIDI",
+  waasb: "WAASB", waas: "WAAS", "fai-blup": "FAI-BLUP", mtsi: "MTSI",
+  mgdii: "MGDII", spad: "SPAD", dgci: "DGCI", rgb: "RGB", vant: "VANT",
+  uav: "UAV", qtl: "QTL", gwas: "GWAS", dna: "DNA", rna: "RNA", pcr: "PCR",
+  ieee: "IEEE", acm: "ACM", plos: "PLOS", bmc: "BMC", csa: "CSA",
+  tcc: "TCC", ic: "IC", ppg: "PPG", app: "APP", ai: "AI", ia: "IA",
+  ml: "ML", iot: "IoT",
+};
+
+const KEEP_PROPER = new Set([
+  "Brasil", "Brazil", "Southern", "Santa", "Catarina", "Rio", "Grande", "Sul", "Paraná", "São", "Paulo",
+  "Minas", "Gerais", "Goiás", "Bahia", "Sergipe", "Luís", "Eduardo", "Magalhães", "Florianópolis",
+  "Frederico", "Westphalen", "Jacutinga", "Getúlio", "Vargas", "Barra", "Azul", "Cacique", "Doble",
+  "Oeste", "Paulista", "Sicredi", "Sucupira", "Tiago", "Olivoto", "Poatã", "Estrada", "Secretaria", "Municipal",
+  "Encontro", "Nacional", "ImageR", "Pliman", "Metan", "McGLM", "Rotella", "Benefarm", "Ativa", "Gaussian",
+  "Pearson's", "Gower's",
+  "Linum", "Glycine", "Avena", "Triticum", "Zea", "Phaseolus", "Sclerotinia", "Azospirillum", "Trichoderma",
+  "Thricoderma", "Spodoptera", "Humulus", "Allium", "Cucurbita", "Capsicum", "Fragaria", "Medicago",
+  "Cymopsis", "Brachiaria", "Urochloa", "Brassica", "Hordeum", "Secale", "Oryza", "Solanum", "Ipomoea",
+]);
+
+const ABBREV_DOT_RE = /(?:\b(?:L|sp|spp|var|cv|subsp|Jr|Sr|Dr|Prof|Inc|Ltd|Co|et al|etc|org|ed|vol|fig|tab|cap|art|no|n|p|pp)|(?:^|[(\s])[A-Z])\.$/i;
+const CAMEL_RE = /^(?:[A-Z]+[a-z]+[A-Z]|[a-z]+[A-Z])[A-Za-z0-9À-ÿ]*$/;
+const CAP_PREP_WORDS = new Set(["De", "Da", "Do", "Dos", "Das", "Pelo", "Pela", "Para", "Com", "Em"]);
+
+function capFirst(w) {
+  return w ? w[0].toLocaleUpperCase("pt-BR") + w.slice(1) : w;
+}
+
+function splitToken(w) {
+  const m = w.match(/^([^\p{L}\p{N}]*)(.*?)([^\p{L}\p{N}]*)$/u);
+  return m ? [m[1], m[2], m[3]] : ["", w, ""];
+}
 
 function capWord(w) {
   if (!w) return w;
   // palavras com hífen: Mato-Grossense
   return w
     .split("-")
-    .map((p) => (p ? p[0].toLocaleUpperCase("pt-BR") + p.slice(1) : p))
+    .map((p) => capFirst(p))
     .join("-");
 }
 
@@ -32,29 +78,254 @@ export function titleCaseName(s) {
     .join(" ");
 }
 
-/** Títulos de periódico: "JOURNAL OF PHYTOPATHOLOGY" → "Journal of Phytopathology" (siglas curtas mantidas). */
+function fixJournalToken(w, i, forceCap, allUpper) {
+  if (!allUpper && /^\(online\)$/.test(w)) return w;
+  const [pre, core, post] = splitToken(w);
+  if (!core) return w;
+  const low = core.toLocaleLowerCase("pt-BR");
+  if (core.includes("/")) {
+    const sub = core.split("/").map((p) => {
+      const lp = p.toLocaleLowerCase("pt-BR");
+      if (ACRONYMS[lp]) return ACRONYMS[lp];
+      if (!allUpper && p.length >= 2 && p === p.toLocaleUpperCase("pt-BR") && /\p{L}/u.test(p)) return p;
+      if (forceCap || (!allUpper && p[0] && p[0] === p[0].toLocaleUpperCase("pt-BR") && p[0] !== p[0].toLocaleLowerCase("pt-BR"))) {
+        return capFirst(lp);
+      }
+      if (LOWER_PT.has(lp) || LOWER_EN.has(lp)) return lp;
+      return capFirst(lp);
+    });
+    return pre + sub.join("/") + post;
+  }
+  if (ACRONYMS[low]) return pre + ACRONYMS[low] + post;
+  if (ROMAN.test(core) && (core.length >= 2 || i === 0 || allUpper)) return pre + core.toUpperCase() + post;
+  if (!allUpper && core.length >= 2 && core === core.toLocaleUpperCase("pt-BR") && /^\p{L}+$/u.test(core)) return w;
+  if (i > 0 && !forceCap && (LOWER_PT.has(low) || LOWER_EN.has(low))) return pre + low + post;
+  if (core.includes("-")) {
+    const hy = core.split("-").map((hp, hi) => {
+      const hl = hp.toLocaleLowerCase("pt-BR");
+      if (ACRONYMS[hl]) return ACRONYMS[hl];
+      if (!allUpper && hp.length >= 2 && hp === hp.toLocaleUpperCase("pt-BR") && /^\p{L}+$/u.test(hp)) return hp;
+      if (hi > 0 && (LOWER_PT.has(hl) || LOWER_EN.has(hl))) return hl;
+      return capFirst(hl);
+    });
+    return pre + hy.join("-") + post;
+  }
+  return pre + capFirst(low) + post;
+}
+
+/** Títulos de periódico: "JOURNAL OF PHYTOPATHOLOGY" → "Journal of Phytopathology" (siglas preservadas). */
 export function titleCaseJournal(s) {
-  const words = String(s || "").trim().replace(/\s+/g, " ").split(" ");
-  const allUpper = words.join("") === words.join("").toUpperCase();
+  const t = String(s || "").trim().replace(/\s+/g, " ");
+  if (!t) return t;
+  const words = t.split(" ");
+  if (words.length === 1 && t === t.toLocaleUpperCase("pt-BR") && t.split("-").every((p) => ACRONYMS[p.toLocaleLowerCase("pt-BR")] || p.length <= 6)) {
+    return t;
+  }
+  const letters = [...t].filter((ch) => /\p{L}/u.test(ch));
+  const allUpper = letters.length > 0 && letters.every((ch) => ch === ch.toLocaleUpperCase("pt-BR"));
   return words
     .map((w, i) => {
-      const bare = w.replace(/[^\p{L}]/gu, "");
-      if (!allUpper && bare.length >= 2 && bare === bare.toUpperCase()) return w; // sigla (IEEE, SBPC)
-      if (allUpper && bare.length <= 4 && /^(IEEE|ACM|SBPC|CNPQ|UFSC|USP|PLOS|BMC|RBMP|SBMP)$/i.test(bare)) return w.toUpperCase();
-      const l = w.toLocaleLowerCase("pt-BR");
-      if (i > 0 && (LOWER_PT.has(l) || LOWER_EN.has(l))) return l;
-      return capWord(l);
+      const prev = i > 0 ? words[i - 1] : "";
+      const forceCap = i === 0 || prev.endsWith(":") || ["-", "–", "—"].includes(prev);
+      return fixJournalToken(w, i, forceCap, allUpper);
     })
     .join(" ");
 }
 
-/** Sentence case: só a 1ª letra (e siglas/nomes científicos em maiúsculas preservados se misto). */
+/** Normaliza siglas, algarismos romanos e preposições capitalizadas sem forçar Title Case em descrições em frase. */
+function normalizeAcronymsAndPreps(s) {
+  const t = String(s || "").trim().replace(/\s+/g, " ");
+  if (!t || isUpperText(t)) return s;
+  const words = t.split(" ");
+  if (words.length === 1 && t === t.toLocaleUpperCase("pt-BR")) return s;
+  return words
+    .map((w, i) => {
+      const [pre, core, post] = splitToken(w);
+      if (!core) return w;
+      if (core.includes("/")) {
+        const sub = core.split("/").map((p) => ACRONYMS[p.toLocaleLowerCase("pt-BR")] || p);
+        return pre + sub.join("/") + post;
+      }
+      const low = core.toLocaleLowerCase("pt-BR");
+      // Evita alterar termos ambíguos se já minúsculos como palavra comum no meio de frase (ex.: ia, ml)
+      if (ACRONYMS[low] && !(core === low && ["ia", "ml", "ai"].includes(low))) {
+        return pre + ACRONYMS[low] + post;
+      }
+      if (ROMAN.test(core) && core.length >= 2 && /[A-Z]/.test(core)) {
+        return pre + core.toUpperCase() + post;
+      }
+      const prev = i > 0 ? words[i - 1] : "";
+      const afterBreak = i === 0 || /[:.!?]$/.test(prev) || ["-", "–", "—"].includes(prev);
+      if (!afterBreak && CAP_PREP_WORDS.has(core)) {
+        return pre + low + post;
+      }
+      return w;
+    })
+    .join(" ");
+}
+
+/** Sentence case: só a 1ª letra (e siglas/nomes científicos preservados se misto). */
 export function sentenceCase(s) {
   const t = String(s || "").trim().replace(/\s+/g, " ");
   if (!t) return t;
   const isUpper = t === t.toUpperCase();
   const body = isUpper ? t.toLocaleLowerCase("pt-BR") : t;
   return body[0].toLocaleUpperCase("pt-BR") + body.slice(1);
+}
+
+function isUpperSegment(seg) {
+  const s = String(seg || "").trim();
+  if (!s || s !== s.toLocaleUpperCase("pt-BR")) return false;
+  const alphaWords = s
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}]/gu, ""))
+    .filter((w) => w.length >= 2);
+  if (alphaWords.length < 2) return false;
+  const nonAcroLong = alphaWords.filter((w) => w.length >= 4 && !ACRONYMS[w.toLocaleLowerCase("pt-BR")]);
+  return nonAcroLong.length >= 1;
+}
+
+/** Detecta textos inteiramente em MAIÚSCULAS ou com segmento relevante em MAIÚSCULAS. */
+export function isUpperText(s) {
+  const t = String(s || "").trim();
+  if (!t) return false;
+  if (isUpperSegment(t)) return true;
+  return t.split(/[:–—]|\s-\s/).some((seg) => isUpperSegment(seg));
+}
+
+function smartSentenceSegment(seg) {
+  const s = String(seg || "").trim().replace(/\s+/g, " ");
+  if (!s) return s;
+  const words = s.split(" ");
+  const res = words
+    .map((w, i) => {
+      const [pre, core, post] = splitToken(w);
+      if (!core) return w;
+      const low = core.toLocaleLowerCase("pt-BR");
+      let tok;
+      if (ACRONYMS[low]) {
+        tok = ACRONYMS[low];
+      } else if (core.includes("-") && core.split("-").every((p) => !p || ACRONYMS[p.toLocaleLowerCase("pt-BR")])) {
+        tok = core
+          .split("-")
+          .map((p) => (p ? ACRONYMS[p.toLocaleLowerCase("pt-BR")] : p))
+          .join("-");
+      } else if (ROMAN.test(core) && (i === 0 || core.length >= 2)) {
+        tok = core.toUpperCase();
+      } else if (core.length === 1 && core.toUpperCase() === "R" && i > 0) {
+        tok = "R";
+      } else {
+        tok = i === 0 ? capFirst(low) : low;
+      }
+      return pre + tok + post;
+    })
+    .join(" ");
+  return res ? res[0].toLocaleUpperCase("pt-BR") + res.slice(1) : res;
+}
+
+/** Formata textos em MAIÚSCULAS preservando siglas, algarismos romanos e nomes de eventos. */
+export function formatUpperText(s, cat = "") {
+  if (!isUpperText(s)) return s;
+  const t = String(s).trim().replace(/\s+/g, " ");
+  if (cat === "eventos" && isUpperSegment(t)) return titleCaseJournal(t);
+  if (t.includes(": ")) {
+    const parts = t.split(": ");
+    const wholeUpper = isUpperSegment(t);
+    return parts
+      .map((p, idx) => (wholeUpper || isUpperSegment(p) || idx > 0 ? smartSentenceSegment(p) : p))
+      .join(": ");
+  }
+  return smartSentenceSegment(t);
+}
+
+/** Converte títulos em Title Case (Iniciais Maiúsculas) para Sentence case com preservação contextual. */
+export function titleCaseToSentence(s) {
+  const t = String(s || "").trim().replace(/\s+/g, " ");
+  if (!t || t === t.toLocaleUpperCase("pt-BR")) return s;
+  const words = t.split(" ");
+  if (words.length < 5) return s;
+  if (/^(Defesa de|Qualificação de|Monitoria\s|Banca\s|Estágio Supervisionado|Comissão\s|Seleção\s|Supervisão\s|Programa Poatã|Site pessoal)/i.test(t)) {
+    return s;
+  }
+  const contentAfter = [];
+  const capAfter = [];
+  for (let i = 1; i < words.length; i++) {
+    const prev = words[i - 1];
+    if (/[:!?]$/.test(prev) || ["-", "–", "—"].includes(prev) || (prev.endsWith(".") && !ABBREV_DOT_RE.test(prev))) continue;
+    const bare = words[i].replace(/[^\p{L}\p{N}']/gu, "");
+    const low = bare.toLocaleLowerCase("pt-BR");
+    if (bare.length < 4 || LOWER_PT.has(low) || LOWER_EN.has(low) || bare === bare.toLocaleUpperCase("pt-BR")) continue;
+    if (KEEP_PROPER.has(bare) || CAMEL_RE.test(bare) || /^[A-Z]+\d+/.test(bare)) continue;
+    contentAfter.push(bare);
+    if (bare[0] && bare[0] === bare[0].toLocaleUpperCase("pt-BR") && bare[0] !== bare[0].toLocaleLowerCase("pt-BR")) {
+      capAfter.push(bare);
+    }
+  }
+  if (contentAfter.length < 3 || capAfter.length / contentAfter.length < 0.55) return s;
+
+  return words
+    .map((w, i) => {
+      const prev = i > 0 ? words[i - 1] : "";
+      const startClause = i === 0 || /[:!?]$/.test(prev) || ["-", "–", "—"].includes(prev) || (prev.endsWith(".") && !ABBREV_DOT_RE.test(prev));
+      const [pre, core, post] = splitToken(w);
+      if (!core) return w;
+      const low = core.toLocaleLowerCase("pt-BR");
+      let tok;
+      if (core.length >= 2 && core === core.toLocaleUpperCase("pt-BR") && /\p{L}/u.test(core)) {
+        tok = core;
+      } else if (ACRONYMS[low] && !(core === low && ["ia", "ml", "ai"].includes(low))) {
+        tok = ACRONYMS[low];
+      } else if (KEEP_PROPER.has(core) || CAMEL_RE.test(core) || /^[A-Z]+\d+/.test(core)) {
+        tok = core;
+      } else if (core.length === 1 && (core === "R" || core === "I" || (core === "L" && post.startsWith(".")))) {
+        tok = core;
+      } else if (ROMAN.test(core) && core.length >= 2) {
+        tok = core.toUpperCase();
+      } else if (core.includes("-")) {
+        tok = core
+          .split("-")
+          .map((p, pi) => {
+            if (!p) return p;
+            const pl = p.toLocaleLowerCase("pt-BR");
+            if (p.length >= 2 && p === p.toLocaleUpperCase("pt-BR") && /\p{L}/u.test(p)) return p;
+            if (ACRONYMS[pl] && !(p === pl && ["ia", "ml", "ai"].includes(pl))) return ACRONYMS[pl];
+            if (KEEP_PROPER.has(p) || CAMEL_RE.test(p)) return p;
+            return pi === 0 && startClause ? capFirst(pl) : pl;
+          })
+          .join("-");
+      } else {
+        tok = startClause ? capFirst(low) : low;
+      }
+      return pre + tok + post;
+    })
+    .join(" ");
+}
+
+/** Limpa espaços, pontuação sobrando, traços assimétricos e siglas minúsculas comuns. */
+export function cleanSpacesAndPunct(s) {
+  let t = String(s || "");
+  if (!t.trim()) return s;
+  t = t
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s+([,.;:?!)\]])/g, "$1")
+    .replace(/([(\[])\s+/g, "$1")
+    .replace(/([,;])([\p{L}])/gu, "$1 $2")
+    .replace(/\s+-([\p{L}]{2,})/gu, " - $1")
+    .replace(/\b(de|em|para|por):\s+/gi, "$1 ");
+  if (t.endsWith("'") && (t.match(/'/g) || []).length === 1) {
+    t = t.slice(0, -1).trim();
+  }
+  if (/[,;:]\s*$/.test(t)) {
+    t = t.replace(/[,;:]+\s*$/, "").trim();
+  } else if (t.endsWith(".") && !ABBREV_DOT_RE.test(t)) {
+    t = t.slice(0, -1).trim();
+  }
+  t = t
+    .replace(/\bai-based\b/gi, "AI-based")
+    .replace(/\bimagens aéreas rgb\b/gi, "imagens aéreas RGB")
+    .replace(/\(app\)/gi, "(APP)");
+  return t;
 }
 
 /** "Tiago Olivoto" → "OLIVOTO, T." (ABNT) */
@@ -248,25 +519,77 @@ export class ToolsView {
     if (!st.data) {
       this.shell("Padronizar textos dos registros", "Carregando…", `<div class="loading-state" style="display:flex"><div class="spinner"></div></div>`);
       st.data = await api.getAllRecords();
-      st.target ||= "aluno";
+      st.target ||= "todos";
     }
-    const TARGETS = {
-      aluno: ["Nomes de orientandos e candidatos", ["orientacoes", "bancas"], "aluno", titleCaseName],
-      journal: ["Periódicos / eventos", ["producoes"], "journal", titleCaseJournal],
-      titulo_upper: ["Títulos em MAIÚSCULAS", Object.keys(CATEGORY_SCHEMAS), "titulo", (s) => (s && s === s.toUpperCase() && /[A-Z]{4}/.test(s) ? sentenceCase(s) : s)],
-      espacos: ["Espaços e pontuação", Object.keys(CATEGORY_SCHEMAS), "*", (s) => String(s).replace(/\s+/g, " ").replace(/\s+([,.;:])/g, "$1").trim()],
+    const allCats = Array.from(new Set([...Object.keys(CATEGORY_SCHEMAS), ...Object.keys(st.data || {})]));
+    const ALL_TEXT_FIELDS = ["titulo", "descricao", "aluno", "journal", "disciplina", "curso"];
+    const UPPER_FIELDS = ["titulo", "descricao", "disciplina", "curso"];
+    const INICIAIS_CATS = allCats.filter((c) => c !== "eventos" && c !== "disciplinas");
+    const FIELD_LABELS = {
+      titulo: "Título",
+      descricao: "Descrição",
+      journal: "Periódico / Evento",
+      disciplina: "Disciplina",
+      curso: "Curso",
+      aluno: "Orientando / Candidato",
     };
-    const [label, cats, field, fn] = TARGETS[st.target];
-    const fields = field === "*" ? ["titulo", "descricao", "aluno", "journal", "disciplina", "curso"] : [field];
-    const changes = [];
-    for (const c of cats)
-      for (const r of st.data[c] || [])
-        for (const f of fields) {
-          const v = r[f];
-          if (typeof v !== "string" || !v.trim()) continue;
-          const nv = fn(v);
-          if (nv && nv !== v) changes.push({ c, id: r.id, f, v, nv });
+
+    const transformField = (cat, field, val, mode) => {
+      if (mode === "espacos") return cleanSpacesAndPunct(val);
+      if (mode === "titulo_upper") return UPPER_FIELDS.includes(field) ? formatUpperText(val, cat) : val;
+      if (mode === "iniciais") return INICIAIS_CATS.includes(cat) && (field === "titulo" || field === "descricao") ? titleCaseToSentence(val) : val;
+      if (mode === "journal") {
+        if (cat === "producoes" && field === "journal") return titleCaseJournal(val);
+        if (
+          (cat === "eventos" && field === "descricao") ||
+          (cat === "formacao" && field === "descricao") ||
+          (cat === "encargos" && field === "descricao") ||
+          (cat === "disciplinas" && (field === "disciplina" || field === "curso"))
+        ) {
+          return normalizeAcronymsAndPreps(val);
         }
+        return val;
+      }
+      if (mode === "aluno") return (cat === "orientacoes" || cat === "bancas") && field === "aluno" ? titleCaseName(val) : val;
+      if (mode === "todos") {
+        let cur = transformField(cat, field, val, "espacos");
+        cur = transformField(cat, field, cur, "titulo_upper");
+        cur = transformField(cat, field, cur, "journal");
+        cur = transformField(cat, field, cur, "iniciais");
+        cur = transformField(cat, field, cur, "aluno");
+        return cur;
+      }
+      return val;
+    };
+
+    const TARGETS = [
+      ["todos", "Todos"],
+      ["titulo_upper", "Títulos em MAIÚSCULAS"],
+      ["iniciais", "Iniciais Maiúsculas"],
+      ["journal", "Periódicos, eventos e cursos"],
+      ["espacos", "Espaços, pontuação e siglas"],
+      ["aluno", "Nomes de orientandos e candidatos"],
+    ];
+
+    const collectChanges = (mode) => {
+      const list = [];
+      for (const c of allCats) {
+        for (const r of st.data[c] || []) {
+          for (const f of ALL_TEXT_FIELDS) {
+            const v = r[f];
+            if (typeof v !== "string" || !v.trim()) continue;
+            const nv = transformField(c, f, v, mode);
+            if (nv && nv !== v) list.push({ c, id: r.id, f, v, nv });
+          }
+        }
+      }
+      return list;
+    };
+
+    const changesByTarget = Object.fromEntries(TARGETS.map(([k]) => [k, collectChanges(k)]));
+    if (!changesByTarget[st.target]) st.target = "todos";
+    const label = TARGETS.find(([k]) => k === st.target)[1];
+    const changes = changesByTarget[st.target];
     st.changes = changes;
     st.sel ||= new Set();
     if (st.lastTarget !== st.target) {
@@ -276,13 +599,13 @@ export class ToolsView {
     this.shell(
       "Padronizar textos dos registros",
       "Escolha o que padronizar, revise a prévia e aplique. Só os itens marcados são alterados.",
-      `<div class="seg tl-seg">${Object.entries(TARGETS).map(([k, [t]]) => `<button type="button" data-target="${k}" class="${st.target === k ? "on" : ""}">${t}</button>`).join("")}</div>
+      `<div class="seg tl-seg">${TARGETS.map(([k, t]) => `<button type="button" data-target="${k}" class="${st.target === k ? "on" : ""}">${escapeHtml(t)} <span class="tl-tab-cnt">${changesByTarget[k].length}</span></button>`).join("")}</div>
       ${changes.length
-        ? `<div class="tl-bar"><span><b>${changes.length}</b> alteração(ões) sugerida(s) · ${label}</span>
+        ? `<div class="tl-bar"><span><b>${changes.length}</b> alteração(ões) sugerida(s) · ${escapeHtml(label)}</span>
             <button type="button" class="btn btn-secondary btn-sm" data-all>Marcar/desmarcar todas</button>
             <button type="button" class="btn btn-primary btn-sm" data-apply>Aplicar ${st.sel.size} alteração(ões)</button></div>
-          <div class="tl-table"><table class="data-table"><thead><tr><th style="width:36px"></th><th style="width:140px">Categoria</th><th>Antes</th><th>Depois</th></tr></thead><tbody>
-          ${changes.slice(0, 400).map((x, i) => `<tr><td><input type="checkbox" data-i="${i}" ${st.sel.has(i) ? "checked" : ""}/></td><td><span class="badge badge-tipo">${escapeHtml(CATEGORY_SCHEMAS[x.c]?.group || x.c)}</span></td><td class="tl-old">${escapeHtml(x.v)}</td><td class="tl-new">${escapeHtml(x.nv)}</td></tr>`).join("")}
+          <div class="tl-table"><table class="data-table"><thead><tr><th style="width:36px"></th><th style="width:170px">Categoria</th><th>Antes</th><th>Depois</th></tr></thead><tbody>
+          ${changes.slice(0, 400).map((x, i) => `<tr><td><input type="checkbox" data-i="${i}" ${st.sel.has(i) ? "checked" : ""}/></td><td><span class="badge badge-tipo">${escapeHtml(CATEGORY_SCHEMAS[x.c]?.group || x.c)}</span><small class="tl-field-sub">${escapeHtml(FIELD_LABELS[x.f] || x.f)}</small></td><td class="tl-old">${escapeHtml(x.v)}</td><td class="tl-new">${escapeHtml(x.nv)}</td></tr>`).join("")}
           </tbody></table></div>`
         : `<div class="tl-empty">✅ Nada a padronizar em <b>${escapeHtml(label)}</b>.</div>`}`
     );
