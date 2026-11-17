@@ -125,8 +125,8 @@ fn set_file(conn: &Connection, cat: &str, id: i64, old_file: Option<&str>, file:
     }
     if file.is_none() && path.is_none() {
         let _ = conn.execute(
-            "DELETE FROM record_attachments WHERE table_name = ?1 AND record_id = ?2",
-            params![table, id],
+            "DELETE FROM record_attachments WHERE (category = ?1 OR category = ?2) AND record_id = ?3",
+            params![cat, table, id],
         );
     }
     Ok(())
@@ -253,21 +253,23 @@ pub fn clear_missing(conn: &Connection, root: &Path, items: &[MissingFile]) -> A
             res.erros.push(format!("{}: o arquivo existe — vínculo mantido", it.path));
             continue;
         }
-        let Some((table, _custom)) = table_for(&it.category) else {
+        let Some((table, custom)) = table_for(&it.category) else {
             res.erros.push(format!("#{}: categoria inválida", it.id));
             continue;
         };
+        let norm_path = it.path.trim().replace('/', "\\");
         let _ = conn.execute(
-            "DELETE FROM record_attachments WHERE table_name = ?1 AND record_id = ?2 AND path = ?3",
-            params![table, it.id, it.path],
+            "DELETE FROM record_attachments WHERE (category = ?1 OR category = ?2) AND record_id = ?3 AND (path = ?4 OR REPLACE(path, '/', '\\') = ?5)",
+            params![&it.category, &table, it.id, &it.path, &norm_path],
         );
         let old_file = std::path::Path::new(&it.path)
             .file_name()
             .and_then(|s| s.to_str())
             .map(String::from);
 
+        let att_cat = if custom { it.category.as_str() } else { table.as_str() };
         // Verifica se sobrou algum outro anexo válido em record_attachments
-        let remaining = crate::db::queries::get_attachments_for_record(conn, &table, it.id)
+        let remaining = crate::db::queries::get_attachments_for_record(conn, att_cat, it.id)
             .unwrap_or_default()
             .into_iter()
             .find(|a| crate::files::rel_join(root, &a.path).is_file());

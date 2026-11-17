@@ -204,17 +204,30 @@ export class Previewer {
     if (this.attTabsEl) {
       if (rec.id === "__blob" && this.previewModeOptions) {
         const firstOnly = Boolean(this.previewModeOptions.firstPageOnly);
+        const compress = Boolean(this.previewModeOptions.compress);
         this.attTabsEl.style.display = "flex";
         this.attTabsEl.innerHTML = `
-          <span style="font-size:11px; font-weight:600; color:var(--text-muted); margin-right:6px;">Incluir nos comprovantes:</span>
-          <button type="button" class="btn btn-xs ${!firstOnly ? "btn-primary" : "btn-secondary"}" data-preview-mode="full" style="font-size:11px; padding:3px 10px; border-radius:12px;">📚 Arquivo inteiro</button>
-          <button type="button" class="btn btn-xs ${firstOnly ? "btn-primary" : "btn-secondary"}" data-preview-mode="first" style="font-size:11px; padding:3px 10px; border-radius:12px;">📄 Somente 1ª página</button>
+          <span style="font-size:11px; font-weight:600; color:var(--text-muted); margin-right:4px;">Páginas:</span>
+          <button type="button" class="btn btn-xs ${!firstOnly ? "btn-primary" : "btn-secondary"}" data-preview-mode="full" style="font-size:11px; padding:3px 9px; border-radius:12px;">📚 Inteiro</button>
+          <button type="button" class="btn btn-xs ${firstOnly ? "btn-primary" : "btn-secondary"}" data-preview-mode="first" style="font-size:11px; padding:3px 9px; border-radius:12px;">📄 1ª pág.</button>
+          <span style="width:1px; height:16px; background:var(--border-color); margin:0 4px;"></span>
+          <span style="font-size:11px; font-weight:600; color:var(--text-muted); margin-right:4px;">Qualidade:</span>
+          <button type="button" class="btn btn-xs ${!compress ? "btn-primary" : "btn-secondary"}" data-preview-qual="high" style="font-size:11px; padding:3px 9px; border-radius:12px;">💎 Máxima</button>
+          <button type="button" class="btn btn-xs ${compress ? "btn-primary" : "btn-secondary"}" data-preview-qual="compact" style="font-size:11px; padding:3px 9px; border-radius:12px;">🗜️ Compactado</button>
         `;
         this.attTabsEl.querySelectorAll("[data-preview-mode]").forEach((btn) => {
           btn.addEventListener("click", () => {
             const wantFirst = btn.dataset.previewMode === "first";
-            if (wantFirst !== firstOnly && this.previewModeOptions?.onToggleFirstPage) {
-              this.previewModeOptions.onToggleFirstPage(wantFirst);
+            if (wantFirst !== firstOnly && this.previewModeOptions?.onToggle) {
+              this.previewModeOptions.onToggle({ firstPageOnly: wantFirst, compress });
+            }
+          });
+        });
+        this.attTabsEl.querySelectorAll("[data-preview-qual]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const wantCompress = btn.dataset.previewQual === "compact";
+            if (wantCompress !== compress && this.previewModeOptions?.onToggle) {
+              this.previewModeOptions.onToggle({ firstPageOnly: firstOnly, compress: wantCompress });
             }
           });
         });

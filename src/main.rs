@@ -60,6 +60,7 @@ fn main() {
             commands::remove_profile_photo,
             commands::select_save_path,
             commands::write_report,
+            commands::compress_pdf,
             commands::get_setting,
             commands::set_setting,
             commands::suggest_file_links,

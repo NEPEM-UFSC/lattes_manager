@@ -429,7 +429,9 @@ export async function buildReport(cfg) {
               });
             }
           } else if (["png", "jpg", "jpeg"].includes(ext)) {
-            const img = ext === "png" ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+            const img = cfg.compress
+              ? await doc.embedJpg(await compressImageBytes(bytes))
+              : ext === "png" ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
             addAttachmentPage(img, 0, it, s, 1, 1, true, sharedItems, attLabel);
           } else {
             throw new Error(`formato .${ext} não suportado`);
@@ -797,13 +799,45 @@ export async function buildReport(cfg) {
 
   cfg.onProgress && cfg.onProgress({ done: totalFiles, total: Math.max(1, totalFiles), label: "Finalizando PDF…" });
   await tick();
-  const bytes = await doc.save({ useObjectStreams: true });
+  const rawBytes = await doc.save({ useObjectStreams: true });
+  let bytes = rawBytes;
+  if (cfg.compress && api?.compressPdf) {
+    cfg.onProgress && cfg.onProgress({ done: totalFiles, total: Math.max(1, totalFiles), label: "Comprimindo imagens e objetos do PDF…" });
+    await tick();
+    try {
+      const comp = await api.compressPdf(rawBytes);
+      if (comp && comp.length > 100 && comp.length < rawBytes.length) {
+        bytes = comp;
+      }
+    } catch (e) {
+      console.warn("Compressão de PDF no backend falhou, mantendo original:", e);
+    }
+  }
   return { bytes, pages: pages.length, attached: totalFiles - failed.length, failed };
 }
 
 /** Endereço curto para o rodapé do cartão: sem protocolo; DOIs como "doi:10.…". */
 function shortUrl(url) {
   return url.replace(/^https?:\/\//i, "").replace(/^(dx\.)?doi\.org\//i, "doi:").replace(/\/$/, "");
+}
+
+/** Reduz imagens (PNG/JPG) para até 1500 px no lado maior e comprime em JPEG 72% quando o modo leve está ativo. */
+async function compressImageBytes(bytes, maxDim = 1500, quality = 0.72) {
+  const bmp = await createImageBitmap(new Blob([bytes]));
+  const ratio = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+  const outW = Math.max(1, Math.round(bmp.width * ratio));
+  const outH = Math.max(1, Math.round(bmp.height * ratio));
+  const c = document.createElement("canvas");
+  c.width = outW;
+  c.height = outH;
+  const g = c.getContext("2d");
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, outW, outH);
+  g.imageSmoothingQuality = "high";
+  g.drawImage(bmp, 0, 0, outW, outH);
+  bmp.close();
+  const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", quality));
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 /** Foto recortada em 3×4 (mesmo enquadramento da prévia) e reduzida a 720×960 px, em JPEG. */

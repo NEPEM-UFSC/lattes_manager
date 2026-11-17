@@ -12,6 +12,7 @@ pub mod migration;
 pub mod vassoura;
 pub mod diff;
 pub mod scholar;
+pub mod pdf_compress;
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};

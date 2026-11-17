@@ -123,7 +123,7 @@ export class ProfilePanel {
     this.onModeChange = onModeChange;
     this.p = null;
     this.photo = null;
-    this.mode = "both"; // both | records | profile
+    this.mode = "profile"; // records | profile
     this.recordsCount = 0;
     this.collapsed = false;
     this.photoMenuOpen = false;
@@ -222,9 +222,8 @@ export class ProfilePanel {
         </div>
         <div class="pf-mode-bar" role="toolbar" aria-label="Exibição de Dados Gerais">
           <div class="pf-mode-tabs" role="tablist">
-            <button type="button" role="tab" aria-selected="${this.mode === "both"}" class="pf-mode-tab ${this.mode === "both" ? "on" : ""}" data-pf-mode="both">📐 Ficha + Tabela</button>
-            <button type="button" role="tab" aria-selected="${this.mode === "records"}" class="pf-mode-tab ${this.mode === "records" ? "on" : ""}" data-pf-mode="records">📋 Tabela de Registros <span class="pf-rec-count">${this.recordsCount}</span></button>
             <button type="button" role="tab" aria-selected="${this.mode === "profile"}" class="pf-mode-tab ${this.mode === "profile" ? "on" : ""}" data-pf-mode="profile">👤 Ficha Cadastral <span class="pf-tab-count">${filled}/${PROFILE_FIELDS.length}</span></button>
+            <button type="button" role="tab" aria-selected="${this.mode === "records"}" class="pf-mode-tab ${this.mode === "records" ? "on" : ""}" data-pf-mode="records">📋 Tabela de Registros <span class="pf-rec-count">${this.recordsCount}</span></button>
           </div>
           <button type="button" class="btn btn-primary btn-sm pf-new-btn" data-pf="new-record">+ Novo Registro</button>
         </div>

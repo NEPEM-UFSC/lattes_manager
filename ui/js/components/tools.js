@@ -1533,8 +1533,8 @@ export class ToolsView {
       const r = await api.clearMissingLinks(selectedItems).catch((e) => ({ ok: 0, erros: [String(e)] }));
       showToast(`${r.ok} vínculo(s) removido(s)`, r.erros.length ? "error" : "success");
       const clearedSet = new Set(selectedItems.map(itemKey));
-      fc.ausentes = fc.ausentes.filter((x) => !clearedSet.has(itemKey(x)));
       for (const k of clearedSet) st.selectedKeys.delete(k);
+      st.fc = null;
       this.toolInvalidProofs();
       this.onChanged && this.onChanged();
     });
@@ -1584,7 +1584,8 @@ export class ToolsView {
           const r = await api.clearMissingLinks([item]).catch((e) => ({ ok: 0, erros: [String(e)] }));
           if (r.ok) {
             showToast(`Vínculo inválido removido do registro #${item.id}`, "success");
-            fc.ausentes = fc.ausentes.filter((x) => !(x.id === item.id && x.category === item.category && x.path === item.path));
+            st.selectedKeys.delete(itemKey(item));
+            st.fc = null;
             this.toolInvalidProofs();
             this.onChanged && this.onChanged();
           } else {
@@ -2194,6 +2195,7 @@ export class ToolsView {
     const isDoi = (s) => /^10\.\d{4,9}\//.test(String(s || "").trim());
     st.log ||= {};
     st.i ??= 0;
+    st.concurrency ??= 8;
 
     // Apenas documentos sem comprovante QUE POSSUEM DOI cadastrado entram na fila
     if (!st.snapshot) {
@@ -2239,9 +2241,12 @@ export class ToolsView {
           ` : ""}
 
           <div class="tl-bar" style="flex-wrap:wrap; gap:10px;">
-            <span style="font-size:12.5px; color:var(--text-secondary);">
-              Registros sem DOI não são incluídos nesta fila.
-            </span>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <span style="font-size:12px; color:var(--text-secondary);">Simultâneos:</span>
+              ${[5, 8, 10, 15].map((n) => `
+                <button type="button" class="btn btn-sm ${st.concurrency === n ? "btn-primary" : "btn-secondary"}" data-conc="${n}" ${running ? "disabled" : ""} style="font-size:11.5px; padding:3px 10px; border-radius:14px; min-width:38px;" title="Buscar até ${n} DOIs ao mesmo tempo">${n}x</button>
+              `).join("")}
+            </div>
             <div style="display:flex; gap:8px; align-items:center; margin-left:auto;">
               <span data-progress-label style="font-size:12px; color:var(--text-secondary);">
                 ${running ? `Processando ${st.i} de ${cands.length}…` : `${done} PDF(s) encontrado(s)`}
@@ -2262,7 +2267,7 @@ export class ToolsView {
               <td>${r.ano || "—"}</td>
               <td>${escapeHtml(r.titulo || "")}</td>
               <td class="mono" style="font-size:11.5px;">
-                <a href="https://doi.org/${encodeURIComponent(cleanDoi)}" target="_blank" rel="noopener" style="color:var(--primary); text-decoration:none;" title="Abrir DOI no navegador">${escapeHtml(cleanDoi)} 🌐</a>
+                <button type="button" data-open-doi="${escapeHtml(cleanDoi)}" style="background:none;border:0;padding:0;font:inherit;color:var(--primary);cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:2px;" title="Abrir DOI no navegador">${escapeHtml(cleanDoi)} 🌐</button>
               </td>
               <td class="tl-st ${l?.s || ""}" data-status-id="${r.id}">${renderRowStatus(r)}</td>
             </tr>`;
@@ -2270,6 +2275,19 @@ export class ToolsView {
           </tbody></table></div>
           <p class="dd-note">Dica: caso queira preencher DOIs que ainda não constam nos registros, use primeiro a ferramenta <b>Extrair DOI dos artigos</b>.</p>`
         : `<div class="tl-empty">✅ Todas as produções com DOI cadastrado já possuem comprovante na pasta de Produções.</div>`
+    );
+
+    this.el.querySelector(".tl-table")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-open-doi]");
+      if (btn) api.openDoi(btn.dataset.openDoi).catch((err) => showToast(`Erro ao abrir DOI: ${err}`, "error"));
+    });
+
+    this.el.querySelectorAll("[data-conc]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        if (st.running) return;
+        st.concurrency = Number(btn.dataset.conc) || 8;
+        this.toolPdfs();
+      })
     );
 
     this.el.querySelector("[data-refresh-list]")?.addEventListener("click", () => {
@@ -2312,7 +2330,7 @@ export class ToolsView {
         if (pBar) pBar.style.width = `${cands.length ? Math.round((stPdfs.i / cands.length) * 100) : 0}%`;
       };
 
-      const CONCURRENCY = 5;
+      const CONCURRENCY = stPdfs.concurrency || 8;
       let cursor = 0;
       const worker = async () => {
         while (cursor < cands.length && !stPdfs.stop) {

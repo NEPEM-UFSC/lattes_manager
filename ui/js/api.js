@@ -289,7 +289,7 @@ function mockHandler(cmd, args = {}) {
 }
 
 // Comandos que não alteram registros; qualquer outro invalida o cache de get_all_records.
-const KEEPS_RECORDS = /^(ping|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
+const KEEPS_RECORDS = /^(ping|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
 let allRecordsCache = null;
 
 async function getAllRecordsCached() {
@@ -464,6 +464,7 @@ export const api = {
   selectSavePath: (suggestedName, kind = "pdf") => invokeCommand("select_save_path", { suggestedName, kind }),
   /** Envia o PDF como corpo binário (sem JSON). */
   writeReport: (bytes) => invokeCommand("write_report", bytes),
+  compressPdf: async (bytes) => new Uint8Array(await invokeCommand("compress_pdf", bytes)),
   extractPdfMetadata: (path, online = true) => invokeCommand("extract_pdf_metadata", { path, online }),
   selectPdfFile: () => invokeCommand("select_source_file"),
   openDoi: (doi) => invokeCommand("open_doi", { doi }),

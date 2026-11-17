@@ -345,20 +345,31 @@ class App {
 
   askPreviewMode(groupName, count, filtered) {
     return new Promise((resolve) => {
+      let compress = false;
+      try { compress = localStorage.getItem("lattes_preview_compress") === "1"; } catch {}
+
       const overlay = document.createElement("div");
       overlay.className = "modal-overlay";
       overlay.style.display = "flex";
       overlay.innerHTML = `
-        <div class="modal-dialog modal-dialog-sm" style="max-width:440px;">
+        <div class="modal-dialog modal-dialog-sm" style="max-width:460px;">
           <header class="modal-header">
             <h3 class="modal-title">👁️ Preview · ${groupName}</h3>
             <button type="button" class="btn-close-modal" data-cancel aria-label="Fechar">&times;</button>
           </header>
-          <div class="modal-body" style="padding:18px 20px; display:flex; flex-direction:column; gap:12px;">
+          <div class="modal-body" style="padding:18px 20px; display:flex; flex-direction:column; gap:14px;">
             <p style="margin:0; font-size:13px; color:var(--text-secondary);">
-              Serão incluídos <b>${count}</b> comprovante(s)${filtered ? " (conforme os filtros atuais)" : ""}. Escolha o modo de compilação:
+              Serão incluídos <b>${count}</b> comprovante(s)${filtered ? " (conforme os filtros atuais)" : ""}.
             </p>
-            <div style="display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              <span style="font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted);">Qualidade / Tamanho</span>
+              <div class="seg" style="width:100%; display:flex;">
+                <button type="button" data-qual="high" class="${!compress ? "on" : ""}" style="flex:1; font-size:12px;">💎 Máxima resolução</button>
+                <button type="button" data-qual="compact" class="${compress ? "on" : ""}" style="flex:1; font-size:12px;">🗜️ Compactado (leve)</button>
+              </div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <span style="font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:var(--text-muted);">Páginas de cada comprovante</span>
               <button type="button" class="btn btn-primary" data-mode="first" style="justify-content:flex-start; text-align:left; padding:12px 14px; height:auto; display:flex; flex-direction:column; align-items:flex-start; gap:3px;">
                 <span style="font-size:13.5px; font-weight:700;">📄 Somente a primeira página</span>
                 <span style="font-size:11.5px; font-weight:400; opacity:0.9;">Mais rápido e leve — ideal para conferir capas e títulos de artigos.</span>
@@ -375,9 +386,18 @@ class App {
         </div>
       `;
       document.getElementById("app")?.appendChild(overlay);
-      const finish = (val) => {
+
+      overlay.querySelectorAll("[data-qual]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          compress = btn.dataset.qual === "compact";
+          try { localStorage.setItem("lattes_preview_compress", compress ? "1" : "0"); } catch {}
+          overlay.querySelectorAll("[data-qual]").forEach((b) => b.classList.toggle("on", b === btn));
+        });
+      });
+
+      const finish = (firstPageOnly) => {
         overlay.remove();
-        resolve(val);
+        resolve(firstPageOnly === null ? null : { firstPageOnly, compress });
       };
       overlay.querySelector('[data-mode="first"]')?.addEventListener("click", () => finish(true));
       overlay.querySelector('[data-mode="full"]')?.addEventListener("click", () => finish(false));
@@ -390,7 +410,7 @@ class App {
    * 👁️ Preview comprovantes: monta em memória um PDF com os comprovantes dos registros
    * exibidos na categoria atual (respeita busca e filtros) e abre no visualizador interno.
    */
-  async previewCategoryProofs(forceFirstPageOnly = null) {
+  async previewCategoryProofs(forceOpts = null) {
     if (this._buildingPreview) {
       showToast("Já há uma pré-visualização sendo montada — aguarde terminar", "info");
       return;
@@ -406,22 +426,30 @@ class App {
     const filtered = recs.length < this.allRecords.filter((r) => r.path && String(r.path).trim()).length;
 
     let firstPageOnly;
-    if (forceFirstPageOnly !== null) {
-      firstPageOnly = Boolean(forceFirstPageOnly);
+    let compress = false;
+    if (forceOpts !== null && typeof forceOpts === "object") {
+      firstPageOnly = Boolean(forceOpts.firstPageOnly);
+      compress = Boolean(forceOpts.compress);
+      try { localStorage.setItem("lattes_preview_compress", compress ? "1" : "0"); } catch {}
+    } else if (forceOpts !== null) {
+      firstPageOnly = Boolean(forceOpts);
+      try { compress = localStorage.getItem("lattes_preview_compress") === "1"; } catch {}
     } else {
       const chosen = await this.askPreviewMode(schema.group, recs.length, filtered);
       if (chosen === null) return;
-      firstPageOnly = chosen;
+      firstPageOnly = chosen.firstPageOnly;
+      compress = chosen.compress;
     }
 
     const title = `Comprovantes · ${schema.group}`;
-    const modeTxt = firstPageOnly ? "somente 1ª página" : "arquivo inteiro";
+    const modeTxt = `${firstPageOnly ? "1ª pág." : "inteiro"} · ${compress ? "compactado" : "máxima"}`;
     const sub = `Pré-visualização (${modeTxt}) · ${recs.length} comprovante(s)${filtered ? " (conforme filtros)" : ""}`;
     const token = this.previewer.openPending(title, sub);
     this._buildingPreview = true;
     try {
       const res = await buildCategoryPreview(cat, recs, {
         firstPageOnly,
+        compress,
         onProgress: ({ done, total, label }) =>
           this.previewer.setProgress(token, `${done}/${total} · ${label}`, (done / total) * 100),
       });
@@ -430,14 +458,16 @@ class App {
         this.previewer.close();
         return;
       }
+      const mb = (res.bytes.length / 1048576).toFixed(1);
       const extra = res.failed.length ? ` · ⚠️ ${res.failed.length} não incorporado(s)` : "";
       this.previewer.openPdfBytes(
         res.bytes,
         title,
-        `Pré-visualização (${modeTxt}) · ${res.pages} páginas · ${res.attached} comprovante(s)${extra}`,
+        `Pré-visualização (${modeTxt}) · ${res.pages} páginas · ${mb} MB · ${res.attached} comprovante(s)${extra}`,
         {
           firstPageOnly,
-          onToggleFirstPage: (val) => this.previewCategoryProofs(val),
+          compress,
+          onToggle: (next) => this.previewCategoryProofs(next),
         }
       );
       if (res.failed.length) {

@@ -75,7 +75,7 @@ function loadLibs() {
  * que têm comprovante, agrupados por atividade (ordem do gerador) → ano mais recente → título.
  * Devolve o resultado de `buildReport` ({ bytes, pages, attached, failed }) ou null se não houver comprovantes.
  */
-export async function buildCategoryPreview(cat, records, { onProgress, firstPageOnly = false } = {}) {
+export async function buildCategoryPreview(cat, records, { onProgress, firstPageOnly = false, compress = false } = {}) {
   const schema = CATEGORY_SCHEMAS[cat];
   const recs = (records || []).filter((r) => r.path && String(r.path).trim());
   if (!schema || !recs.length) return null;
@@ -109,6 +109,7 @@ export async function buildCategoryPreview(cat, records, { onProgress, firstPage
     periodLabel,
     includeResumo: false,
     firstPageOnly: Boolean(firstPageOnly),
+    compress: Boolean(compress),
     qr: false,
     qrCols: 4,
     sections: [
@@ -179,6 +180,7 @@ export class ReportBuilder {
         includeResumo: last?.includeResumo ?? (Boolean(p.resumo) && this.prof.include.resumo !== false),
         includeFoto: Boolean(photo) && (last?.includeFoto ?? this.prof.include.foto !== false),
         pages: last?.pages === "first" ? "first" : "all",
+        quality: last?.quality === "compact" ? "compact" : "high",
         qr: Boolean(last?.qr),
         qrCols: [3, 4, 5, 6].includes(last?.qrCols) ? last.qrCols : 4,
       };
@@ -412,6 +414,11 @@ export class ReportBuilder {
               <button type="button" data-pages="all" class="${f.pages === "all" ? "on" : ""}">Todas as páginas</button>
               <button type="button" data-pages="first" class="${f.pages === "first" ? "on" : ""}">Só a 1ª página</button>
             </div>
+            <div class="rb-label" style="margin-top:8px">Qualidade / Tamanho do PDF</div>
+            <div class="seg rb-quality">
+              <button type="button" data-quality="high" class="${f.quality === "high" ? "on" : ""}" title="Mantém imagens e documentos na resolução máxima original">💎 Máxima resolução</button>
+              <button type="button" data-quality="compact" class="${f.quality === "compact" ? "on" : ""}" title="Compacta imagens (150 DPI / JPEG) deixando o PDF bem mais leve">🗜️ Compactado (leve)</button>
+            </div>
             <div class="rb-summary">
               <div><b>${secs.length}</b><span>seções</span></div>
               <div><b>${nItems}</b><span>documentos</span></div>
@@ -447,6 +454,7 @@ export class ReportBuilder {
         this.applySel(p.sel, p.from, p.to, p.orderV === 2 ? p.order : "tipo");
         if (p.title) this.form.title = p.title;
         if (p.pages) this.form.pages = p.pages;
+        if (p.quality) this.form.quality = p.quality;
         if ("qr" in p) this.form.qr = Boolean(p.qr);
         if (p.qrCols) this.form.qrCols = p.qrCols;
         this.render();
@@ -562,6 +570,12 @@ export class ReportBuilder {
         this.render();
       })
     );
+    o.querySelectorAll("[data-quality]").forEach((b) =>
+      b.addEventListener("click", () => {
+        this.form.quality = b.dataset.quality;
+        this.render();
+      })
+    );
     o.querySelector('[data-x="linker"]')?.addEventListener("click", () => {
       this.close();
       this.onLink && this.onLink();
@@ -601,7 +615,7 @@ export class ReportBuilder {
   snapshot() {
     const sel = {};
     for (const [k, v] of Object.entries(this.sel)) if (v.size) sel[k] = [...v];
-    return { sel, from: this.from, to: this.to, order: this.order, orderV: 2, title: this.form.title, includeResumo: this.form.includeResumo, includeFoto: this.form.includeFoto, pages: this.form.pages, qr: this.form.qr, qrCols: this.form.qrCols };
+    return { sel, from: this.from, to: this.to, order: this.order, orderV: 2, title: this.form.title, includeResumo: this.form.includeResumo, includeFoto: this.form.includeFoto, pages: this.form.pages, quality: this.form.quality, qr: this.form.qr, qrCols: this.form.qrCols };
   }
 
   async generate() {
@@ -647,6 +661,7 @@ export class ReportBuilder {
         periodLabel,
         includeResumo: this.form.includeResumo,
         firstPageOnly: this.form.pages === "first",
+        compress: this.form.quality === "compact",
         qr: this.form.qr,
         qrCols: this.form.qrCols,
         sections: secs,

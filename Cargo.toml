@@ -25,6 +25,8 @@ uuid = { version = "1.10", features = ["v4"] }
 thiserror = "1.0"
 quick-xml = "0.31"
 pdf-extract = "0.12"
+lopdf = "0.42"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 ureq = { version = "2", features = ["json"] }
 rust_xlsxwriter = "0.102"
 zip = { version = "=2.1.0", default-features = false, features = ["deflate"] }

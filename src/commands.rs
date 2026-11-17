@@ -1244,6 +1244,19 @@ pub async fn write_report(
     Ok(target.to_string_lossy().to_string())
 }
 
+/// Comprime um PDF binário (imagens embutidas + streams/objetos) e devolve os bytes comprimidos.
+#[tauri::command]
+pub async fn compress_pdf(request: tauri::ipc::Request<'_>) -> Result<tauri::ipc::Response, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Conteúdo do PDF não recebido".into());
+    };
+    let input = bytes.clone();
+    let compressed = tauri::async_runtime::spawn_blocking(move || crate::pdf_compress::compress_pdf_bytes(input))
+        .await
+        .map_err(|e| format!("Falha ao comprimir PDF: {}", e))?;
+    Ok(tauri::ipc::Response::new(compressed))
+}
+
 /// Configurações livres (JSON) guardadas em app_metadata, ex.: modelos de relatório.
 #[tauri::command(async)]
 pub fn get_setting(state: tauri::State<'_, AppState>, key: String) -> Result<Option<Value>, String> {
