@@ -98,6 +98,7 @@ export class Previewer {
       showToast("Este registro não possui arquivo de comprovante associado", "info");
       return;
     }
+    this.previewModeOptions = null;
     this.list = (list || [record]).filter((r) => r.path && r.path.trim());
     this.index = Math.max(0, this.list.findIndex((r) => r.id === record.id));
     if (!this.list.length) this.list = [record];
@@ -106,6 +107,7 @@ export class Previewer {
 
   /** Abre um arquivo arbitrário por caminho absoluto (ex.: PDF de comprovantes recém-gerado). */
   openAbsolute(absPath, title = null) {
+    this.previewModeOptions = null;
     this.list = [{ id: "__abs", absPath, file: title || absPath.split(/[\\/]/).pop() }];
     this.index = 0;
     this.show();
@@ -151,9 +153,10 @@ export class Previewer {
   }
 
   /** Mostra um PDF a partir dos bytes (blob: URL em memória — nenhum arquivo é gravado). */
-  openPdfBytes(bytes, title, subtitle = "") {
+  openPdfBytes(bytes, title, subtitle = "", options = null) {
     this.releaseBlob();
     this.pendingToken = null;
+    this.previewModeOptions = options;
     this.blobUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
     this.list = [{ id: "__blob", blobUrl: this.blobUrl, file: title, subtitle }];
     this.index = 0;
@@ -199,7 +202,23 @@ export class Previewer {
     this.btnNext.disabled = !many;
 
     if (this.attTabsEl) {
-      if (rec.attachments && rec.attachments.length > 1) {
+      if (rec.id === "__blob" && this.previewModeOptions) {
+        const firstOnly = Boolean(this.previewModeOptions.firstPageOnly);
+        this.attTabsEl.style.display = "flex";
+        this.attTabsEl.innerHTML = `
+          <span style="font-size:11px; font-weight:600; color:var(--text-muted); margin-right:6px;">Incluir nos comprovantes:</span>
+          <button type="button" class="btn btn-xs ${!firstOnly ? "btn-primary" : "btn-secondary"}" data-preview-mode="full" style="font-size:11px; padding:3px 10px; border-radius:12px;">📚 Arquivo inteiro</button>
+          <button type="button" class="btn btn-xs ${firstOnly ? "btn-primary" : "btn-secondary"}" data-preview-mode="first" style="font-size:11px; padding:3px 10px; border-radius:12px;">📄 Somente 1ª página</button>
+        `;
+        this.attTabsEl.querySelectorAll("[data-preview-mode]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const wantFirst = btn.dataset.previewMode === "first";
+            if (wantFirst !== firstOnly && this.previewModeOptions?.onToggleFirstPage) {
+              this.previewModeOptions.onToggleFirstPage(wantFirst);
+            }
+          });
+        });
+      } else if (rec.attachments && rec.attachments.length > 1) {
         this.attTabsEl.style.display = "flex";
         this.attTabsEl.innerHTML = `
           <span style="font-size:11px; font-weight:600; color:var(--text-muted); margin-right:4px;">Comprovantes (${rec.attachments.length}):</span>

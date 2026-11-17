@@ -75,7 +75,7 @@ function loadLibs() {
  * que têm comprovante, agrupados por atividade (ordem do gerador) → ano mais recente → título.
  * Devolve o resultado de `buildReport` ({ bytes, pages, attached, failed }) ou null se não houver comprovantes.
  */
-export async function buildCategoryPreview(cat, records, { onProgress } = {}) {
+export async function buildCategoryPreview(cat, records, { onProgress, firstPageOnly = false } = {}) {
   const schema = CATEGORY_SCHEMAS[cat];
   const recs = (records || []).filter((r) => r.path && String(r.path).trim());
   if (!schema || !recs.length) return null;
@@ -108,7 +108,7 @@ export async function buildCategoryPreview(cat, records, { onProgress } = {}) {
     subtitle: "Pré-visualização",
     periodLabel,
     includeResumo: false,
-    firstPageOnly: false,
+    firstPageOnly: Boolean(firstPageOnly),
     qr: false,
     qrCols: 4,
     sections: [

@@ -253,7 +253,31 @@ pub fn clear_missing(conn: &Connection, root: &Path, items: &[MissingFile]) -> A
             res.erros.push(format!("{}: o arquivo existe — vínculo mantido", it.path));
             continue;
         }
-        match set_file(conn, &it.category, it.id, None, None, None) {
+        let Some((table, _custom)) = table_for(&it.category) else {
+            res.erros.push(format!("#{}: categoria inválida", it.id));
+            continue;
+        };
+        let _ = conn.execute(
+            "DELETE FROM record_attachments WHERE table_name = ?1 AND record_id = ?2 AND path = ?3",
+            params![table, it.id, it.path],
+        );
+        let old_file = std::path::Path::new(&it.path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(String::from);
+
+        // Verifica se sobrou algum outro anexo válido em record_attachments
+        let remaining = crate::db::queries::get_attachments_for_record(conn, &table, it.id)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|a| crate::files::rel_join(root, &a.path).is_file());
+
+        let r = if let Some(att) = remaining {
+            set_file(conn, &it.category, it.id, old_file.as_deref(), Some(&att.file), Some(&att.path))
+        } else {
+            set_file(conn, &it.category, it.id, old_file.as_deref(), None, None)
+        };
+        match r {
             Ok(()) => res.ok += 1,
             Err(e) => res.erros.push(format!("#{}: {}", it.id, e)),
         }

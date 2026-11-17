@@ -343,15 +343,59 @@ class App {
     }
   }
 
+  askPreviewMode(groupName, count, filtered) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      overlay.style.display = "flex";
+      overlay.innerHTML = `
+        <div class="modal-dialog modal-dialog-sm" style="max-width:440px;">
+          <header class="modal-header">
+            <h3 class="modal-title">👁️ Preview · ${groupName}</h3>
+            <button type="button" class="btn-close-modal" data-cancel aria-label="Fechar">&times;</button>
+          </header>
+          <div class="modal-body" style="padding:18px 20px; display:flex; flex-direction:column; gap:12px;">
+            <p style="margin:0; font-size:13px; color:var(--text-secondary);">
+              Serão incluídos <b>${count}</b> comprovante(s)${filtered ? " (conforme os filtros atuais)" : ""}. Escolha o modo de compilação:
+            </p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <button type="button" class="btn btn-primary" data-mode="first" style="justify-content:flex-start; text-align:left; padding:12px 14px; height:auto; display:flex; flex-direction:column; align-items:flex-start; gap:3px;">
+                <span style="font-size:13.5px; font-weight:700;">📄 Somente a primeira página</span>
+                <span style="font-size:11.5px; font-weight:400; opacity:0.9;">Mais rápido e leve — ideal para conferir capas e títulos de artigos.</span>
+              </button>
+              <button type="button" class="btn btn-secondary" data-mode="full" style="justify-content:flex-start; text-align:left; padding:12px 14px; height:auto; display:flex; flex-direction:column; align-items:flex-start; gap:3px;">
+                <span style="font-size:13.5px; font-weight:700;">📚 Arquivo inteiro</span>
+                <span style="font-size:11.5px; font-weight:400; color:var(--text-secondary);">Inclui todas as páginas completas de cada PDF anexado.</span>
+              </button>
+            </div>
+          </div>
+          <footer class="modal-footer" style="padding:10px 20px;">
+            <button type="button" class="btn btn-secondary btn-sm" data-cancel>Cancelar</button>
+          </footer>
+        </div>
+      `;
+      document.getElementById("app")?.appendChild(overlay);
+      const finish = (val) => {
+        overlay.remove();
+        resolve(val);
+      };
+      overlay.querySelector('[data-mode="first"]')?.addEventListener("click", () => finish(true));
+      overlay.querySelector('[data-mode="full"]')?.addEventListener("click", () => finish(false));
+      overlay.querySelectorAll("[data-cancel]").forEach((b) => b.addEventListener("click", () => finish(null)));
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) finish(null); });
+    });
+  }
+
   /**
    * 👁️ Preview comprovantes: monta em memória um PDF com os comprovantes dos registros
    * exibidos na categoria atual (respeita busca e filtros) e abre no visualizador interno.
    */
-  async previewCategoryProofs() {
+  async previewCategoryProofs(forceFirstPageOnly = null) {
     if (this._buildingPreview) {
       showToast("Já há uma pré-visualização sendo montada — aguarde terminar", "info");
       return;
     }
+
     const cat = this.currentCategory;
     const schema = CATEGORY_SCHEMAS[cat];
     const recs = (this.tableView.records || []).filter((r) => r.path && String(r.path).trim());
@@ -360,12 +404,24 @@ class App {
       return;
     }
     const filtered = recs.length < this.allRecords.filter((r) => r.path && String(r.path).trim()).length;
+
+    let firstPageOnly;
+    if (forceFirstPageOnly !== null) {
+      firstPageOnly = Boolean(forceFirstPageOnly);
+    } else {
+      const chosen = await this.askPreviewMode(schema.group, recs.length, filtered);
+      if (chosen === null) return;
+      firstPageOnly = chosen;
+    }
+
     const title = `Comprovantes · ${schema.group}`;
-    const sub = `Pré-visualização · ${recs.length} comprovante(s)${filtered ? " (conforme filtros)" : ""}`;
+    const modeTxt = firstPageOnly ? "somente 1ª página" : "arquivo inteiro";
+    const sub = `Pré-visualização (${modeTxt}) · ${recs.length} comprovante(s)${filtered ? " (conforme filtros)" : ""}`;
     const token = this.previewer.openPending(title, sub);
     this._buildingPreview = true;
     try {
       const res = await buildCategoryPreview(cat, recs, {
+        firstPageOnly,
         onProgress: ({ done, total, label }) =>
           this.previewer.setProgress(token, `${done}/${total} · ${label}`, (done / total) * 100),
       });
@@ -375,7 +431,15 @@ class App {
         return;
       }
       const extra = res.failed.length ? ` · ⚠️ ${res.failed.length} não incorporado(s)` : "";
-      this.previewer.openPdfBytes(res.bytes, title, `Pré-visualização · ${res.pages} páginas · ${res.attached} comprovante(s)${extra}`);
+      this.previewer.openPdfBytes(
+        res.bytes,
+        title,
+        `Pré-visualização (${modeTxt}) · ${res.pages} páginas · ${res.attached} comprovante(s)${extra}`,
+        {
+          firstPageOnly,
+          onToggleFirstPage: (val) => this.previewCategoryProofs(val),
+        }
+      );
       if (res.failed.length) {
         showToast(`${res.failed.length} comprovante(s) não puderam ser incorporados: ${res.failed.slice(0, 3).join("; ")}${res.failed.length > 3 ? "…" : ""}`, "error", 7000);
       }

@@ -395,6 +395,7 @@ const TOOLS = [
   ["scholar", "🎓", "Citações Google Scholar (SerpApi)", "Extraia métricas (índice H, i10 e citações) e atualize os artigos publicados no banco de dados automaticamente."],
   ["scholar_unmatched", "🔎", "Artigos do Scholar ausentes no Lattes", "Compare suas publicações do Google Scholar com as do Lattes Manager e cadastre artigos faltantes com 1 clique."],
   ["vassoura", "🧹", "Vassoura de Comprovantes", "Varra qualquer pasta externa (Downloads, Documentos) para localizar e vincular comprovantes em PDF automaticamente aos registros sem anexo."],
+  ["pdfs", "⚡", "Baixar PDFs pelos DOIs (lote)", "Itera sobre as produções sem comprovante (ex.: após importar XML), resolve os DOIs de acesso aberto e salva os PDFs na pasta de Produções."],
   ["invalid_proofs", "⚠️", "Procurar comprovantes inválidos", "Localize registros com links para PDFs ou imagens que não existem mais no disco e vincule comprovantes válidos com 1 clique."],
   ["timemachine", "🕰️", "Lattes Time Machine (Comparador)", "Compare o cadastro atual com um novo XML do Lattes (ou compare dois XMLs) e veja todas as novidades, alterações e exclusões."],
   ["backup", "🗄️", "Cofre Portátil de Comprovantes", "Exporte ou restaure um cofre único (.lattespack / .zip) com todos os registros, fotos e comprovantes em PDF, com validação SHA-256."],
@@ -404,7 +405,6 @@ const TOOLS = [
   ["verificar", "🩺", "Verificar arquivos", "Encontra registros cujo arquivo sumiu da pasta e arquivos nas pastas que não estão ligados a nenhum registro."],
   ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista."],
   ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref."],
-  ["pdfs", "⚡", "Buscar PDFs por DOI (lote)", "Para artigos sem comprovante: resolve o DOI (ou procura pelo título) e baixa o PDF de acesso aberto."],
   ["duplicatas", "👯", "Duplicatas e vínculos", "Abre o assistente que liga arquivos soltos aos registros e mostra possíveis registros duplicados."],
 ];
 
@@ -416,11 +416,50 @@ export class ToolsView {
     this.fetchPdf = fetchPdf;
     this.onCreateWithData = onCreateWithData;
     this.active = null;
+    this.states = {};
+  }
+
+  get state() {
+    if (!this.active) return {};
+    return (this.states[this.active] ||= {});
+  }
+
+  set state(v) {
+    if (this.active) this.states[this.active] = v;
+  }
+
+  getState(k) {
+    return (this.states[k] ||= {});
+  }
+
+  isRunning(k) {
+    const s = this.states[k];
+    return Boolean(s && (s.running || s.scholarSyncing || s.scanning));
+  }
+
+  syncBackgroundBadge() {
+    const runningKeys = Object.keys(this.states).filter((k) => this.isRunning(k));
+    const navBtn = document.querySelector('.nav-item[data-view="ferramentas"]');
+    if (!navBtn) return;
+    let badge = navBtn.querySelector(".bg-run-badge");
+    if (runningKeys.length > 0) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "nav-count bg-run-badge";
+        badge.style.cssText = "background:var(--primary);color:#fff;margin-left:auto;font-size:10px;padding:2px 6px;border-radius:10px;";
+        navBtn.appendChild(badge);
+      }
+      badge.textContent = `⏳ ${runningKeys.length}`;
+      badge.title = "Tarefa rodando em segundo plano";
+    } else if (badge) {
+      badge.remove();
+    }
   }
 
   show() {
     this.active = null;
     this.render();
+    this.syncBackgroundBadge();
   }
 
   render() {
@@ -429,8 +468,23 @@ export class ToolsView {
       <div class="tl-wrap">
         <div class="tl-grid">
           ${TOOLS.map(
-      ([k, ic, t, d], i) => `<button type="button" class="tl-card" data-tool="${k}" style="--i:${i}">
-              <span class="tl-ic">${ic}</span><b>${escapeHtml(t)}</b><span>${escapeHtml(d)}</span><i class="tl-go">→</i></button>`
+      ([k, ic, t, d], i) => {
+        const running = this.isRunning(k);
+        const finished = !running && Boolean(this.states[k]?.finished);
+        const pill = running
+          ? `<span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700;background:var(--primary-light);color:var(--primary);border:1px solid var(--primary-border);">⏳ Em execução (segundo plano)…</span>`
+          : finished
+            ? `<span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700;background:var(--success-bg,rgba(34,197,94,0.12));color:var(--success-text);">✓ Concluído (ver resultados)</span>`
+            : "";
+        return `<button type="button" class="tl-card" data-tool="${k}" style="--i:${i}">
+              <span class="tl-ic">${ic}</span>
+              <div class="tl-card-body">
+                <b>${escapeHtml(t)}</b>
+                <span>${escapeHtml(d)}</span>
+                ${pill}
+              </div>
+              <i class="tl-go">→</i></button>`;
+      }
     ).join("")}
         </div>
       </div>`;
@@ -440,7 +494,6 @@ export class ToolsView {
   open(k) {
     if (k === "duplicatas") return this.openLinker && this.openLinker();
     this.active = k;
-    this.state = {};
     this.render();
   }
 
@@ -669,6 +722,7 @@ export class ToolsView {
 
         try {
           st.scholarSyncing = true;
+          this.syncBackgroundBadge();
           this.toolScholar();
           showToast("Consultando Google Scholar via SerpApi...", "info", 4000);
           const rep = await api.syncScholarCitations(authorId, apiKey);
@@ -681,7 +735,9 @@ export class ToolsView {
           showToast(`Falha na sincronização: ${e}`, "error", 6000);
         } finally {
           st.scholarSyncing = false;
-          this.toolScholar();
+          this.syncBackgroundBadge();
+          if (this.active === "scholar") this.toolScholar();
+          else if (this.active === null && document.getElementById("view-ferramentas")?.classList.contains("active")) this.render();
         }
       });
     }
@@ -1193,6 +1249,9 @@ export class ToolsView {
     const st = this.state;
     st.searchQuery ??= "";
     st.categoryFilter ??= "all";
+    st.selectedKeys ||= new Set();
+
+    const itemKey = (it) => `${it.category}:${it.id}:${it.path}`;
 
     if (!st.fc && !st.fcLoading) {
       st.fcLoading = true;
@@ -1244,6 +1303,13 @@ export class ToolsView {
     });
 
     const activeCat = st.categoryFilter;
+    const validKeys = new Set(allAusentes.map(itemKey));
+    for (const k of [...st.selectedKeys]) {
+      if (!validKeys.has(k)) st.selectedKeys.delete(k);
+    }
+    const selectedCount = st.selectedKeys.size;
+    const filteredSelectedCount = filtered.filter((it) => st.selectedKeys.has(itemKey(it))).length;
+    const allFilteredSelected = filtered.length > 0 && filteredSelectedCount === filtered.length;
 
     this.shell(
       "Procurar comprovantes inválidos",
@@ -1267,17 +1333,20 @@ export class ToolsView {
 
         <!-- Barra de Busca e Ações Rápidas -->
         <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; background:var(--surface-bg); padding:12px 16px; border:1px solid var(--border-light); border-radius:12px;">
-          <div style="position:relative; flex:1; min-width:280px; max-width:460px;">
+          <div style="position:relative; flex:1; min-width:260px; max-width:420px;">
             <input type="text" id="inv-search-input" class="form-input" placeholder="Buscar por atividade, categoria, nível, arquivo..." value="${escapeHtml(st.searchQuery)}" style="width:100%; padding-left:32px; font-size:12.5px;" />
             <span style="position:absolute; left:10px; top:50%; transform:translateY(-50%); opacity:0.5; pointer-events:none; font-size:13px;">🔍</span>
           </div>
 
-          <div style="display:flex; gap:8px; align-items:center;">
+          <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-recheck-invalid" title="Verificar pastas e arquivos novamente">
               🔄 Reanalisar pastas
             </button>
             ${totalInvalid > 0 ? `
-              <button type="button" class="btn btn-danger btn-sm" id="btn-clear-all-invalid" title="Remove os vínculos quebrados de todos os registros ausentes (permanecem sem comprovante)">
+              <button type="button" class="btn btn-danger btn-sm" id="btn-clear-selected-invalid" ${selectedCount === 0 ? "disabled" : ""} title="Remove o vínculo dos registros selecionados (permanecerão sem comprovante)">
+                🗑️ Desvincular selecionados (${selectedCount})
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-clear-all-invalid" title="Remove os vínculos quebrados de todos os registros ausentes">
                 🗑️ Desvincular todos (${totalInvalid})
               </button>
             ` : ""}
@@ -1323,6 +1392,9 @@ export class ToolsView {
             <table class="data-table">
               <thead>
                 <tr>
+                  <th style="width: 38px; text-align: center;">
+                    <input type="checkbox" id="inv-select-all" title="Selecionar todos visíveis" ${allFilteredSelected ? "checked" : ""} />
+                  </th>
                   <th style="width: 130px;">Categoria</th>
                   <th style="width: 140px;">Nível</th>
                   <th>Nome da Atividade</th>
@@ -1335,8 +1407,13 @@ export class ToolsView {
                   const sc = CATEGORY_SCHEMAS[item.category];
                   const catName = sc?.name || sc?.group || item.category;
                   const icon = sc?.icon || "📁";
+                  const k = itemKey(item);
+                  const isChecked = st.selectedKeys.has(k);
                   return `
                     <tr data-idx="${idx}">
+                      <td style="text-align: center; vertical-align: middle;">
+                        <input type="checkbox" class="inv-row-chk" data-key="${escapeHtml(k)}" ${isChecked ? "checked" : ""} />
+                      </td>
                       <td>
                         <span class="badge badge-tipo" style="display:inline-flex; align-items:center; gap:5px; font-weight:600;">
                           <span>${icon}</span>
@@ -1369,7 +1446,7 @@ export class ToolsView {
                           <button type="button" class="btn btn-primary btn-sm" data-action="link-proof" data-idx="${idx}" title="Vincular um comprovante válido (existente ou escolher do computador)">
                             🔗 Vincular comprovante
                           </button>
-                          <button type="button" class="btn btn-secondary btn-sm" data-action="clear-proof" data-idx="${idx}" title="Remover link quebrado (registro ficará sem comprovante)">
+                          <button type="button" class="btn btn-secondary btn-sm" data-action="clear-proof" data-idx="${idx}" title="Desvincular este arquivo (registro ficará sem comprovante)">
                             🗑️
                           </button>
                         </div>
@@ -1383,6 +1460,25 @@ export class ToolsView {
         `}
       </div>`
     );
+
+    // Ajusta estado indeterminado do checkbox principal
+    const selectAllEl = this.el.querySelector("#inv-select-all");
+    if (selectAllEl) {
+      selectAllEl.indeterminate = filteredSelectedCount > 0 && filteredSelectedCount < filtered.length;
+    }
+
+    const syncSelectionUi = () => {
+      const btnSel = this.el.querySelector("#btn-clear-selected-invalid");
+      if (btnSel) {
+        btnSel.disabled = st.selectedKeys.size === 0;
+        btnSel.textContent = `🗑️ Desvincular selecionados (${st.selectedKeys.size})`;
+      }
+      if (selectAllEl) {
+        const visSel = filtered.filter((it) => st.selectedKeys.has(itemKey(it))).length;
+        selectAllEl.checked = filtered.length > 0 && visSel === filtered.length;
+        selectAllEl.indeterminate = visSel > 0 && visSel < filtered.length;
+      }
+    };
 
     // Bindings de Eventos
     const searchInput = this.el.querySelector("#inv-search-input");
@@ -1406,14 +1502,49 @@ export class ToolsView {
 
     this.el.querySelector("#btn-recheck-invalid")?.addEventListener("click", () => {
       st.fc = null;
+      st.selectedKeys.clear();
       this.toolInvalidProofs();
     });
 
+    selectAllEl?.addEventListener("change", () => {
+      const checked = selectAllEl.checked;
+      for (const it of filtered) {
+        const k = itemKey(it);
+        if (checked) st.selectedKeys.add(k);
+        else st.selectedKeys.delete(k);
+      }
+      this.el.querySelectorAll(".inv-row-chk").forEach((chk) => { chk.checked = checked; });
+      syncSelectionUi();
+    });
+
+    this.el.querySelectorAll(".inv-row-chk").forEach((chk) => {
+      chk.addEventListener("change", () => {
+        const k = chk.dataset.key;
+        if (chk.checked) st.selectedKeys.add(k);
+        else st.selectedKeys.delete(k);
+        syncSelectionUi();
+      });
+    });
+
+    this.el.querySelector("#btn-clear-selected-invalid")?.addEventListener("click", async () => {
+      const selectedItems = allAusentes.filter((it) => st.selectedKeys.has(itemKey(it)));
+      if (!selectedItems.length) return;
+      if (!window.confirm(`Desvincular o arquivo inexistente de ${selectedItems.length} registro(s) selecionado(s)?\nOs registros continuarão no sistema como "sem comprovante".`)) return;
+      const r = await api.clearMissingLinks(selectedItems).catch((e) => ({ ok: 0, erros: [String(e)] }));
+      showToast(`${r.ok} vínculo(s) removido(s)`, r.erros.length ? "error" : "success");
+      const clearedSet = new Set(selectedItems.map(itemKey));
+      fc.ausentes = fc.ausentes.filter((x) => !clearedSet.has(itemKey(x)));
+      for (const k of clearedSet) st.selectedKeys.delete(k);
+      this.toolInvalidProofs();
+      this.onChanged && this.onChanged();
+    });
+
     this.el.querySelector("#btn-clear-all-invalid")?.addEventListener("click", async () => {
-      if (!window.confirm(`Remover os links de comprovantes quebrados de todos os ${allAusentes.length} registro(s)?\nOs registros continuarão no sistema, mas sem comprovante associado.`)) return;
+      if (!window.confirm(`Remover os links de comprovantes quebrados de todos os ${allAusentes.length} registro(s)?\nOs registros continuarão no sistema como "sem comprovante".`)) return;
       const r = await api.clearMissingLinks(allAusentes).catch((e) => ({ ok: 0, erros: [String(e)] }));
       showToast(`${r.ok} vínculo(s) inválido(s) removido(s)`, r.erros.length ? "error" : "success");
       st.fc = null;
+      st.selectedKeys.clear();
       this.toolInvalidProofs();
       this.onChanged && this.onChanged();
     });
@@ -2056,60 +2187,173 @@ export class ToolsView {
   // ===== 6. PDFs em lote =====
   async toolPdfs() {
     const st = this.state;
-    if (!st.data) st.data = await api.getAllRecords();
+    if (!st.data) {
+      this.shell("Baixar PDFs pelos DOIs (lote)", "Carregando produções…", `<div class="loading-state" style="display:flex"><div class="spinner"></div></div>`);
+      st.data = await api.getAllRecords();
+    }
     const isDoi = (s) => /^10\.\d{4,9}\//.test(String(s || "").trim());
-    const cands = (st.data.producoes || [])
-      .filter((r) => !(r.path && r.path.trim()) && (isDoi(r.identifier) || /artigo|cap[ií]tulo|livro|resumo|trabalhos completos/i.test(r.tipo || "")))
-      .sort((a, b) => (b.ano || 0) - (a.ano || 0));
     st.log ||= {};
+    st.i ??= 0;
+
+    // Apenas documentos sem comprovante QUE POSSUEM DOI cadastrado entram na fila
+    if (!st.snapshot) {
+      st.snapshot = (st.data.producoes || [])
+        .filter((r) => !(r.path && r.path.trim()) && isDoi(r.identifier))
+        .sort((a, b) => (b.ano || 0) - (a.ano || 0));
+    }
+
+    const cands = st.snapshot;
     const running = Boolean(st.running);
-    const done = Object.values(st.log).filter((x) => x.s === "ok").length;
+    const finished = Boolean(st.finished);
+    const done = cands.filter((r) => st.log[r.id]?.s === "ok").length;
+    const skipped = cands.filter((r) => st.log[r.id]?.s === "skip" || st.log[r.id]?.s === "err").length;
+
+    const renderRowStatus = (r) => {
+      const l = st.log[r.id];
+      if (!l) return `<span style="color:var(--text-muted)">Aguardando</span>`;
+      return escapeHtml(l.m);
+    };
+
     this.shell(
-      "Buscar PDFs por DOI (lote)",
-      "Para cada produção sem comprovante: usa o DOI (ou procura pelo título na Crossref) e baixa o PDF de acesso aberto. Itens sem PDF disponível ficam como estão.",
+      "Baixar PDFs pelos DOIs (lote)",
+      "Itera sobre as produções sem comprovante que possuem DOI cadastrado, busca o PDF em múltiplas fontes (Unpaywall, OpenAlex, Semantic Scholar, Europe PMC e página do DOI) e salva automaticamente na pasta de Produções.",
       cands.length
-        ? `<div class="tl-bar"><span><b>${cands.length}</b> produção(ões) sem comprovante · ${done} PDF(s) anexado(s) nesta sessão</span>
-            ${running ? '<button type="button" class="btn btn-secondary btn-sm" data-stop>■ Parar</button>' : `<button type="button" class="btn btn-primary btn-sm" data-run>⚡ Buscar ${cands.length} PDF(s)</button>`}</div>
-          ${running ? `<div class="tl-progress"><i style="width:${Math.round((st.i / cands.length) * 100)}%"></i></div>` : ""}
-          <div class="tl-table"><table class="data-table"><thead><tr><th style="width:60px">Ano</th><th>Título</th><th style="width:240px">Situação</th></tr></thead><tbody>
-          ${cands.map((r) => { const l = st.log[r.id]; return `<tr><td>${r.ano || "—"}</td><td>${escapeHtml(r.titulo || "")}</td><td class="tl-st ${l?.s || ""}">${l ? escapeHtml(l.m) : isDoi(r.identifier) ? "DOI cadastrado" : "procurar pelo título"}</td></tr>`; }).join("")}
+        ? `<div class="tl-stats" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 14px;">
+            <div><b data-kpi-total>${cands.length}</b><span>produção(ões) com DOI sem comprovante</span></div>
+            <div class="good"><b data-kpi-done>${done}</b><span>PDF(s) encontrado(s) e salvo(s)</span></div>
+            <div class="${skipped ? "warn" : ""}"><b data-kpi-skip>${skipped}</b><span>sem acesso aberto / bloqueado</span></div>
+          </div>
+
+          ${finished ? `
+            <div style="padding:14px 18px; border-radius:12px; margin-bottom:14px; border:1px solid ${done > 0 ? "var(--success-border, rgba(34,197,94,0.35))" : "var(--border-light)"}; background:${done > 0 ? "var(--success-bg, rgba(34,197,94,0.08))" : "var(--surface-2)"}; display:flex; align-items:center; justify-content:space-between; gap:12px;">
+              <div>
+                <b style="font-size:14px; color:${done > 0 ? "var(--success-text)" : "var(--text-primary)"};">
+                  ${done > 0 ? `✅ ${done} PDF(s) encontrado(s) e salvo(s) na pasta de Produções!` : "ℹ️ Nenhum PDF de acesso aberto disponível foi encontrado automaticamente."}
+                </b>
+                <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">
+                  ${done > 0 ? "Os arquivos já foram renomeados, vinculados aos registros e salvos em 5_producoes." : "Para artigos fechados ou protegidos por Cloudflare, clique em 🌐 na coluna DOI para baixar manualmente pelo navegador."}
+                </div>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" data-refresh-list>🔄 Atualizar lista</button>
+            </div>
+          ` : ""}
+
+          <div class="tl-bar" style="flex-wrap:wrap; gap:10px;">
+            <span style="font-size:12.5px; color:var(--text-secondary);">
+              Registros sem DOI não são incluídos nesta fila.
+            </span>
+            <div style="display:flex; gap:8px; align-items:center; margin-left:auto;">
+              <span data-progress-label style="font-size:12px; color:var(--text-secondary);">
+                ${running ? `Processando ${st.i} de ${cands.length}…` : `${done} PDF(s) encontrado(s)`}
+              </span>
+              ${running
+                ? '<button type="button" class="btn btn-secondary btn-sm" data-stop>■ Parar</button>'
+                : `<button type="button" class="btn btn-primary btn-sm" data-run ${!cands.length ? "disabled" : ""}>⚡ Baixar PDFs (${cands.length})</button>`}
+            </div>
+          </div>
+
+          <div class="tl-progress" style="display:${running ? "block" : "none"};"><i data-progress-bar style="width:${cands.length ? Math.round((st.i / cands.length) * 100) : 0}%"></i></div>
+
+          <div class="tl-table"><table class="data-table"><thead><tr><th style="width:60px">Ano</th><th>Título</th><th style="width:210px">DOI</th><th style="width:250px">Situação</th></tr></thead><tbody>
+          ${cands.map((r) => {
+            const l = st.log[r.id];
+            const cleanDoi = String(r.identifier || "").trim();
+            return `<tr data-id="${r.id}">
+              <td>${r.ano || "—"}</td>
+              <td>${escapeHtml(r.titulo || "")}</td>
+              <td class="mono" style="font-size:11.5px;">
+                <a href="https://doi.org/${encodeURIComponent(cleanDoi)}" target="_blank" rel="noopener" style="color:var(--primary); text-decoration:none;" title="Abrir DOI no navegador">${escapeHtml(cleanDoi)} 🌐</a>
+              </td>
+              <td class="tl-st ${l?.s || ""}" data-status-id="${r.id}">${renderRowStatus(r)}</td>
+            </tr>`;
+          }).join("")}
           </tbody></table></div>
-          <p class="dd-note">Editoras como Elsevier, Wiley e OUP costumam bloquear downloads automáticos; nesses casos use o botão ⚡ da linha para abrir o PDF no navegador.</p>`
-        : `<div class="tl-empty">✅ Todas as produções com DOI provável já têm comprovante.</div>`
+          <p class="dd-note">Dica: caso queira preencher DOIs que ainda não constam nos registros, use primeiro a ferramenta <b>Extrair DOI dos artigos</b>.</p>`
+        : `<div class="tl-empty">✅ Todas as produções com DOI cadastrado já possuem comprovante na pasta de Produções.</div>`
     );
-    this.el.querySelector("[data-stop]")?.addEventListener("click", () => (st.stop = true));
-    this.el.querySelector("[data-run]")?.addEventListener("click", async () => {
-      st.running = true;
-      st.stop = false;
+
+    this.el.querySelector("[data-refresh-list]")?.addEventListener("click", () => {
+      st.data = null;
+      st.snapshot = null;
+      st.log = {};
+      st.finished = false;
       st.i = 0;
-      for (const r of cands) {
-        if (st.stop || this.active !== "pdfs") break;
-        st.log[r.id] = { s: "run", m: "⏳ buscando…" };
-        this.toolPdfs();
-        try {
-          let doi = isDoi(r.identifier) ? r.identifier.trim() : null;
-          if (!doi && String(r.titulo || "").length >= 15) doi = await api.findDoiByTitle(r.titulo);
-          if (!doi) {
-            st.log[r.id] = { s: "skip", m: "DOI não encontrado" };
-          } else {
+      this.toolPdfs();
+    });
+
+    this.el.querySelector("[data-stop]")?.addEventListener("click", () => (st.stop = true));
+
+    this.el.querySelector("[data-run]")?.addEventListener("click", async () => {
+      const stPdfs = this.getState("pdfs");
+      stPdfs.running = true;
+      stPdfs.finished = false;
+      stPdfs.stop = false;
+      stPdfs.i = 0;
+      stPdfs.log = {};
+      this.syncBackgroundBadge();
+      this.toolPdfs();
+
+      const updateInline = (id, stateObj) => {
+        if (this.active !== "pdfs") return;
+        const cell = this.el.querySelector(`[data-status-id="${id}"]`);
+        if (cell) {
+          cell.className = `tl-st ${stateObj.s || ""}`;
+          cell.textContent = stateObj.m;
+        }
+        const okCount = cands.filter((x) => stPdfs.log[x.id]?.s === "ok").length;
+        const skipCount = cands.filter((x) => stPdfs.log[x.id]?.s === "skip" || stPdfs.log[x.id]?.s === "err").length;
+        const kpiDone = this.el.querySelector("[data-kpi-done]");
+        const kpiSkip = this.el.querySelector("[data-kpi-skip]");
+        const pLabel = this.el.querySelector("[data-progress-label]");
+        const pBar = this.el.querySelector("[data-progress-bar]");
+        if (kpiDone) kpiDone.textContent = String(okCount);
+        if (kpiSkip) kpiSkip.textContent = String(skipCount);
+        if (pLabel) pLabel.textContent = `Processando ${stPdfs.i} de ${cands.length}… (${okCount} PDFs encontrados)`;
+        if (pBar) pBar.style.width = `${cands.length ? Math.round((stPdfs.i / cands.length) * 100) : 0}%`;
+      };
+
+      const CONCURRENCY = 5;
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < cands.length && !stPdfs.stop) {
+          const r = cands[cursor++];
+          stPdfs.log[r.id] = { s: "run", m: "⏳ buscando PDF…" };
+          updateInline(r.id, stPdfs.log[r.id]);
+          try {
+            const doi = String(r.identifier || "").trim();
             const res = await api.resolveDoi(doi, true);
             if (res.pdf_path) {
               await api.updateRecord("producoes", r.id, { identifier: doi }, res.pdf_path);
-              st.log[r.id] = { s: "ok", m: `📄 anexado (${res.pdf_versao || "PDF"})` };
+              stPdfs.log[r.id] = { s: "ok", m: `📄 Salvo em Produções (${res.pdf_versao || "PDF"})` };
             } else {
-              if (!isDoi(r.identifier)) await api.updateRecord("producoes", r.id, { identifier: doi }).catch(() => { });
-              st.log[r.id] = { s: "skip", m: res.oa_status === "closed" ? "sem acesso aberto" : "PDF bloqueado pela editora" };
+              const reason = res.oa_status === "closed"
+                ? "🔒 Acesso fechado pela editora"
+                : (res.falhas?.[0] ? String(res.falhas[0]).slice(0, 55) : "PDF não disponível");
+              stPdfs.log[r.id] = { s: "skip", m: reason };
             }
+          } catch (e) {
+            stPdfs.log[r.id] = { s: "err", m: String(e).slice(0, 60) };
           }
-        } catch (e) {
-          st.log[r.id] = { s: "err", m: String(e).slice(0, 60) };
+          stPdfs.i++;
+          updateInline(r.id, stPdfs.log[r.id]);
         }
-        st.i++;
-      }
-      st.running = false;
-      st.data = null;
+      };
+
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, cands.length) }, () => worker()));
+
+      const foundTotal = cands.filter((x) => stPdfs.log[x.id]?.s === "ok").length;
+      stPdfs.running = false;
+      stPdfs.finished = true;
+      stPdfs.data = null;
+      this.syncBackgroundBadge();
       this.onChanged && this.onChanged();
+      showToast(
+        `${foundTotal} PDF(s) encontrado(s) e salvo(s) na pasta de Produções!`,
+        foundTotal > 0 ? "success" : "info",
+        5000
+      );
       if (this.active === "pdfs") this.toolPdfs();
+      else if (this.active === null && document.getElementById("view-ferramentas")?.classList.contains("active")) this.render();
     });
   }
 
@@ -2174,6 +2418,7 @@ export class ToolsView {
     // Durante a varredura só mudam a linha da vez e a barra: redesenhar o painel
     // inteiro a cada arquivo fazia a tela piscar e perder a rolagem.
     const pintarLinha = (r) => {
+      if (this.active !== "dois") return;
       const cel = this.el.querySelector(`[data-cell="${r.id}"]`);
       if (!cel) return;
       cel.className = `tl-st ${st.found[r.id]?.s || ""}`;
@@ -2182,12 +2427,16 @@ export class ToolsView {
       if (chk) chk.innerHTML = chkHtml(r);
     };
     const pintarBarra = () => {
+      if (this.active !== "dois") return;
       const fill = this.el.querySelector(".tl-progress i");
       if (fill) fill.style.width = `${Math.round((st.i / Math.max(1, st.n || 1)) * 100)}%`;
       const lbl = this.el.querySelector("[data-count]");
       if (lbl) lbl.innerHTML = contador();
     };
-    const refresh = () => this.active === "dois" && this.toolDois();
+    const refresh = () => {
+      if (this.active === "dois") this.toolDois();
+      else if (this.active === null && document.getElementById("view-ferramentas")?.classList.contains("active")) this.render();
+    };
 
     this.el.querySelector("[data-online]")?.addEventListener("change", (e) => (st.online = e.target.checked));
     this.el.querySelector("[data-stop]")?.addEventListener("click", () => (st.stop = true));
@@ -2207,56 +2456,63 @@ export class ToolsView {
     });
 
     this.el.querySelector("[data-run]")?.addEventListener("click", async () => {
-      st.running = true;
-      st.stop = false;
-      st.i = 0;
-      st.found = {};
-      st.sel = new Set();
+      const stDois = this.getState("dois");
+      stDois.running = true;
+      stDois.finished = false;
+      stDois.stop = false;
+      stDois.i = 0;
+      stDois.found = {};
+      stDois.sel = new Set();
       const comPdfList = cands.filter(hasPdf);
-      st.n = comPdfList.length + (st.online ? cands.length : 0);
+      stDois.n = comPdfList.length + (stDois.online ? cands.length : 0);
+      this.syncBackgroundBadge();
       await refresh(); // mostra a barra de progresso e o botão Parar
 
       // 1) DOI declarado dentro do PDF — rápido e sem rede
       for (const r of comPdfList) {
-        if (st.stop || this.active !== "dois") break;
+        if (stDois.stop) break;
         try {
           const doi = await api.extractRecordDoi("producoes", r.id);
           if (doi) {
-            st.found[r.id] = { doi, fonte: "pdf", s: "ok" };
-            st.sel.add(r.id);
+            stDois.found[r.id] = { doi, fonte: "pdf", s: "ok" };
+            stDois.sel.add(r.id);
           } else {
-            st.found[r.id] = { m: "sem DOI no arquivo", s: "skip" };
+            stDois.found[r.id] = { m: "sem DOI no arquivo", s: "skip" };
           }
         } catch (e) {
-          st.found[r.id] = { m: String(e).slice(0, 60), s: "err" };
+          stDois.found[r.id] = { m: String(e).slice(0, 60), s: "err" };
         }
-        st.i++;
+        stDois.i++;
         pintarLinha(r);
         pintarBarra();
       }
       // 2) o que sobrou: busca pelo título na Crossref
-      if (st.online) {
-        for (const r of cands.filter((x) => !st.found[x.id]?.doi && String(x.titulo || "").trim().length >= 15)) {
-          if (st.stop || this.active !== "dois") break;
-          st.found[r.id] = { m: "⏳ procurando na Crossref…", s: "run" };
+      if (stDois.online) {
+        for (const r of cands.filter((x) => !stDois.found[x.id]?.doi && String(x.titulo || "").trim().length >= 15)) {
+          if (stDois.stop) break;
+          stDois.found[r.id] = { m: "⏳ procurando na Crossref…", s: "run" };
           pintarLinha(r);
           try {
             const doi = await api.findDoiByTitle(r.titulo);
             if (doi) {
-              st.found[r.id] = { doi, fonte: "crossref", s: "warn" };
-              st.sel.add(r.id);
+              stDois.found[r.id] = { doi, fonte: "crossref", s: "warn" };
+              stDois.sel.add(r.id);
             } else {
-              st.found[r.id] = { m: "não encontrado", s: "skip" };
+              stDois.found[r.id] = { m: "não encontrado", s: "skip" };
             }
           } catch (e) {
-            st.found[r.id] = { m: String(e).slice(0, 60), s: "err" };
+            stDois.found[r.id] = { m: String(e).slice(0, 60), s: "err" };
           }
-          st.i++;
+          stDois.i++;
           pintarLinha(r);
           pintarBarra();
         }
       }
-      st.running = false;
+      stDois.running = false;
+      stDois.finished = true;
+      this.syncBackgroundBadge();
+      const foundCount = cands.filter((r) => stDois.found[r.id]?.doi).length;
+      showToast(`Extração de DOIs concluída: ${foundCount} DOI(s) encontrado(s)!`, foundCount > 0 ? "success" : "info", 4000);
       refresh(); // troca a barra pelo botão "Gravar"
     });
 

@@ -536,37 +536,53 @@
 }
 
 .tl-wrap {
-  padding: 22px 26px 40px;
-  max-width: 1280px;
+  padding: 20px 28px 36px;
+  max-width: 1440px;
   margin: 0 auto;
 }
 
 .tl-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 780px) {
+  .tl-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .tl-card {
   position: relative;
   text-align: left;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 20px 20px 22px;
-  border-radius: 18px;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 42px 15px 18px;
+  border-radius: 16px;
   border: 1px solid var(--border-light);
   background: var(--card-bg);
   color: var(--text-secondary);
   cursor: pointer;
   font: inherit;
-  font-size: calc(13px * var(--font-scale, 1));
-  line-height: 1.45;
+  font-size: calc(12.5px * var(--font-scale, 1));
+  line-height: 1.4;
   box-shadow: var(--shadow-sm);
   transition: transform .25s cubic-bezier(.2, .8, .2, 1), box-shadow .25s, border-color .25s;
   animation: rise .5s cubic-bezier(.2, .8, .2, 1) both;
-  animation-delay: calc(var(--i) * 45ms);
+  animation-delay: calc(var(--i) * 35ms);
   overflow: hidden;
+}
+
+.tl-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+  position: relative;
 }
 
 .tl-card::before {
@@ -579,7 +595,7 @@
 }
 
 .tl-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
   border-color: var(--primary-border);
 }
@@ -589,7 +605,7 @@
 }
 
 .tl-card b {
-  font-size: calc(15px * var(--font-scale, 1));
+  font-size: calc(14.5px * var(--font-scale, 1));
   color: var(--text-primary);
   position: relative;
 }
@@ -599,14 +615,15 @@
 }
 
 .tl-ic {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
   display: grid;
   place-items: center;
-  font-size: calc(22px * var(--font-scale, 1));
+  font-size: calc(21px * var(--font-scale, 1));
   background: var(--primary-light);
   position: relative;
+  flex-shrink: 0;
 }
 
 .tl-ic.sm {
@@ -619,15 +636,16 @@
 
 .tl-go {
   position: absolute;
-  right: 18px;
-  top: 22px;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
   font-style: normal;
   color: var(--text-muted);
   transition: transform .25s, color .25s;
 }
 
 .tl-card:hover .tl-go {
-  transform: translateX(4px);
+  transform: translate(4px, -50%);
   color: var(--primary);
 }
 
