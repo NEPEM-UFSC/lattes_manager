@@ -1,6 +1,6 @@
 // Tauri IPC commands for Lattes Desktop Manager
 
-use crate::db::models::{AppStatsDto, MigrationReportDto, RecordDto, SubfolderMappingDto};
+use crate::db::models::{AppStatsDto, AttachmentDto, MigrationReportDto, RecordDto, SubfolderMappingDto};
 use crate::db::queries;
 use crate::files::{shell, storage};
 use crate::migration::calamine_importer;
@@ -126,40 +126,92 @@ pub fn create_record_impl(
     category: &str,
     data: &Value,
     source_file: Option<&str>,
+    source_files: Option<&[String]>,
 ) -> Result<RecordDto, String> {
     let data = &with_valid_folder(db, category, &with_clean_url(data)?, None)?;
-    let mut attached_file: Option<String> = None;
-    let mut attached_path: Option<String> = None;
+    let mut files_to_attach: Vec<PathBuf> = Vec::new();
 
-    if let Some(src) = source_file {
+    if let Some(files) = source_files {
+        for f in files {
+            let s = f.trim();
+            if !s.is_empty() {
+                let p = PathBuf::from(s);
+                if !p.exists() {
+                    return Err(format!("Arquivo de origem não encontrado: '{}'", s));
+                }
+                files_to_attach.push(p);
+            }
+        }
+    } else if let Some(src) = source_file {
         let src_trimmed = src.trim();
         if !src_trimmed.is_empty() {
-            let src_path = Path::new(src_trimmed);
+            let src_path = PathBuf::from(src_trimmed);
             if !src_path.exists() {
                 return Err(format!("Arquivo de origem não encontrado: '{}'", src_trimmed));
             }
+            files_to_attach.push(src_path);
+        }
+    }
 
-            let folder_str = queries::json_str(data, "folder")
-                .ok_or_else(|| "Subpasta de destino não informada no registro".to_string())?;
+    let mut attached_file: Option<String> = None;
+    let mut attached_path: Option<String> = None;
+    let mut new_attachments: Vec<AttachmentDto> = Vec::new();
 
-            let target_subfolder = crate::files::rel_join(root_dir, &folder_str);
-            if !target_subfolder.exists() {
-                std::fs::create_dir_all(&target_subfolder)
-                    .map_err(|e| format!("Falha ao criar subpasta '{:?}': {}", target_subfolder, e))?;
-            }
+    if !files_to_attach.is_empty() {
+        let folder_str = queries::json_str(data, "folder")
+            .ok_or_else(|| "Subpasta de destino não informada no registro".to_string())?;
 
-            // arquivo renomeado pelo título do registro: 001_titulo_do_trabalho.pdf
-            let base = crate::files::naming::record_base_name(category, data);
-            let attachment = storage::save_attached_file_as(src_path, &target_subfolder, root_dir, base.as_deref())
+        let target_subfolder = crate::files::rel_join(root_dir, &folder_str);
+        if !target_subfolder.exists() {
+            std::fs::create_dir_all(&target_subfolder)
+                .map_err(|e| format!("Falha ao criar subpasta '{:?}': {}", target_subfolder, e))?;
+        }
+
+        let base = crate::files::naming::record_base_name(category, data);
+
+        for (idx, src_path) in files_to_attach.iter().enumerate() {
+            let item_base = if files_to_attach.len() > 1 {
+                base.as_ref().map(|b| format!("{}_{}", b, idx + 1))
+            } else {
+                base.clone()
+            };
+            let attachment = storage::save_attached_file_as(src_path, &target_subfolder, root_dir, item_base.as_deref())
                 .map_err(|e| format!("Falha ao anexar arquivo: {}", e))?;
 
-            attached_file = Some(attachment.filename);
-            attached_path = Some(attachment.relative_path);
+            if idx == 0 {
+                attached_file = Some(attachment.filename.clone());
+                attached_path = Some(attachment.relative_path.clone());
+            }
+
+            new_attachments.push(AttachmentDto {
+                id: None,
+                file: attachment.filename,
+                path: attachment.relative_path,
+                folder: Some(folder_str.clone()),
+                description: None,
+                ord: Some(idx as i64),
+            });
+        }
+    }
+
+    let mut data_clone = data.clone();
+    if !new_attachments.is_empty() || data.get("attachments").is_some() {
+        let mut existing_atts: Vec<AttachmentDto> = data
+            .get("attachments")
+            .and_then(|a| serde_json::from_value(a.clone()).ok())
+            .unwrap_or_default();
+        let base_ord = existing_atts.len() as i64;
+        for (i, mut a) in new_attachments.into_iter().enumerate() {
+            a.ord = Some(base_ord + i as i64);
+            existing_atts.push(a);
+        }
+        if let Some(obj) = data_clone.as_object_mut() {
+            obj.insert("attachments".to_string(), serde_json::to_value(&existing_atts).unwrap_or_default());
         }
     }
 
     let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
-    queries::insert_record(&conn, category, data, attached_file, attached_path)
+    queries::insert_record(&conn, category, &data_clone, attached_file, attached_path)
         .map_err(|e| format!("Falha ao inserir registro: {}", e))
 }
 
@@ -170,66 +222,115 @@ pub fn update_record_impl(
     id: i64,
     data: &Value,
     new_source_file: Option<&str>,
+    new_source_files: Option<&[String]>,
 ) -> Result<RecordDto, String> {
     let existing = {
         let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
         queries::get_record_by_id(&conn, category, id).ok()
     };
     let data = &with_valid_folder(db, category, &with_clean_url(data)?, existing.as_ref())?;
-    let mut attached_file: Option<String> = None;
-    let mut attached_path: Option<String> = None;
 
-    if let Some(src) = new_source_file {
+    let mut files_to_attach: Vec<PathBuf> = Vec::new();
+    if let Some(files) = new_source_files {
+        for f in files {
+            let s = f.trim();
+            if !s.is_empty() {
+                let p = PathBuf::from(s);
+                if !p.exists() {
+                    return Err(format!("Novo arquivo de origem não encontrado: '{}'", s));
+                }
+                files_to_attach.push(p);
+            }
+        }
+    } else if let Some(src) = new_source_file {
         let src_trimmed = src.trim();
         if !src_trimmed.is_empty() {
-            let src_path = Path::new(src_trimmed);
+            let src_path = PathBuf::from(src_trimmed);
             if !src_path.exists() {
                 return Err(format!("Novo arquivo de origem não encontrado: '{}'", src_trimmed));
             }
+            files_to_attach.push(src_path);
+        }
+    }
 
-            // Determine target folder from payload or existing record
-            let folder_str = if let Some(f) = queries::json_str(data, "folder") {
-                f
-            } else {
-                let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
-                let existing = queries::get_record_by_id(&conn, category, id)
-                    .map_err(|e| format!("Registro não encontrado: {}", e))?;
-                existing
-                    .folder
-                    .ok_or_else(|| "Subpasta de destino não encontrada para o registro".to_string())?
-            };
+    let mut attached_file: Option<String> = None;
+    let mut attached_path: Option<String> = None;
+    let mut new_attachments: Vec<AttachmentDto> = Vec::new();
 
-            let target_subfolder = crate::files::rel_join(root_dir, &folder_str);
-            if !target_subfolder.exists() {
-                std::fs::create_dir_all(&target_subfolder)
-                    .map_err(|e| format!("Falha ao criar subpasta '{:?}': {}", target_subfolder, e))?;
-            }
+    if !files_to_attach.is_empty() {
+        let folder_str = if let Some(f) = queries::json_str(data, "folder") {
+            f
+        } else {
+            let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+            let ex = queries::get_record_by_id(&conn, category, id)
+                .map_err(|e| format!("Registro não encontrado: {}", e))?;
+            ex.folder.ok_or_else(|| "Subpasta de destino não encontrada para o registro".to_string())?
+        };
 
-            // nome pelo título: dados novos sobre o registro atual
-            let merged = {
-                let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
-                let mut base = queries::get_record_by_id(&conn, category, id)
-                    .ok()
-                    .and_then(|r| serde_json::to_value(r).ok())
-                    .unwrap_or_else(|| Value::Object(Default::default()));
-                if let (Some(b), Some(d)) = (base.as_object_mut(), data.as_object()) {
-                    for (k, v) in d {
-                        b.insert(k.clone(), v.clone());
-                    }
+        let target_subfolder = crate::files::rel_join(root_dir, &folder_str);
+        if !target_subfolder.exists() {
+            std::fs::create_dir_all(&target_subfolder)
+                .map_err(|e| format!("Falha ao criar subpasta '{:?}': {}", target_subfolder, e))?;
+        }
+
+        let merged = {
+            let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+            let mut base = queries::get_record_by_id(&conn, category, id)
+                .ok()
+                .and_then(|r| serde_json::to_value(r).ok())
+                .unwrap_or_else(|| Value::Object(Default::default()));
+            if let (Some(b), Some(d)) = (base.as_object_mut(), data.as_object()) {
+                for (k, v) in d {
+                    b.insert(k.clone(), v.clone());
                 }
-                base
+            }
+            base
+        };
+        let base = crate::files::naming::record_base_name(category, &merged);
+
+        for (idx, src_path) in files_to_attach.iter().enumerate() {
+            let item_base = if files_to_attach.len() > 1 {
+                base.as_ref().map(|b| format!("{}_{}", b, idx + 1))
+            } else {
+                base.clone()
             };
-            let base = crate::files::naming::record_base_name(category, &merged);
-            let attachment = storage::save_attached_file_as(src_path, &target_subfolder, root_dir, base.as_deref())
+            let attachment = storage::save_attached_file_as(src_path, &target_subfolder, root_dir, item_base.as_deref())
                 .map_err(|e| format!("Falha ao salvar novo arquivo anexado: {}", e))?;
 
-            attached_file = Some(attachment.filename);
-            attached_path = Some(attachment.relative_path);
+            if idx == 0 {
+                attached_file = Some(attachment.filename.clone());
+                attached_path = Some(attachment.relative_path.clone());
+            }
+
+            new_attachments.push(AttachmentDto {
+                id: None,
+                file: attachment.filename,
+                path: attachment.relative_path,
+                folder: Some(folder_str.clone()),
+                description: None,
+                ord: Some(idx as i64),
+            });
+        }
+    }
+
+    let mut data_clone = data.clone();
+    if !new_attachments.is_empty() || data.get("attachments").is_some() {
+        let mut existing_atts: Vec<AttachmentDto> = data
+            .get("attachments")
+            .and_then(|a| serde_json::from_value(a.clone()).ok())
+            .unwrap_or_default();
+        let base_ord = existing_atts.len() as i64;
+        for (i, mut a) in new_attachments.into_iter().enumerate() {
+            a.ord = Some(base_ord + i as i64);
+            existing_atts.push(a);
+        }
+        if let Some(obj) = data_clone.as_object_mut() {
+            obj.insert("attachments".to_string(), serde_json::to_value(&existing_atts).unwrap_or_default());
         }
     }
 
     let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
-    queries::update_record(&conn, category, id, data, attached_file, attached_path)
+    queries::update_record(&conn, category, id, &data_clone, attached_file, attached_path)
         .map_err(|e| format!("Falha ao atualizar registro: {}", e))
 }
 
@@ -574,8 +675,16 @@ pub fn create_record(
     category: String,
     data: Value,
     source_file: Option<String>,
+    source_files: Option<Vec<String>>,
 ) -> Result<RecordDto, String> {
-    create_record_impl(&state.db, &state.root_dir, &category, &data, source_file.as_deref())
+    create_record_impl(
+        &state.db,
+        &state.root_dir,
+        &category,
+        &data,
+        source_file.as_deref(),
+        source_files.as_deref(),
+    )
 }
 
 #[tauri::command(async)]
@@ -585,6 +694,7 @@ pub fn update_record(
     id: i64,
     data: Value,
     new_source_file: Option<String>,
+    new_source_files: Option<Vec<String>>,
 ) -> Result<RecordDto, String> {
     update_record_impl(
         &state.db,
@@ -593,7 +703,75 @@ pub fn update_record(
         id,
         &data,
         new_source_file.as_deref(),
+        new_source_files.as_deref(),
     )
+}
+
+#[tauri::command(async)]
+pub fn add_record_attachment(
+    state: tauri::State<'_, AppState>,
+    category: String,
+    record_id: i64,
+    file_path: String,
+    description: Option<String>,
+) -> Result<RecordDto, String> {
+    let p = Path::new(&file_path);
+    if !p.exists() {
+        return Err(format!("Arquivo não encontrado: '{}'", file_path));
+    }
+    let conn = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let mut rec = queries::get_record_by_id(&conn, &category, record_id)
+        .map_err(|e| format!("Registro não encontrado: {}", e))?;
+
+    let folder_str = rec.folder.clone().unwrap_or_else(|| "outros".to_string());
+    let target_subfolder = crate::files::rel_join(&state.root_dir, &folder_str);
+    if !target_subfolder.exists() {
+        let _ = std::fs::create_dir_all(&target_subfolder);
+    }
+
+    let base = format!("{}_{}", rec.identifier.as_deref().unwrap_or("doc"), rec.attachments.len() + 1);
+    let att = storage::save_attached_file_as(p, &target_subfolder, &state.root_dir, Some(&base))
+        .map_err(|e| format!("Falha ao salvar anexo: {}", e))?;
+
+    let new_att = AttachmentDto {
+        id: None,
+        file: att.filename,
+        path: att.relative_path,
+        folder: Some(folder_str),
+        description,
+        ord: Some(rec.attachments.len() as i64),
+    };
+    rec.attachments.push(new_att);
+    queries::sync_record_attachments(&conn, &category, record_id, &rec.attachments)
+        .map_err(|e| format!("Falha ao sincronizar anexos: {}", e))?;
+
+    queries::get_record_by_id(&conn, &category, record_id)
+        .map_err(|e| format!("Falha ao recarregar registro: {}", e))
+}
+
+#[tauri::command(async)]
+pub fn remove_record_attachment(
+    state: tauri::State<'_, AppState>,
+    category: String,
+    record_id: i64,
+    path: String,
+    delete_file: bool,
+) -> Result<RecordDto, String> {
+    let conn = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let mut rec = queries::get_record_by_id(&conn, &category, record_id)
+        .map_err(|e| format!("Registro não encontrado: {}", e))?;
+
+    rec.attachments.retain(|a| a.path != path);
+    queries::sync_record_attachments(&conn, &category, record_id, &rec.attachments)
+        .map_err(|e| format!("Falha ao atualizar anexos: {}", e))?;
+
+    if delete_file {
+        let full = crate::files::rel_join(&state.root_dir, &path);
+        let _ = std::fs::remove_file(full);
+    }
+
+    queries::get_record_by_id(&conn, &category, record_id)
+        .map_err(|e| format!("Falha ao recarregar registro: {}", e))
 }
 
 #[tauri::command(async)]
@@ -1561,17 +1739,17 @@ pub fn backup_estimate(state: tauri::State<'_, AppState>) -> Result<crate::backu
 pub fn pick_backup_target(state: tauri::State<'_, AppState>, include_files: bool) -> Result<Option<String>, String> {
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H%M");
     let name = if include_files {
-        format!("LattesManager_backup_completo_{}.zip", stamp)
+        format!("LattesManager_Cofre_{}.lattespack", stamp)
     } else {
-        format!("LattesManager_backup_{}.zip", stamp)
+        format!("LattesManager_banco_{}.lattespack", stamp)
     };
     let dir = crate::strip_verbatim(&state.root_dir).join("backups");
     let _ = std::fs::create_dir_all(&dir);
     Ok(rfd::FileDialog::new()
-        .set_title("Salvar backup do Lattes Manager")
+        .set_title("Salvar Cofre / Backup do Lattes Manager")
         .set_directory(&dir)
         .set_file_name(&name)
-        .add_filter("Backup do Lattes Manager (*.zip)", &["zip"])
+        .add_filter("Cofre do Lattes Manager (*.lattespack, *.zip)", &["lattespack", "zip"])
         .save_file()
         .map(|p| p.to_string_lossy().to_string()))
 }
@@ -1605,8 +1783,8 @@ pub async fn create_backup(app: tauri::AppHandle, path: String, include_files: b
 pub fn pick_backup_file(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
     let dir = crate::strip_verbatim(&state.root_dir).join("backups");
     let mut d = rfd::FileDialog::new()
-        .set_title("Escolher backup para restaurar")
-        .add_filter("Backup do Lattes Manager (*.zip, *.db)", &["zip", "db"]);
+        .set_title("Escolher Cofre / Backup para restaurar")
+        .add_filter("Cofre do Lattes Manager (*.lattespack, *.zip, *.db)", &["lattespack", "zip", "db"]);
     if dir.is_dir() {
         d = d.set_directory(&dir);
     }
@@ -1618,6 +1796,57 @@ pub async fn inspect_backup(path: String) -> Result<crate::backup::BackupInspect
     tauri::async_runtime::spawn_blocking(move || crate::backup::inspect(Path::new(path.trim())))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn verify_backup_integrity(path: String) -> Result<crate::backup::IntegrityReport, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::backup::verify_integrity(Path::new(path.trim())))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+// ==========================================
+// VASSOURA DE COMPROVANTES
+// ==========================================
+
+#[tauri::command]
+pub async fn scan_vassoura(
+    state: tauri::State<'_, AppState>,
+    external_dir: String,
+) -> Result<Vec<crate::vassoura::VassouraMatch>, String> {
+    let root = state.root_dir.clone();
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let matches = crate::vassoura::scan_vassoura(&conn, &root, Path::new(external_dir.trim()))?;
+    for m in &matches {
+        state.remember_saved(Path::new(&m.file_path));
+    }
+    Ok(matches)
+}
+
+#[tauri::command]
+pub async fn apply_vassoura(
+    state: tauri::State<'_, AppState>,
+    items: Vec<crate::vassoura::VassouraApplyItem>,
+    move_files: bool,
+) -> Result<crate::vassoura::VassouraApplyResult, String> {
+    let root = state.root_dir.clone();
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::vassoura::apply_vassoura(&conn, &root, &items, move_files)
+}
+
+// ==========================================
+// LATTES TIME MACHINE (DIFF XML)
+// ==========================================
+
+#[tauri::command]
+pub async fn diff_lattes_xml(
+    state: tauri::State<'_, AppState>,
+    xml_path_new: String,
+    xml_path_old: Option<String>,
+) -> Result<crate::diff::LattesDiffResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let old_buf = xml_path_old.filter(|s| !s.trim().is_empty()).map(PathBuf::from);
+    crate::diff::compare_lattes_versions(&conn, Path::new(xml_path_new.trim()), old_buf.as_deref())
 }
 
 /// Restaura um backup. `restore_db`: substitui o banco (com cópia de segurança do atual em `backups/`);
@@ -1658,6 +1887,45 @@ pub async fn restore_backup(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ==========================================
+// GOOGLE SCHOLAR CITATIONS (SERPAPI)
+// ==========================================
+
+#[tauri::command(async)]
+pub fn get_scholar_config(state: tauri::State<'_, AppState>) -> Result<crate::scholar::ScholarConfig, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::scholar::get_scholar_config(&conn)
+}
+
+#[tauri::command(async)]
+pub fn save_scholar_config(
+    state: tauri::State<'_, AppState>,
+    author_id: String,
+    api_key: String,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::scholar::save_scholar_config(&conn, &author_id, &api_key)
+}
+
+#[tauri::command]
+pub async fn sync_scholar_citations(
+    state: tauri::State<'_, AppState>,
+    author_id: Option<String>,
+    api_key: Option<String>,
+) -> Result<crate::scholar::ScholarSyncReport, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::scholar::sync_scholar_citations(&conn, author_id.as_deref(), api_key.as_deref())
+}
+
+#[tauri::command]
+pub fn get_unmatched_scholar_articles(
+    state: tauri::State<'_, AppState>,
+    force_refresh: Option<bool>,
+) -> Result<crate::scholar::UnmatchedScholarReport, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::scholar::get_unmatched_scholar_articles(&conn, force_refresh.unwrap_or(false))
 }
 
 #[cfg(test)]

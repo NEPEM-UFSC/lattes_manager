@@ -127,6 +127,10 @@ export class SettingsView {
     this._ccLoaded = false;
     this.optRenameOpen = false;
     this._optDraft = null;
+    this._scholarConfig = null;
+    this._scholarLoading = false;
+    this._scholarSyncing = false;
+    this._scholarSyncReport = null;
   }
 
   setData(mappings, qualis, stats = null) {
@@ -162,7 +166,7 @@ export class SettingsView {
   render() {
     const cats = Object.entries(CATEGORY_SCHEMAS);
     const isQualis = this.active === "__qualis";
-    const isApp = this.active === "__aparencia" || this.active === "__dados" || this.active === "__categorias";
+    const isApp = this.active === "__aparencia" || this.active === "__dados" || this.active === "__categorias" || this.active === "__scholar";
     const schema = CATEGORY_SCHEMAS[this.active];
     const opts = isQualis || isApp
       ? []
@@ -176,6 +180,7 @@ export class SettingsView {
           <button class="settings-tab ${this.active === "__aparencia" ? "on" : ""}" data-tab="__aparencia"><span>🎨 Aparência</span></button>
           <button class="settings-tab ${this.active === "__dados" ? "on" : ""}" data-tab="__dados"><span>💾 Pasta de dados</span></button>
           <button class="settings-tab ${this.active === "__categorias" ? "on" : ""}" data-tab="__categorias"><span>🗂️ Categorias</span></button>
+          <button class="settings-tab ${this.active === "__scholar" ? "on" : ""}" data-tab="__scholar"><span>🎓 Google Scholar & APIs</span></button>
           <button class="settings-tab" data-tab="__backup" title="Criar backup (com ou sem os arquivos) e restaurar backups"><span>🛡️ Segurança e backup</span><span class="cnt">→</span></button>
           <div class="settings-menu-title" style="margin-top:14px">Listas de opções</div>
           ${cats
@@ -190,7 +195,7 @@ export class SettingsView {
           <button class="settings-tab ${isQualis ? "on" : ""}" data-tab="__qualis"><span>Qualis (Produções)</span><span class="cnt">${this.qualis.filter(Boolean).length}</span></button>
         </aside>
         <section class="settings-panel">
-          ${this.active === "__aparencia" ? this.renderAppearance() : this.active === "__dados" || (this.active === "__categorias" && !ccReady) ? `<div class="loading-state" style="display:flex"><div class="spinner"></div></div>` : isQualis ? this.renderQualis() : ccReady ? "" : this.renderOptions(this.active, schema, opts)}
+          ${this.active === "__aparencia" ? this.renderAppearance() : this.active === "__scholar" ? this.renderScholar() : this.active === "__dados" || (this.active === "__categorias" && !ccReady) ? `<div class="loading-state" style="display:flex"><div class="spinner"></div></div>` : isQualis ? this.renderQualis() : ccReady ? "" : this.renderOptions(this.active, schema, opts)}
         </section>
       </div>`;
 
@@ -198,6 +203,9 @@ export class SettingsView {
       b.addEventListener("click", () => {
         if (b.dataset.tab === "__backup") return this.onBackup && this.onBackup();
         if (b.dataset.tab === "__categorias") this._ccLoaded = false;
+        if (b.dataset.tab === "__scholar") {
+          this.loadScholarConfig();
+        }
         if (this.active !== b.dataset.tab) {
           this.optRenameOpen = false;
           this._optDraft = null;
@@ -207,6 +215,7 @@ export class SettingsView {
       })
     );
     if (this.active === "__aparencia") this.bindAppearance();
+    else if (this.active === "__scholar") this.bindScholar();
     else if (this.active === "__dados") this.loadDataDir();
     else if (this.active === "__categorias") {
       if (ccReady) this.renderCategories();
@@ -1094,6 +1103,273 @@ export class SettingsView {
     this.container.querySelector("#btn-add-qualis").addEventListener("click", add);
     inp.addEventListener("keydown", (e) => e.key === "Enter" && add());
     this.container.querySelector("#btn-reset-qualis").addEventListener("click", () => save(DEFAULT_QUALIS.slice()));
+  }
+
+  // ---------------- Google Scholar & APIs ----------------
+  async loadScholarConfig() {
+    try {
+      this._scholarLoading = true;
+      this._scholarConfig = await api.getScholarConfig();
+    } catch (e) {
+      console.error("Erro ao carregar configurações do Google Scholar:", e);
+      showToast(`Erro ao carregar configurações: ${e}`, "error");
+    } finally {
+      this._scholarLoading = false;
+      if (this.active === "__scholar") this.render();
+    }
+  }
+
+  renderScholar() {
+    if (this._scholarLoading && !this._scholarConfig) {
+      return `<div class="loading-state" style="display:flex"><div class="spinner"></div></div>`;
+    }
+    const cfg = this._scholarConfig || {};
+    const rep = this._scholarSyncReport;
+
+    const renderMiniSparkline = (graph) => {
+      if (!graph || graph.length < 2) return "";
+      const values = graph.map((g) => g.citations);
+      const max = Math.max(...values, 1);
+      const min = Math.min(...values, 0);
+      const w = 110;
+      const h = 24;
+      const pad = 2;
+      const pts = values.map((v, i) => {
+        const x = (i / (values.length - 1)) * (w - 2 * pad) + pad;
+        const y = h - ((v - min) / (max - min || 1)) * (h - 2 * pad) - pad;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      });
+      return `
+        <svg class="scholar-sparkline" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible; display:block; margin:6px auto 0 auto;">
+          <polyline points="${pts.join(" ")}" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      `;
+    };
+
+    const renderScholarCitationChart = (graph, authorName) => {
+      if (!graph || !graph.length) return "";
+      const max = Math.max(...graph.map((g) => g.citations), 1);
+      const total = graph.reduce((a, g) => a + g.citations, 0);
+      const chartHeight = 150;
+      const barWidth = 32;
+      const gap = 16;
+      const svgWidth = Math.max(graph.length * (barWidth + gap) + 40, 520);
+
+      return `
+        <div class="scholar-card" style="margin-top:20px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+            <div>
+              <h3 style="font-size:15px; font-weight:600; margin:0; display:flex; align-items:center; gap:8px;">
+                <span>📈 Citações por Ano (Google Scholar)</span>
+              </h3>
+              <p style="font-size:12.5px; color:var(--text-muted); margin:4px 0 0 0;">
+                ${authorName ? `Perfil de <b>${escapeHtml(authorName)}</b> · ` : ""}Histórico anual de citações extraído via SerpApi
+              </p>
+            </div>
+            <span class="badge" style="font-size:12px; font-weight:600; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:4px 10px; border-radius:12px;">
+              ${Number(total).toLocaleString("pt-BR")} citações registradas
+            </span>
+          </div>
+          <div style="width:100%; overflow-x:auto; padding-bottom:6px;">
+            <svg width="100%" height="${chartHeight + 40}" viewBox="0 0 ${svgWidth} ${chartHeight + 40}" style="overflow:visible; min-width:${svgWidth}px;">
+              <line x1="20" y1="${chartHeight}" x2="${svgWidth - 20}" y2="${chartHeight}" stroke="var(--border-color)" stroke-width="1" />
+              <line x1="20" y1="${chartHeight / 2}" x2="${svgWidth - 20}" y2="${chartHeight / 2}" stroke="var(--border-color)" stroke-width="1" stroke-dasharray="3,3" opacity="0.4" />
+              
+              ${graph.map((g, i) => {
+                const h = Math.max(4, Math.round((g.citations / max) * (chartHeight - 30)));
+                const x = 30 + i * (barWidth + gap);
+                const y = chartHeight - h;
+                return `
+                  <g class="scholar-bar-group" tabindex="0">
+                    <title>${g.year}: ${g.citations} citações</title>
+                    <text x="${x + barWidth / 2}" y="${y - 6}" font-size="10.5" font-weight="600" fill="var(--text-muted)" text-anchor="middle">${g.citations}</text>
+                    <rect x="${x}" y="${y}" width="${barWidth}" height="${h}" rx="4" fill="url(#scholar-grad)" />
+                    <text x="${x + barWidth / 2}" y="${chartHeight + 18}" font-size="11" font-weight="500" fill="var(--text-muted)" text-anchor="middle">${g.year}</text>
+                  </g>
+                `;
+              }).join("")}
+
+              <defs>
+                <linearGradient id="scholar-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#38bdf8" />
+                  <stop offset="100%" stop-color="#0284c7" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+        </div>
+      `;
+    };
+
+    return `
+      <div class="settings-head"><div>
+        <h2>Google Scholar & Métricas de Citação</h2>
+        <p>Conecte seu ID do Google Scholar e sua chave SerpApi para extrair automaticamente o número de citações, índice H e i10 dos seus artigos publicados.</p>
+      </div></div>
+
+      <div class="scholar-metrics-row">
+        <div class="scholar-metric-card">
+          <div class="scholar-metric-val">${cfg.total_citations != null ? Number(cfg.total_citations).toLocaleString("pt-BR") : "—"}</div>
+          ${renderMiniSparkline(cfg.graph)}
+          <div class="scholar-metric-lbl">Total de Citações</div>
+        </div>
+        <div class="scholar-metric-card">
+          <div class="scholar-metric-val">${cfg.h_index != null ? cfg.h_index : "—"}</div>
+          <div class="scholar-metric-lbl">Índice H</div>
+        </div>
+        <div class="scholar-metric-card">
+          <div class="scholar-metric-val">${cfg.i10_index != null ? cfg.i10_index : "—"}</div>
+          <div class="scholar-metric-lbl">Índice i10</div>
+        </div>
+        <div class="scholar-metric-card">
+          <div class="scholar-metric-val" style="font-size:13.5px; font-weight:600; line-height:2.2;">${cfg.last_sync || "Nunca"}</div>
+          <div class="scholar-metric-lbl">Última Sincronização</div>
+        </div>
+      </div>
+
+      ${renderScholarCitationChart(cfg.graph, cfg.author_name)}
+
+      <div class="scholar-card" style="margin-top:20px;">
+        <h3 style="margin-bottom:14px; font-size:15px; font-weight:600; display:flex; align-items:center; gap:8px;">
+          <span>🔑 Credenciais de Acesso</span>
+          ${cfg.author_name ? `<span class="badge" style="font-size:11px; font-weight:normal; background:var(--surface-2); color:var(--text-muted);">Autor identificado: <b>${escapeHtml(cfg.author_name)}</b></span>` : ""}
+        </h3>
+        
+        <div style="margin-bottom:16px;">
+          <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">ID do Google Scholar ou Link do Perfil</label>
+          <input type="text" id="scholar-author-id" class="form-input" style="width:100%;" placeholder="Ex: J_1kLk8AAAAJ ou https://scholar.google.com/citations?user=J_1kLk8AAAAJ" value="${escapeHtml(cfg.author_id || "")}" />
+          <div class="scholar-help-text">Você pode colar a URL inteira do seu perfil do Google Scholar ou apenas o código no parâmetro <code>user=...</code>.</div>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">Chave SerpApi (SERPAPI_KEY)</label>
+          <div style="display:flex; gap:8px;">
+            <input type="password" id="scholar-api-key" class="form-input" style="flex:1;" placeholder="Cole sua chave da SerpApi aqui..." value="${escapeHtml(cfg.serpapi_key || "")}" />
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-scholar-key" title="Mostrar/ocultar chave" style="padding:0 12px;">👁️</button>
+          </div>
+          <div class="scholar-help-text">
+            A SerpApi consulta o Google Scholar em tempo real sem bloqueios. O plano gratuito oferece <b>100 buscas/mês</b>. Crie sua conta em <a href="#" id="link-open-serpapi" style="color:var(--primary); text-decoration:underline;">serpapi.com</a>.
+          </div>
+        </div>
+
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary" id="btn-save-scholar">💾 Salvar Credenciais</button>
+          <button type="button" class="btn btn-accent" id="btn-sync-scholar" ${this._scholarSyncing ? "disabled" : ""}>
+            ${this._scholarSyncing ? `<span class="spinner" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:6px;"></span> Sincronizando...` : `⚡ Sincronizar Citações Agora`}
+          </button>
+        </div>
+      </div>
+
+      ${rep ? `
+        <div class="scholar-card" style="margin-top:20px;">
+          <h3 style="margin-bottom:8px; font-size:15px; font-weight:600; color:var(--success);">
+            ✓ Sincronização Concluída: ${escapeHtml(rep.author_name || "Autor")}
+          </h3>
+          <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+            Foram encontrados <b>${rep.scholar_articles_found}</b> artigos no Google Scholar e <b>${rep.matched_count}</b> produções foram atualizadas no seu banco de dados local.
+          </p>
+          ${rep.updated_items && rep.updated_items.length > 0 ? `
+            <div class="scholar-table-wrap">
+              <table class="scholar-table">
+                <thead>
+                  <tr>
+                    <th>Ano</th>
+                    <th>Título no Lattes Manager</th>
+                    <th style="text-align:center;">Citações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rep.updated_items.map(it => `
+                    <tr>
+                      <td style="color:var(--text-muted);">${it.ano || "—"}</td>
+                      <td style="font-weight:500;">
+                        ${escapeHtml(it.titulo)}
+                        ${it.scholar_title && it.scholar_title.toLowerCase() !== it.titulo.toLowerCase() ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Scholar: ${escapeHtml(it.scholar_title)}</div>` : ""}
+                      </td>
+                      <td style="text-align:center; white-space:nowrap;">
+                        <span class="badge-citations">💬 ${it.citations_after}</span>
+                      </td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+          ` : `<p style="font-size:13px; color:var(--text-muted);">Nenhum artigo novo precisou de atualização.</p>`}
+        </div>
+      ` : ""}
+    `;
+  }
+
+  bindScholar() {
+    const toggleBtn = this.container.querySelector("#btn-toggle-scholar-key");
+    const keyInput = this.container.querySelector("#scholar-api-key");
+    if (toggleBtn && keyInput) {
+      toggleBtn.addEventListener("click", () => {
+        keyInput.type = keyInput.type === "password" ? "text" : "password";
+      });
+    }
+
+    const serpLink = this.container.querySelector("#link-open-serpapi");
+    if (serpLink) {
+      serpLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        api.openUrl("https://serpapi.com");
+      });
+    }
+
+    const authorInput = this.container.querySelector("#scholar-author-id");
+    const saveBtn = this.container.querySelector("#btn-save-scholar");
+    if (saveBtn && authorInput && keyInput) {
+      saveBtn.addEventListener("click", async () => {
+        const authorId = authorInput.value.trim();
+        const apiKey = keyInput.value.trim();
+        try {
+          saveBtn.disabled = true;
+          await api.saveScholarConfig(authorId, apiKey);
+          showToast("Credenciais do Google Scholar salvas com sucesso!", "success");
+          await this.loadScholarConfig();
+        } catch (e) {
+          showToast(`Erro ao salvar: ${e}`, "error");
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    }
+
+    const syncBtn = this.container.querySelector("#btn-sync-scholar");
+    if (syncBtn && authorInput && keyInput) {
+      syncBtn.addEventListener("click", async () => {
+        const authorId = authorInput.value.trim();
+        const apiKey = keyInput.value.trim();
+        if (!authorId) {
+          showToast("Informe o ID ou URL do Google Scholar.", "warning");
+          authorInput.focus();
+          return;
+        }
+        if (!apiKey) {
+          showToast("Informe sua chave SerpApi.", "warning");
+          keyInput.focus();
+          return;
+        }
+
+        try {
+          this._scholarSyncing = true;
+          this.render();
+          showToast("Consultando Google Scholar via SerpApi...", "info", 4000);
+          const report = await api.syncScholarCitations(authorId, apiKey);
+          this._scholarSyncReport = report;
+          showToast(`Sincronização concluída! ${report.matched_count} artigos atualizados.`, "success", 4000);
+          await this.loadScholarConfig();
+          this.onChanged && this.onChanged();
+        } catch (e) {
+          console.error("Erro na sincronização:", e);
+          showToast(`Falha na sincronização: ${e}`, "error", 6000);
+        } finally {
+          this._scholarSyncing = false;
+          if (this.active === "__scholar") this.render();
+        }
+      });
+    }
   }
 }
 

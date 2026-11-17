@@ -303,21 +303,90 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
     Ok(out)
 }
 
+fn default_cat_folder(cat: &str) -> String {
+    match cat {
+        "dados_gerais" => "1_dados_gerais".to_string(),
+        "formacao" => "2_formacao".to_string(),
+        "encargos" | "disciplinas" | "atuacao" => "3_atuacao".to_string(),
+        "projetos" => "4_projetos".to_string(),
+        "producoes" => "5_producoes".to_string(),
+        "patentes" => "6_patentes".to_string(),
+        "eventos" => "7_eventos".to_string(),
+        "orientacoes" => "10_orientacoes".to_string(),
+        "bancas" => "11_bancas".to_string(),
+        other => format!("custom_{}", other),
+    }
+}
+
 /// Grava os vínculos aceitos: path, file e folder do registro.
 pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Result<usize, String> {
     let mut n = 0;
+    let mut external_copy_cache: std::collections::HashMap<String, (String, String, String)> = std::collections::HashMap::new();
+
     for l in links {
         let table = normalize_category(&l.category).ok_or_else(|| format!("Categoria inválida: {}", l.category))?;
-        let rel = l.path.trim().replace('/', "\\");
-        let full = crate::commands::resolve_inside_root(root, &rel)?;
-        let file = full.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-        let folder = rel.rsplit_once('\\').map(|(d, _)| format!("{}\\", d)).unwrap_or_default();
+        let trimmed = l.path.trim().replace('/', "\\");
+        let path_obj = Path::new(&trimmed);
+
+        let (rel, file, folder) = if let Some(cached) = external_copy_cache.get(&trimmed) {
+            cached.clone()
+        } else {
+            let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+            let full_candidate = if path_obj.is_absolute() {
+                path_obj.to_path_buf()
+            } else {
+                root.join(path_obj)
+            };
+
+            let path_canon = full_candidate.canonicalize().ok();
+
+            if let Some(pc) = path_canon {
+                if pc.starts_with(&root_canon) {
+                    let stripped = pc.strip_prefix(&root_canon).unwrap();
+                    let rel = stripped.to_string_lossy().replace('/', "\\");
+                    let file = pc.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                    let folder = rel.rsplit_once('\\').map(|(d, _)| format!("{}\\", d)).unwrap_or_default();
+                    (rel, file, folder)
+                } else {
+                    // Arquivo externo: copia uma única vez para a pasta da categoria no root
+                    let cat_folder = default_cat_folder(&l.category);
+                    let target_subfolder = root.join(&cat_folder);
+                    let saved = crate::files::storage::save_attached_file(&pc, &target_subfolder, root)?;
+                    let folder = saved.relative_path.rsplit_once('\\').map(|(d, _)| format!("{}\\", d)).unwrap_or_default();
+                    let res = (saved.relative_path, saved.filename, folder);
+                    external_copy_cache.insert(trimmed.clone(), res.clone());
+                    res
+                }
+            } else {
+                // Tenta fallback com resolve_inside_root caso seja caminho relativo sem canonicalizar
+                let full = crate::commands::resolve_inside_root(root, &trimmed)?;
+                let file = full.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+                let folder = trimmed.rsplit_once('\\').map(|(d, _)| format!("{}\\", d)).unwrap_or_default();
+                (trimmed.clone(), file, folder)
+            }
+        };
+
         n += conn
             .execute(
                 &format!("UPDATE {} SET path = ?1, file = ?2, folder = ?3 WHERE id = ?4", table),
                 params![rel, file, folder, l.id],
             )
             .map_err(|e| e.to_string())?;
+
+        let att_dto = crate::db::models::AttachmentDto {
+            id: None,
+            file: file.clone(),
+            path: rel.clone(),
+            folder: Some(folder.clone()),
+            description: None,
+            ord: Some(1),
+        };
+        let _ = crate::db::queries::sync_record_attachments(
+            conn,
+            table,
+            l.id,
+            &[att_dto],
+        );
     }
     Ok(n)
 }

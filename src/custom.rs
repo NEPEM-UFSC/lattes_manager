@@ -258,6 +258,8 @@ fn row_to_dto(r: &rusqlite::Row) -> Result<RecordDto> {
         qualis: None,
         aluno: None,
         url: r.get::<_, Option<String>>(11).ok().flatten().filter(|s| !s.trim().is_empty()),
+        citations: None,
+        attachments: Vec::new(),
     })
 }
 
@@ -265,7 +267,8 @@ const COLS: &str = "id, category, ano, tipo, identifier, file, folder, titulo, d
 
 pub fn list(conn: &Connection, category: &str, search: Option<&str>, year: Option<i64>, tipo: Option<&str>) -> Result<Vec<RecordDto>> {
     let mut st = conn.prepare(&format!("SELECT {} FROM custom_records WHERE category = ?1 ORDER BY ano DESC, id DESC", COLS))?;
-    let rows: Vec<RecordDto> = st.query_map([category], row_to_dto)?.collect::<Result<_>>()?;
+    let mut rows: Vec<RecordDto> = st.query_map([category], row_to_dto)?.collect::<Result<_>>()?;
+    crate::db::queries::populate_attachments_for_records(conn, category, &mut rows)?;
     let s = search.map(|s| crate::db::fold(s.trim())).filter(|s| !s.is_empty());
     Ok(rows
         .into_iter()
@@ -280,7 +283,9 @@ pub fn list(conn: &Connection, category: &str, search: Option<&str>, year: Optio
 }
 
 pub fn get(conn: &Connection, category: &str, id: i64) -> Result<RecordDto> {
-    conn.query_row(&format!("SELECT {} FROM custom_records WHERE category = ?1 AND id = ?2", COLS), params![category, id], row_to_dto)
+    let mut rec = conn.query_row(&format!("SELECT {} FROM custom_records WHERE category = ?1 AND id = ?2", COLS), params![category, id], row_to_dto)?;
+    crate::db::queries::populate_attachments_for_records(conn, category, std::slice::from_mut(&mut rec))?;
+    Ok(rec)
 }
 
 fn now() -> String {
@@ -299,11 +304,28 @@ pub fn insert(conn: &Connection, category: &str, data: &Value, file: Option<Stri
         "INSERT INTO custom_records (category, ano, tipo, identifier, file, folder, titulo, descricao, log, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![category, json_i64(data, "ano"), json_str(data, "tipo"), identifier, file, json_str(data, "folder"), json_str(data, "titulo"), json_str(data, "descricao"), now(), path],
     )?;
-    get(conn, category, conn.last_insert_rowid())
+    let id = conn.last_insert_rowid();
+    if let Some(arr) = data.get("attachments") {
+        if let Ok(atts) = serde_json::from_value::<Vec<crate::db::models::AttachmentDto>>(arr.clone()) {
+            let _ = crate::db::queries::sync_record_attachments(conn, category, id, &atts);
+        }
+    } else if file.is_some() || path.is_some() {
+        let att = crate::db::models::AttachmentDto {
+            id: None,
+            file: file.unwrap_or_default(),
+            path: path.unwrap_or_default(),
+            folder: json_str(data, "folder"),
+            description: None,
+            ord: Some(0),
+        };
+        let _ = crate::db::queries::sync_record_attachments(conn, category, id, &[att]);
+    }
+    get(conn, category, id)
 }
 
 pub fn update(conn: &Connection, category: &str, id: i64, data: &Value, new_file: Option<String>, new_path: Option<String>) -> Result<RecordDto> {
     let e = get(conn, category, id)?;
+    let has_new_attachment = new_file.is_some() || new_path.is_some();
     let pick_s = |k: &str, old: Option<String>| if data.get(k).is_some() { json_str(data, k) } else { old };
     let file = new_file.or_else(|| pick_s("file", e.file.clone()));
     let path = new_path.or_else(|| pick_s("path", e.path.clone()));
@@ -324,13 +346,28 @@ pub fn update(conn: &Connection, category: &str, id: i64, data: &Value, new_file
             pick_s("tipo", e.tipo),
             identifier,
             file,
-            pick_s("folder", e.folder),
+            pick_s("folder", e.folder.clone()),
             pick_s("titulo", e.titulo),
             pick_s("descricao", e.descricao),
             now(),
             path
         ],
     )?;
+    if let Some(arr) = data.get("attachments") {
+        if let Ok(atts) = serde_json::from_value::<Vec<crate::db::models::AttachmentDto>>(arr.clone()) {
+            let _ = crate::db::queries::sync_record_attachments(conn, category, id, &atts);
+        }
+    } else if has_new_attachment {
+        let att = crate::db::models::AttachmentDto {
+            id: None,
+            file: file.unwrap_or_default(),
+            path: path.unwrap_or_default(),
+            folder: pick_s("folder", e.folder),
+            description: None,
+            ord: Some(0),
+        };
+        let _ = crate::db::queries::sync_record_attachments(conn, category, id, &[att]);
+    }
     get(conn, category, id)
 }
 

@@ -1,7 +1,8 @@
 // Ferramentas: utilidades ligadas aos registros e aos arquivos do app.
 
 import { api } from "../api.js";
-import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
+import { CATEGORY_SCHEMAS, escapeHtml, showToast, renderTipoBadge } from "../utils.js";
+import { ProofPickerModal } from "./proofPicker.js";
 
 // ---------- formatação de textos ----------
 const LOWER_PT = new Set(["a", "à", "ao", "aos", "as", "às", "com", "da", "das", "de", "do", "dos", "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para", "pela", "pelas", "pelo", "pelos", "por", "sem", "sob", "sobre", "um", "uma", "entre", "após", "contra", "y", "del", "la", "van", "von", "der", "di", "du", "le"]);
@@ -391,6 +392,12 @@ function fmtDate([y, mo, d], kind) {
 
 // ---------- catálogo ----------
 const TOOLS = [
+  ["scholar", "🎓", "Citações Google Scholar (SerpApi)", "Extraia métricas (índice H, i10 e citações) e atualize os artigos publicados no banco de dados automaticamente."],
+  ["scholar_unmatched", "🔎", "Artigos do Scholar ausentes no Lattes", "Compare suas publicações do Google Scholar com as do Lattes Manager e cadastre artigos faltantes com 1 clique."],
+  ["vassoura", "🧹", "Vassoura de Comprovantes", "Varra qualquer pasta externa (Downloads, Documentos) para localizar e vincular comprovantes em PDF automaticamente aos registros sem anexo."],
+  ["invalid_proofs", "⚠️", "Procurar comprovantes inválidos", "Localize registros com links para PDFs ou imagens que não existem mais no disco e vincule comprovantes válidos com 1 clique."],
+  ["timemachine", "🕰️", "Lattes Time Machine (Comparador)", "Compare o cadastro atual com um novo XML do Lattes (ou compare dois XMLs) e veja todas as novidades, alterações e exclusões."],
+  ["backup", "🗄️", "Cofre Portátil de Comprovantes", "Exporte ou restaure um cofre único (.lattespack / .zip) com todos os registros, fotos e comprovantes em PDF, com validação SHA-256."],
   ["formatar", "🔤", "Formatador de nomes e datas", "Cole nomes ou datas e converta: Nome Próprio, ABNT (OLIVOTO, T.), Vancouver, nome de arquivo, dd/mm/aaaa, ISO, por extenso."],
   ["padronizar", "✨", "Padronizar textos dos registros", "Corrige MAIÚSCULAS, espaços duplos e capitalização de nomes de alunos, títulos e periódicos — com prévia antes de aplicar."],
   ["renomear", "🏷️", "Renomear comprovantes", "Renomeia os arquivos pelo título do registro: 001_titulo_do_trabalho.pdf (sem acentos, com _), atualizando os vínculos."],
@@ -399,15 +406,15 @@ const TOOLS = [
   ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref."],
   ["pdfs", "⚡", "Buscar PDFs por DOI (lote)", "Para artigos sem comprovante: resolve o DOI (ou procura pelo título) e baixa o PDF de acesso aberto."],
   ["duplicatas", "👯", "Duplicatas e vínculos", "Abre o assistente que liga arquivos soltos aos registros e mostra possíveis registros duplicados."],
-  ["backup", "🛟", "Backup e restauração", "Cria um backup .zip dos registros (com ou sem os arquivos dos comprovantes) e restaura um backup anterior."],
 ];
 
 export class ToolsView {
-  constructor({ container, onChanged, openLinker, fetchPdf }) {
+  constructor({ container, onChanged, openLinker, fetchPdf, onCreateWithData }) {
     this.el = container;
     this.onChanged = onChanged;
     this.openLinker = openLinker;
     this.fetchPdf = fetchPdf;
+    this.onCreateWithData = onCreateWithData;
     this.active = null;
   }
 
@@ -422,9 +429,9 @@ export class ToolsView {
       <div class="tl-wrap">
         <div class="tl-grid">
           ${TOOLS.map(
-            ([k, ic, t, d], i) => `<button type="button" class="tl-card" data-tool="${k}" style="--i:${i}">
+      ([k, ic, t, d], i) => `<button type="button" class="tl-card" data-tool="${k}" style="--i:${i}">
               <span class="tl-ic">${ic}</span><b>${escapeHtml(t)}</b><span>${escapeHtml(d)}</span><i class="tl-go">→</i></button>`
-          ).join("")}
+    ).join("")}
         </div>
       </div>`;
     this.el.querySelectorAll("[data-tool]").forEach((b) => b.addEventListener("click", () => this.open(b.dataset.tool)));
@@ -457,7 +464,1286 @@ export class ToolsView {
   }
 
   renderTool() {
-    ({ formatar: () => this.toolFormat(), padronizar: () => this.toolTidy(), renomear: () => this.toolRename(), verificar: () => this.toolCheck(), qualis: () => this.toolQualis(), pdfs: () => this.toolPdfs(), dois: () => this.toolDois(), backup: () => this.toolBackup() })[this.active]();
+    ({
+      scholar: () => this.toolScholar(),
+      scholar_unmatched: () => this.toolScholarUnmatched(),
+      vassoura: () => this.toolVassoura(),
+      invalid_proofs: () => this.toolInvalidProofs(),
+      timemachine: () => this.toolTimeMachine(),
+      backup: () => this.toolBackup(),
+      formatar: () => this.toolFormat(),
+      padronizar: () => this.toolTidy(),
+      renomear: () => this.toolRename(),
+      verificar: () => this.toolCheck(),
+      qualis: () => this.toolQualis(),
+      pdfs: () => this.toolPdfs(),
+      dois: () => this.toolDois(),
+    })[this.active]?.();
+  }
+
+  // ===== GOOGLE SCHOLAR (SERPAPI) =====
+  async toolScholar() {
+    const st = this.state;
+    st.scholarConfig ??= null;
+    st.scholarLoading ??= false;
+    st.scholarSyncing ??= false;
+    st.scholarReport ??= null;
+
+    if (!st.scholarConfig && !st.scholarLoading) {
+      st.scholarLoading = true;
+      try {
+        st.scholarConfig = await api.getScholarConfig();
+      } catch (e) {
+        console.error(e);
+      } finally {
+        st.scholarLoading = false;
+      }
+    }
+
+    const cfg = st.scholarConfig || {};
+    const rep = st.scholarReport;
+
+    let body = "";
+
+    if (st.scholarSyncing) {
+      body = `
+        <div class="loading-state" style="display:flex; flex-direction:column; gap:16px; padding:40px 0;">
+          <div class="spinner"></div>
+          <div style="font-size:14px; font-weight:500;">Consultando Google Scholar via SerpApi e atualizando produções...</div>
+          <div style="font-size:12px; color:var(--text-muted);">Normalizando títulos e calculando correspondência de artigos.</div>
+        </div>
+      `;
+    } else {
+      body = `
+        <div class="scholar-tool-wrap">
+          <div class="scholar-metrics-row">
+            <div class="scholar-metric-card">
+              <div class="scholar-metric-val">${cfg.total_citations != null ? Number(cfg.total_citations).toLocaleString("pt-BR") : "—"}</div>
+              <div class="scholar-metric-lbl">Total de Citações</div>
+            </div>
+            <div class="scholar-metric-card">
+              <div class="scholar-metric-val">${cfg.h_index != null ? cfg.h_index : "—"}</div>
+              <div class="scholar-metric-lbl">Índice H</div>
+            </div>
+            <div class="scholar-metric-card">
+              <div class="scholar-metric-val">${cfg.i10_index != null ? cfg.i10_index : "—"}</div>
+              <div class="scholar-metric-lbl">Índice i10</div>
+            </div>
+            <div class="scholar-metric-card">
+              <div class="scholar-metric-val" style="font-size:13.5px; font-weight:600; line-height:2.2;">${cfg.last_sync || "Nunca"}</div>
+              <div class="scholar-metric-lbl">Última Sincronização</div>
+            </div>
+          </div>
+
+          <div class="scholar-card" style="margin-top:20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+              <h3 style="margin:0; font-size:15px; font-weight:600;">Configurações de Acesso</h3>
+              ${cfg.author_name ? `<span class="badge" style="background:var(--surface-2); color:var(--text-muted); font-size:11px;">Autor: <b>${escapeHtml(cfg.author_name)}</b></span>` : ""}
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+              <div>
+                <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">ID do Google Scholar ou Link do Perfil</label>
+                <input type="text" id="tool-scholar-id" class="form-input" style="width:100%;" placeholder="Ex: J_1kLk8AAAAJ ou URL do perfil" value="${escapeHtml(cfg.author_id || "")}" />
+              </div>
+              <div>
+                <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px;">Chave SerpApi (SERPAPI_KEY)</label>
+                <div style="display:flex; gap:8px;">
+                  <input type="password" id="tool-scholar-key" class="form-input" style="flex:1;" placeholder="Cole sua chave SerpApi..." value="${escapeHtml(cfg.serpapi_key || "")}" />
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-tool-key" style="padding:0 12px;">👁️</button>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:14px; font-size:12px; color:var(--text-muted);">
+              💡 100 buscas mensais gratuitas em <a href="#" id="tool-serpapi-link" style="color:var(--primary); text-decoration:underline;">serpapi.com</a>. O ID pode ser extraído diretamente da URL do seu perfil público.
+            </div>
+
+            <div style="margin-top:16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary" id="btn-tool-save-scholar">💾 Salvar Credenciais</button>
+              <button type="button" class="btn btn-accent" id="btn-tool-sync-scholar">⚡ Sincronizar Citações Agora</button>
+              <button type="button" class="btn btn-secondary" id="btn-tool-goto-unmatched">🔎 Ver Artigos Ausentes no Lattes</button>
+            </div>
+          </div>
+
+          ${rep ? `
+            <div class="scholar-card" style="margin-top:20px;">
+              <h3 style="margin-bottom:8px; font-size:15px; font-weight:600; color:var(--success);">
+                ✓ Sincronização Concluída: ${escapeHtml(rep.author_name || "Autor")}
+              </h3>
+              <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+                <b>${rep.scholar_articles_found}</b> artigos encontrados no Google Scholar e <b>${rep.matched_count}</b> produções atualizadas no seu banco de dados local.
+              </p>
+              ${rep.updated_items && rep.updated_items.length > 0 ? `
+                <div class="scholar-table-wrap">
+                  <table class="scholar-table">
+                    <thead>
+                      <tr>
+                        <th>Ano</th>
+                        <th>Título no Lattes Manager</th>
+                        <th style="text-align:center;">Citações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${rep.updated_items.map(it => `
+                        <tr>
+                          <td style="color:var(--text-muted);">${it.ano || "—"}</td>
+                          <td style="font-weight:500;">
+                            ${escapeHtml(it.titulo)}
+                            ${it.scholar_title && it.scholar_title.toLowerCase() !== it.titulo.toLowerCase() ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Scholar: ${escapeHtml(it.scholar_title)}</div>` : ""}
+                          </td>
+                          <td style="text-align:center; white-space:nowrap;">
+                            <span class="badge-citations">💬 ${it.citations_after}</span>
+                          </td>
+                        </tr>
+                      `).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              ` : `<p style="font-size:13px; color:var(--text-muted);">Nenhum artigo novo precisou de atualização.</p>`}
+            </div>
+          ` : ""}
+        </div>
+      `;
+    }
+
+    this.shell(
+      "Citações Google Scholar (SerpApi)",
+      "Extraia métricas (índice H, i10 e citações) e atualize os artigos publicados automaticamente.",
+      body
+    );
+
+    if (st.scholarSyncing) return;
+
+    const toggleBtn = this.el.querySelector("#btn-toggle-tool-key");
+    const keyInput = this.el.querySelector("#tool-scholar-key");
+    if (toggleBtn && keyInput) {
+      toggleBtn.addEventListener("click", () => {
+        keyInput.type = keyInput.type === "password" ? "text" : "password";
+      });
+    }
+
+    const serpLink = this.el.querySelector("#tool-serpapi-link");
+    if (serpLink) {
+      serpLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        api.openUrl("https://serpapi.com");
+      });
+    }
+
+    const idInput = this.el.querySelector("#tool-scholar-id");
+    const saveBtn = this.el.querySelector("#btn-tool-save-scholar");
+    if (saveBtn && idInput && keyInput) {
+      saveBtn.addEventListener("click", async () => {
+        const authorId = idInput.value.trim();
+        const apiKey = keyInput.value.trim();
+        try {
+          saveBtn.disabled = true;
+          await api.saveScholarConfig(authorId, apiKey);
+          st.scholarConfig = await api.getScholarConfig();
+          showToast("Credenciais do Google Scholar salvas!", "success");
+          this.toolScholar();
+        } catch (e) {
+          showToast(`Erro ao salvar: ${e}`, "error");
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    }
+
+    const syncBtn = this.el.querySelector("#btn-tool-sync-scholar");
+    if (syncBtn && idInput && keyInput) {
+      syncBtn.addEventListener("click", async () => {
+        const authorId = idInput.value.trim();
+        const apiKey = keyInput.value.trim();
+        if (!authorId) {
+          showToast("Informe o ID ou URL do Google Scholar.", "warning");
+          idInput.focus();
+          return;
+        }
+        if (!apiKey) {
+          showToast("Informe sua chave SerpApi.", "warning");
+          keyInput.focus();
+          return;
+        }
+
+        try {
+          st.scholarSyncing = true;
+          this.toolScholar();
+          showToast("Consultando Google Scholar via SerpApi...", "info", 4000);
+          const rep = await api.syncScholarCitations(authorId, apiKey);
+          st.scholarReport = rep;
+          st.scholarConfig = await api.getScholarConfig();
+          showToast(`Sincronização concluída! ${rep.matched_count} artigos atualizados.`, "success", 4000);
+          this.onChanged && this.onChanged();
+        } catch (e) {
+          console.error(e);
+          showToast(`Falha na sincronização: ${e}`, "error", 6000);
+        } finally {
+          st.scholarSyncing = false;
+          this.toolScholar();
+        }
+      });
+    }
+
+    this.el.querySelector("#btn-tool-goto-unmatched")?.addEventListener("click", () => {
+      this.open("scholar_unmatched");
+    });
+  }
+
+  // ===== ARTIGOS DO SCHOLAR AUSENTES NO LATTES =====
+  async toolScholarUnmatched() {
+    const st = this.state;
+    st.filterQuery ??= "";
+    st.registeredIds ??= new Set();
+
+    if (!st.data && !st.loading) {
+      st.loading = true;
+      this.shell(
+        "Artigos do Scholar ausentes no Lattes",
+        "Comparando publicações com os registros de Produções...",
+        `<div class="loading-state" style="display:flex; flex-direction:column; gap:16px; padding:40px 0;"><div class="spinner"></div><div>Carregando publicações do Google Scholar...</div></div>`
+      );
+      try {
+        st.data = await api.getUnmatchedScholarArticles(Boolean(st.forceRefresh));
+      } catch (e) {
+        st.error = String(e);
+      } finally {
+        st.loading = false;
+        st.forceRefresh = false;
+      }
+      if (this.active !== "scholar_unmatched") return;
+    }
+
+    if (st.error) {
+      this.shell(
+        "Artigos do Scholar ausentes no Lattes",
+        "Configuração ou consulta ao Google Scholar",
+        `<div class="scholar-card" style="text-align:center; padding:32px 16px;">
+          <div style="font-size:32px; margin-bottom:12px;">⚠️</div>
+          <div style="font-weight:600; margin-bottom:8px; color:var(--danger);">${escapeHtml(st.error)}</div>
+          <p style="font-size:13px; color:var(--text-muted); max-width:500px; margin:0 auto 20px;">
+            Certifique-se de que o ID do Google Scholar e a chave SerpApi estão configurados nas configurações de API.
+          </p>
+          <div style="display:flex; gap:10px; justify-content:center;">
+            <button type="button" class="btn btn-primary" data-go-scholar>🎓 Configurações do Scholar</button>
+            <button type="button" class="btn btn-secondary" data-retry-unmatched>🔄 Tentar novamente</button>
+          </div>
+        </div>`
+      );
+      this.el.querySelector("[data-go-scholar]")?.addEventListener("click", () => this.open("scholar"));
+      this.el.querySelector("[data-retry-unmatched]")?.addEventListener("click", () => {
+        st.error = null;
+        st.data = null;
+        this.toolScholarUnmatched();
+      });
+      return;
+    }
+
+    const rep = st.data || { author_name: "", total_scholar: 0, total_matched: 0, unmatched: [] };
+    const allUnmatched = rep.unmatched || [];
+    const remainingUnmatched = allUnmatched.filter((it, idx) => !st.registeredIds.has(it.scholar_id || String(idx)));
+    const q = (st.filterQuery || "").trim().toLowerCase();
+    const visibleList = remainingUnmatched.filter((it) => {
+      if (!q) return true;
+      const t = (it.title || "").toLowerCase();
+      const j = (it.journal || "").toLowerCase();
+      const y = String(it.year || "");
+      const a = (it.authors || "").toLowerCase();
+      const d = (it.doi || "").toLowerCase();
+      return t.includes(q) || j.includes(q) || y.includes(q) || a.includes(q) || d.includes(q);
+    });
+
+    this.shell(
+      "Artigos do Scholar ausentes no Lattes",
+      "Identifique e cadastre com 1 clique os artigos indexados no Google Scholar que ainda não estão em Produções.",
+      `<div class="scholar-tool-wrap">
+        <div class="scholar-metrics-row">
+          <div class="scholar-metric-card">
+            <div class="scholar-metric-val">${rep.total_scholar}</div>
+            <div class="scholar-metric-lbl">Total no Google Scholar</div>
+          </div>
+          <div class="scholar-metric-card">
+            <div class="scholar-metric-val" style="color:var(--success);">${rep.total_matched + st.registeredIds.size}</div>
+            <div class="scholar-metric-lbl">Cadastrados no Lattes</div>
+          </div>
+          <div class="scholar-metric-card">
+            <div class="scholar-metric-val" style="color:${remainingUnmatched.length > 0 ? "var(--warning)" : "var(--success)"};">
+              ${remainingUnmatched.length}
+            </div>
+            <div class="scholar-metric-lbl">Ausentes no Lattes</div>
+          </div>
+          <div class="scholar-metric-card">
+            <div class="scholar-metric-val" style="font-size:14px; font-weight:600; line-height:2.2;">
+              ${escapeHtml(rep.author_name || "Perfil Conectado")}
+            </div>
+            <div class="scholar-metric-lbl">Autor Google Scholar</div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:space-between;">
+          <div style="flex:1; min-width:260px; max-width:480px;">
+            <input type="search" id="scholar-unmatched-search" class="form-input" placeholder="Filtrar por título, periódico, ano ou DOI..." value="${escapeHtml(st.filterQuery || "")}" style="width:100%;" />
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-scholar-force-refresh" title="Recarrega os artigos diretamente da API do Google Scholar">
+              🔄 Atualizar do Scholar
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-scholar-view-metrics" title="Ver métricas completas do Google Scholar">
+              🎓 Métricas e Citações
+            </button>
+          </div>
+        </div>
+
+        ${remainingUnmatched.length === 0 ? `
+          <div class="tl-empty" style="margin-top:24px;">
+            <div style="font-size:32px; margin-bottom:10px;">🎉</div>
+            <b>Parabéns! Todas as publicações do seu Google Scholar estão cadastradas no Lattes Manager.</b>
+            <p style="color:var(--text-muted); font-size:13px; margin-top:6px;">Nenhum artigo pendente encontrado (${rep.total_matched} de ${rep.total_scholar} correspondidos).</p>
+          </div>
+        ` : `
+          <div class="tl-table" style="margin-top:16px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width:45px; text-align:center;">#</th>
+                  <th style="width:65px; text-align:center;">Ano</th>
+                  <th>Título da Obra</th>
+                  <th style="width:230px;">Revista / Periódico</th>
+                  <th style="width:75px; text-align:center;">Citações</th>
+                  <th style="width:170px;">DOI</th>
+                  <th style="width:145px; text-align:center;">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${visibleList.length === 0 ? `
+                  <tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">Nenhum artigo corresponde à busca informada.</td></tr>
+                ` : visibleList.map((it, idx) => {
+                  const sId = it.scholar_id || String(allUnmatched.indexOf(it));
+                  const isRegistered = st.registeredIds.has(sId);
+                  const hasDoi = Boolean(it.doi && String(it.doi).trim());
+                  const doiClean = hasDoi ? String(it.doi).trim() : "";
+                  return `
+                    <tr data-row-id="${escapeHtml(sId)}">
+                      <td style="text-align:center; color:var(--text-muted); font-size:11px;">${idx + 1}</td>
+                      <td style="text-align:center; font-weight:600;">${it.year || "—"}</td>
+                      <td>
+                        <div style="font-weight:600; line-height:1.35; margin-bottom:3px;">
+                          ${it.link ? `<a href="${escapeHtml(it.link)}" target="_blank" rel="noopener" style="color:var(--text); text-decoration:none;" class="hover-underline" title="Abrir artigo no Google Scholar">${escapeHtml(it.title)}</a>` : escapeHtml(it.title)}
+                        </div>
+                        ${it.authors ? `<div style="font-size:11.5px; color:var(--text-muted);">${escapeHtml(it.authors)}</div>` : ""}
+                      </td>
+                      <td style="font-size:12px; color:var(--text-secondary); line-height:1.3;">
+                        ${it.journal ? escapeHtml(it.journal) : '<span style="color:var(--text-muted); font-style:italic;">Não informada</span>'}
+                      </td>
+                      <td style="text-align:center;">
+                        <span class="badge" style="background:rgba(16,185,129,0.15); color:var(--success); font-weight:600; font-size:11.5px; padding:2px 7px; border-radius:12px;">
+                          💬 ${it.citations != null ? it.citations : 0}
+                        </span>
+                      </td>
+                      <td data-cell-doi="${escapeHtml(sId)}">
+                        ${hasDoi ? `
+                          <a href="https://doi.org/${escapeHtml(doiClean)}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:4px; font-family:monospace; font-size:11.5px; color:var(--primary); text-decoration:none;" title="Abrir DOI">
+                            <span>🌐</span><span style="max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(doiClean)}</span>
+                          </a>
+                        ` : `
+                          <button type="button" class="btn btn-secondary btn-xs" data-find-doi="${escapeHtml(sId)}" style="font-size:11px; padding:3px 8px;">
+                            🔍 Buscar DOI
+                          </button>
+                        `}
+                      </td>
+                      <td style="text-align:center;">
+                        ${isRegistered ? `
+                          <span class="badge" style="background:rgba(16,185,129,0.18); color:var(--success); font-weight:600; font-size:11.5px; padding:3px 8px; border-radius:6px;">
+                            ✓ Cadastrado
+                          </span>
+                        ` : `
+                          <button type="button" class="btn btn-primary btn-xs" data-create-art="${escapeHtml(sId)}" style="white-space:nowrap; padding:4px 10px; font-size:11.5px; font-weight:600; border-radius:6px;">
+                            ✨ Cadastrar
+                          </button>
+                        `}
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        `}
+      </div>`
+    );
+
+    const searchInput = this.el.querySelector("#scholar-unmatched-search");
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        st.filterQuery = e.target.value;
+        this.toolScholarUnmatched();
+      });
+      if (document.activeElement !== searchInput && st.filterQuery) {
+        searchInput.focus();
+        searchInput.setSelectionRange(st.filterQuery.length, st.filterQuery.length);
+      }
+    }
+
+    this.el.querySelector("#btn-scholar-force-refresh")?.addEventListener("click", () => {
+      st.forceRefresh = true;
+      st.data = null;
+      this.toolScholarUnmatched();
+    });
+
+    this.el.querySelector("#btn-scholar-view-metrics")?.addEventListener("click", () => {
+      this.open("scholar");
+    });
+
+    const tabela = this.el.querySelector(".tl-table");
+    if (tabela) {
+      tabela.addEventListener("click", async (e) => {
+        const findBtn = e.target.closest("[data-find-doi]");
+        if (findBtn) {
+          const sId = findBtn.dataset.findDoi;
+          const item = allUnmatched.find((x, i) => (x.scholar_id || String(i)) === sId);
+          if (!item) return;
+          findBtn.disabled = true;
+          findBtn.innerHTML = "⏳ Buscando...";
+          try {
+            const doi = await api.findDoiByTitle(item.title);
+            if (doi) {
+              item.doi = doi;
+              const cell = this.el.querySelector(`[data-cell-doi="${sId}"]`);
+              if (cell) {
+                cell.innerHTML = `
+                  <a href="https://doi.org/${escapeHtml(doi)}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:4px; font-family:monospace; font-size:11.5px; color:var(--primary); text-decoration:none;" title="Abrir DOI">
+                    <span>🌐</span><span style="max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(doi)}</span>
+                  </a>
+                `;
+              }
+              showToast(`DOI encontrado: ${doi}`, "success", 3000);
+            } else {
+              findBtn.disabled = false;
+              findBtn.innerHTML = "Não encontrado";
+              setTimeout(() => { if (findBtn) findBtn.innerHTML = "🔍 Buscar DOI"; }, 2500);
+            }
+          } catch (err) {
+            findBtn.disabled = false;
+            findBtn.innerHTML = "Erro";
+            showToast(String(err), "error");
+          }
+          return;
+        }
+
+        const createBtn = e.target.closest("[data-create-art]");
+        if (createBtn) {
+          const sId = createBtn.dataset.createArt;
+          const item = allUnmatched.find((x, i) => (x.scholar_id || String(i)) === sId);
+          if (!item) return;
+
+          const initialData = {
+            titulo: item.title,
+            ano: item.year,
+            journal: item.journal || "",
+            identifier: item.doi || "",
+            tipo: "Artigos completos",
+            citations: item.citations != null ? item.citations : null,
+          };
+
+          const onSavedCallback = () => {
+            st.registeredIds.add(sId);
+            showToast("Artigo cadastrado em Produções com sucesso!", "success", 3500);
+            this.toolScholarUnmatched();
+            this.onChanged && this.onChanged();
+          };
+
+          if (this.onCreateWithData) {
+            this.onCreateWithData("producoes", initialData, onSavedCallback);
+          } else if (window._app) {
+            window._app.openCreateRecordWithData("producoes", initialData, onSavedCallback);
+          }
+        }
+      });
+    }
+  }
+
+  // ===== VASSOURA DE COMPROVANTES =====
+  async toolVassoura() {
+    const st = this.state;
+    st.filter ??= "all";
+    st.moveFiles ??= false;
+    st.sel ??= new Set();
+
+    if (!st.folder) {
+      this.shell(
+        "Vassoura de Comprovantes",
+        "Localize e vincule comprovantes em lote a partir de qualquer pasta no computador.",
+        `<div class="vs-welcome">
+          <div class="vs-hero">
+            <span class="vs-hero-ic">🧹</span>
+            <h3>Varredura Inteligente por Reconhecimento de Documentos</h3>
+            <p>Selecione uma pasta onde você costuma salvar certificados, declarações, portarias e artigos (ex.: <b>Downloads</b>, <b>Área de Trabalho</b> ou <b>Documentos</b>). O motor de inteligência do Lattes Manager extrai o texto dos PDFs e encontra os registros correspondentes que ainda estão sem comprovante.</p>
+          </div>
+          <div class="vs-actions">
+            <button type="button" class="btn btn-primary" data-vs="pick">📂 Escolher pasta para varrer…</button>
+          </div>
+          <div class="dd-note">💡 Os arquivos originais podem ser <b>copiados</b> (padrão recomendado) ou <b>movidos</b> diretamente para a estrutura organizada de subpastas do Lattes.</div>
+        </div>`
+      );
+
+      this.el.querySelector('[data-vs="pick"]')?.addEventListener("click", async () => {
+        try {
+          const folder = await api.pickFolder("Escolha a pasta com os comprovantes para varrer");
+          if (!folder) return;
+          st.folder = folder;
+          st.scanning = true;
+          this.toolVassoura();
+          st.matches = await api.scanVassoura(folder);
+          st.sel = new Set(st.matches.map((_, i) => i));
+          st.scanning = false;
+          this.toolVassoura();
+        } catch (e) {
+          st.scanning = false;
+          showToast(`Erro ao varrer pasta: ${e}`, "error");
+          this.toolVassoura();
+        }
+      });
+      return;
+    }
+
+    if (st.scanning) {
+      this.shell(
+        "Vassoura de Comprovantes",
+        `Analisando documentos em <code>${escapeHtml(st.folder)}</code>…`,
+        `<div class="loading-state" style="display:flex; flex-direction:column; gap:16px;">
+          <div class="spinner"></div>
+          <div>Lendo e extraindo texto dos PDFs com inteligência semântica…</div>
+        </div>`
+      );
+      return;
+    }
+
+    const matches = st.matches || [];
+    const highMatches = matches.filter((m) => m.score >= 70);
+    const medMatches = matches.filter((m) => m.score < 70);
+
+    const filtered = st.filter === "high" ? highMatches : st.filter === "med" ? medMatches : matches;
+    const mb = (b) => (b / 1048576).toFixed(1) + " MB";
+
+    this.shell(
+      "Vassoura de Comprovantes",
+      `Pasta analisada: <code>${escapeHtml(st.folder)}</code> · <b>${matches.length}</b> correspondência(s) encontrada(s).`,
+      `<div class="vs-container">
+        <div class="tl-bar">
+          <div class="seg tl-seg-sm">
+            <button type="button" data-flt="all" class="${st.filter === "all" ? "on" : ""}">Todos (${matches.length})</button>
+            <button type="button" data-flt="high" class="${st.filter === "high" ? "on" : ""}">Alta confiança ≥70% (${highMatches.length})</button>
+            <button type="button" data-flt="med" class="${st.filter === "med" ? "on" : ""}">Média confiança (${medMatches.length})</button>
+          </div>
+          <div style="flex:1"></div>
+          <button type="button" class="btn btn-secondary btn-sm" data-vs="pick-other">Trocar pasta</button>
+        </div>
+
+        ${matches.length ? `
+          <div class="vs-opt-bar">
+            <label class="vs-mode-opt">
+              <input type="checkbox" data-vs="move" ${st.moveFiles ? "checked" : ""}/>
+              <span>Mover arquivos originais (desmarcado: copia mantendo o original intacto)</span>
+            </label>
+            <div style="flex:1"></div>
+            <button type="button" class="btn btn-secondary btn-sm" data-vs="all">Marcar / Desmarcar todos</button>
+            <button type="button" class="btn btn-primary btn-sm" data-vs="apply" ${!st.sel.size ? "disabled" : ""}>
+              🧹 Vincular ${st.sel.size} comprovante(s) selecionado(s)
+            </button>
+          </div>
+
+          <div class="tl-table">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width:36px"></th>
+                  <th style="width:105px">Confiança</th>
+                  <th>Arquivo Encontrado</th>
+                  <th>Registro Lattes Correspondente</th>
+                  <th>Subpasta de Destino</th>
+                  <th style="width:60px">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filtered.map((m) => {
+        const globalIdx = matches.indexOf(m);
+        const isHigh = m.score >= 70;
+        const scoreColor = isHigh ? "var(--success)" : "var(--warning)";
+        const scoreBg = isHigh ? "rgba(16, 185, 129, 0.12)" : "rgba(245, 158, 11, 0.12)";
+        return `
+                    <tr>
+                      <td>
+                        <input type="checkbox" data-idx="${globalIdx}" ${st.sel.has(globalIdx) ? "checked" : ""}/>
+                      </td>
+                      <td>
+                        <span class="badge" style="background:${scoreBg}; color:${scoreColor}; font-weight:700;">
+                          ${m.score}%
+                        </span>
+                      </td>
+                      <td>
+                        <div class="vs-file-info">
+                          <b title="${escapeHtml(m.file_path)}">${escapeHtml(m.file_name)}</b>
+                          <small class="muted">${mb(m.file_size)} · ${escapeHtml(m.match_reason)}</small>
+                        </div>
+                      </td>
+                      <td>
+                        <div class="vs-rec-info">
+                          <span class="badge badge-tipo">${escapeHtml(m.category_label)}</span>
+                          ${m.record_year ? `<span class="badge" style="background:var(--surface-3);color:var(--text-secondary)">${m.record_year}</span>` : ""}
+                          <div class="vs-rec-title">${escapeHtml(m.record_title)}</div>
+                          ${m.record_extra ? `<small class="muted">${escapeHtml(m.record_extra)}</small>` : ""}
+                        </div>
+                      </td>
+                      <td class="mono sm" title="${escapeHtml(m.suggested_folder + "\\" + m.suggested_filename)}">
+                        <small style="color:var(--primary)">${escapeHtml(m.suggested_folder)}</small><br>
+                        ${escapeHtml(m.suggested_filename)}
+                      </td>
+                      <td style="text-align:right">
+                        <button type="button" class="ibtn" data-open="${escapeHtml(m.file_path)}" title="Abrir arquivo PDF">👁️</button>
+                        <button type="button" class="ibtn" data-reveal="${escapeHtml(m.file_path)}" title="Mostrar na pasta">📂</button>
+                      </td>
+                    </tr>
+                  `;
+      }).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="tl-empty">
+            ✅ Nenhum comprovante não vinculado encontrado para os registros sem arquivo nesta pasta.<br>
+            <small class="muted">Tente selecionar outra pasta de downloads ou documentos.</small>
+          </div>
+        `}
+      </div>`
+    );
+
+    this.el.querySelectorAll("[data-flt]").forEach((b) => b.addEventListener("click", () => {
+      st.filter = b.dataset.flt;
+      this.toolVassoura();
+    }));
+
+    this.el.querySelector('[data-vs="pick-other"]')?.addEventListener("click", async () => {
+      st.folder = null;
+      st.matches = null;
+      this.toolVassoura();
+    });
+
+    this.el.querySelector('[data-vs="move"]')?.addEventListener("change", (e) => {
+      st.moveFiles = e.target.checked;
+    });
+
+    this.el.querySelector('[data-vs="all"]')?.addEventListener("click", () => {
+      if (st.sel.size === matches.length) {
+        st.sel.clear();
+      } else {
+        st.sel = new Set(matches.map((_, i) => i));
+      }
+      this.toolVassoura();
+    });
+
+    this.el.querySelectorAll("[data-idx]").forEach((chk) => chk.addEventListener("change", () => {
+      const idx = Number(chk.dataset.idx);
+      if (chk.checked) st.sel.add(idx);
+      else st.sel.delete(idx);
+      const applyBtn = this.el.querySelector('[data-vs="apply"]');
+      if (applyBtn) {
+        applyBtn.textContent = `🧹 Vincular ${st.sel.size} comprovante(s) selecionado(s)`;
+        applyBtn.disabled = !st.sel.size;
+      }
+    }));
+
+    this.el.querySelectorAll("[data-open]").forEach((btn) => btn.addEventListener("click", () => {
+      api.openFile(btn.dataset.open).catch((e) => showToast(`Erro ao abrir: ${e}`, "error"));
+    }));
+
+    this.el.querySelectorAll("[data-reveal]").forEach((btn) => btn.addEventListener("click", () => {
+      api.revealInExplorer(btn.dataset.reveal).catch((e) => showToast(`Erro: ${e}`, "error"));
+    }));
+
+    this.el.querySelector('[data-vs="apply"]')?.addEventListener("click", async () => {
+      const todo = [...st.sel].map((i) => matches[i]).filter(Boolean);
+      if (!todo.length) return;
+      const actionWord = st.moveFiles ? "mover e vincular" : "copiar e vincular";
+      if (!window.confirm(`Deseja ${actionWord} ${todo.length} comprovante(s) para suas respectivas categorias?`)) return;
+
+      const itemsToApply = todo.map((m) => ({
+        file_path: m.file_path,
+        category: m.category,
+        record_id: m.record_id,
+        suggested_folder: m.suggested_folder,
+        suggested_filename: m.suggested_filename,
+      }));
+
+      try {
+        const res = await api.applyVassoura(itemsToApply, st.moveFiles);
+        showToast(`🧹 ${res.ok} comprovante(s) vinculado(s) com sucesso!${res.errors.length ? ` (${res.errors.length} erro(s))` : ""}`, res.errors.length ? "warning" : "success", 4000);
+        st.matches = matches.filter((m) => !st.sel.has(matches.indexOf(m)));
+        st.sel.clear();
+        this.onChanged && this.onChanged();
+        this.toolVassoura();
+      } catch (e) {
+        showToast(`Erro ao aplicar: ${e}`, "error");
+      }
+    });
+  }
+
+  // ===== PROCURAR COMPROVANTES INVÁLIDOS =====
+  async toolInvalidProofs() {
+    const st = this.state;
+    st.searchQuery ??= "";
+    st.categoryFilter ??= "all";
+
+    if (!st.fc && !st.fcLoading) {
+      st.fcLoading = true;
+      this.shell(
+        "Procurar comprovantes inválidos",
+        "Varrendo o banco de dados e verificando existência dos arquivos no disco…",
+        `<div class="loading-state" style="display:flex; flex-direction:column; gap:16px; padding:40px 0;">
+          <div class="spinner"></div>
+          <div>Verificando integridade dos comprovantes vinculados...</div>
+        </div>`
+      );
+      try {
+        st.fc = await api.checkFiles();
+      } catch (e) {
+        showToast(`Erro ao verificar arquivos: ${e}`, "error");
+        st.fc = { total_vinculados: 0, ausentes: [], orfaos: [], orfaos_bytes: 0 };
+      } finally {
+        st.fcLoading = false;
+      }
+      if (this.active !== "invalid_proofs") return;
+    }
+
+    const fc = st.fc || { total_vinculados: 0, ausentes: [], orfaos: [], orfaos_bytes: 0 };
+    const allAusentes = fc.ausentes || [];
+    const totalInvalid = allAusentes.length;
+    const totalValid = Math.max(0, fc.total_vinculados - totalInvalid);
+
+    // Contagem de inválidos por categoria para as pílulas de filtro
+    const catCounts = {};
+    for (const item of allAusentes) {
+      catCounts[item.category] = (catCounts[item.category] || 0) + 1;
+    }
+
+    // Filtragem por busca e categoria
+    const q = (st.searchQuery || "").trim().toLowerCase();
+    const filtered = allAusentes.filter((item) => {
+      if (st.categoryFilter !== "all" && item.category !== st.categoryFilter) {
+        return false;
+      }
+      if (!q) return true;
+      const t = (item.titulo || "").toLowerCase();
+      const n = (item.nivel || "").toLowerCase();
+      const p = (item.path || "").toLowerCase();
+      const c = (item.category || "").toLowerCase();
+      const catLabel = (CATEGORY_SCHEMAS[item.category]?.name || "").toLowerCase();
+      const y = String(item.ano || "");
+      const id = String(item.id);
+      return t.includes(q) || n.includes(q) || p.includes(q) || c.includes(q) || catLabel.includes(q) || y.includes(q) || id.includes(q);
+    });
+
+    const activeCat = st.categoryFilter;
+
+    this.shell(
+      "Procurar comprovantes inválidos",
+      "Localize registros com links para PDFs ou imagens que não existem mais no disco e vincule comprovantes válidos com 1 clique.",
+      `<div class="tl-invalid-wrap" style="display:flex; flex-direction:column; gap:18px;">
+        <!-- Estatísticas do Scan -->
+        <div class="tl-stats" style="grid-template-columns: repeat(3, 1fr);">
+          <div class="${totalInvalid > 0 ? "bad" : "good"}">
+            <b>${totalInvalid}</b>
+            <span>comprovante(s) inválido(s) / ausente(s)</span>
+          </div>
+          <div class="good">
+            <b>${totalValid}</b>
+            <span>comprovante(s) íntegro(s) no disco</span>
+          </div>
+          <div>
+            <b>${fc.total_vinculados}</b>
+            <span>total de vínculos verificados</span>
+          </div>
+        </div>
+
+        <!-- Barra de Busca e Ações Rápidas -->
+        <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; background:var(--surface-bg); padding:12px 16px; border:1px solid var(--border-light); border-radius:12px;">
+          <div style="position:relative; flex:1; min-width:280px; max-width:460px;">
+            <input type="text" id="inv-search-input" class="form-input" placeholder="Buscar por atividade, categoria, nível, arquivo..." value="${escapeHtml(st.searchQuery)}" style="width:100%; padding-left:32px; font-size:12.5px;" />
+            <span style="position:absolute; left:10px; top:50%; transform:translateY(-50%); opacity:0.5; pointer-events:none; font-size:13px;">🔍</span>
+          </div>
+
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-recheck-invalid" title="Verificar pastas e arquivos novamente">
+              🔄 Reanalisar pastas
+            </button>
+            ${totalInvalid > 0 ? `
+              <button type="button" class="btn btn-danger btn-sm" id="btn-clear-all-invalid" title="Remove os vínculos quebrados de todos os registros ausentes (permanecem sem comprovante)">
+                🗑️ Desvincular todos (${totalInvalid})
+              </button>
+            ` : ""}
+          </div>
+        </div>
+
+        <!-- Pílulas de Categoria -->
+        ${totalInvalid > 0 ? `
+          <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+            <button type="button" class="filter-pill ${activeCat === "all" ? "active" : ""}" data-cat-filter="all" style="font-size:12px; padding:4px 10px; border-radius:20px; cursor:pointer;">
+              Todas as categorias <span class="badge" style="margin-left:4px; font-size:10px;">${totalInvalid}</span>
+            </button>
+            ${Object.keys(catCounts).map((catKey) => {
+              const sc = CATEGORY_SCHEMAS[catKey];
+              const name = sc?.name || sc?.group || catKey;
+              const icon = sc?.icon || "📁";
+              const count = catCounts[catKey];
+              const isActive = activeCat === catKey;
+              return `
+                <button type="button" class="filter-pill ${isActive ? "active" : ""}" data-cat-filter="${escapeHtml(catKey)}" style="font-size:12px; padding:4px 10px; border-radius:20px; cursor:pointer;">
+                  <span>${icon}</span> ${escapeHtml(name)} <span class="badge" style="margin-left:4px; font-size:10px;">${count}</span>
+                </button>
+              `;
+            }).join("")}
+          </div>
+        ` : ""}
+
+        <!-- Tabela ou Estado Vazio -->
+        ${totalInvalid === 0 ? `
+          <div class="tl-empty" style="padding:48px 24px; text-align:center; background:var(--surface-bg); border-radius:14px; border:1px solid var(--border-light);">
+            <div style="font-size:42px; margin-bottom:12px;">🎉</div>
+            <div style="font-size:18px; font-weight:700; color:var(--success-text); margin-bottom:6px;">Nenhum comprovante inválido encontrado!</div>
+            <div style="color:var(--text-secondary); font-size:13px; max-width:520px; margin:0 auto; line-height:1.5;">
+              Todos os ${fc.total_vinculados} links de comprovantes no seu currículo apontam para arquivos PDF ou imagens existentes no disco.
+            </div>
+          </div>
+        ` : filtered.length === 0 ? `
+          <div class="tl-empty" style="padding:32px 20px; text-align:center;">
+            Nenhum comprovante inválido corresponde à busca atual.
+          </div>
+        ` : `
+          <div class="tl-table" style="max-height: 58vh;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 130px;">Categoria</th>
+                  <th style="width: 140px;">Nível</th>
+                  <th>Nome da Atividade</th>
+                  <th style="min-width: 220px;">Link para comprovante inválido</th>
+                  <th style="width: 210px; text-align: right;">Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filtered.map((item, idx) => {
+                  const sc = CATEGORY_SCHEMAS[item.category];
+                  const catName = sc?.name || sc?.group || item.category;
+                  const icon = sc?.icon || "📁";
+                  return `
+                    <tr data-idx="${idx}">
+                      <td>
+                        <span class="badge badge-tipo" style="display:inline-flex; align-items:center; gap:5px; font-weight:600;">
+                          <span>${icon}</span>
+                          <span>${escapeHtml(catName)}</span>
+                        </span>
+                      </td>
+                      <td>${renderTipoBadge(item.nivel)}</td>
+                      <td>
+                        <div style="font-weight:600; color:var(--text-primary); line-height:1.35; font-size:13px;">
+                          ${escapeHtml(item.titulo)}
+                        </div>
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                          Registro #${item.id} ${item.ano ? `· Ano ${item.ano}` : ""}
+                        </div>
+                      </td>
+                      <td>
+                        <div style="display:flex; flex-direction:column; gap:4px;">
+                          <code class="mono" style="color:var(--danger); font-size:11.5px; word-break:break-all;" title="${escapeHtml(item.path)}">
+                            ${escapeHtml(item.path)}
+                          </code>
+                          <div>
+                            <span class="badge" style="background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger-border); font-size:10px; font-weight:700; padding:2px 6px;">
+                              ⚠️ Arquivo não existe no disco
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td style="text-align: right; white-space: nowrap;">
+                        <div style="display:flex; gap:6px; justify-content:flex-end; align-items:center;">
+                          <button type="button" class="btn btn-primary btn-sm" data-action="link-proof" data-idx="${idx}" title="Vincular um comprovante válido (existente ou escolher do computador)">
+                            🔗 Vincular comprovante
+                          </button>
+                          <button type="button" class="btn btn-secondary btn-sm" data-action="clear-proof" data-idx="${idx}" title="Remover link quebrado (registro ficará sem comprovante)">
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        `}
+      </div>`
+    );
+
+    // Bindings de Eventos
+    const searchInput = this.el.querySelector("#inv-search-input");
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        st.searchQuery = e.target.value;
+        this.toolInvalidProofs();
+      });
+      if (document.activeElement !== searchInput && st.searchQuery) {
+        searchInput.focus();
+        searchInput.setSelectionRange(st.searchQuery.length, st.searchQuery.length);
+      }
+    }
+
+    this.el.querySelectorAll("[data-cat-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        st.categoryFilter = btn.dataset.catFilter;
+        this.toolInvalidProofs();
+      });
+    });
+
+    this.el.querySelector("#btn-recheck-invalid")?.addEventListener("click", () => {
+      st.fc = null;
+      this.toolInvalidProofs();
+    });
+
+    this.el.querySelector("#btn-clear-all-invalid")?.addEventListener("click", async () => {
+      if (!window.confirm(`Remover os links de comprovantes quebrados de todos os ${allAusentes.length} registro(s)?\nOs registros continuarão no sistema, mas sem comprovante associado.`)) return;
+      const r = await api.clearMissingLinks(allAusentes).catch((e) => ({ ok: 0, erros: [String(e)] }));
+      showToast(`${r.ok} vínculo(s) inválido(s) removido(s)`, r.erros.length ? "error" : "success");
+      st.fc = null;
+      this.toolInvalidProofs();
+      this.onChanged && this.onChanged();
+    });
+
+    // Ações na tabela
+    const tableEl = this.el.querySelector(".tl-table");
+    if (tableEl) {
+      tableEl.addEventListener("click", async (e) => {
+        const linkBtn = e.target.closest("[data-action='link-proof']");
+        if (linkBtn) {
+          const idx = Number(linkBtn.dataset.idx);
+          const item = filtered[idx];
+          if (!item) return;
+
+          new ProofPickerModal({
+            currentCategory: item.category,
+            records: [{ id: item.id, category: item.category, title: item.titulo, ano: item.ano }],
+            onSelect: (chosen) => {
+              showToast(`✓ Comprovante "${chosen.file}" vinculado com sucesso ao registro #${item.id}!`, "success", 4000);
+              // Remove este item da lista de ausentes
+              fc.ausentes = fc.ausentes.filter((x) => !(x.id === item.id && x.category === item.category && x.path === item.path));
+              this.toolInvalidProofs();
+              this.onChanged && this.onChanged();
+            },
+          }).open();
+          return;
+        }
+
+        const clearBtn = e.target.closest("[data-action='clear-proof']");
+        if (clearBtn) {
+          const idx = Number(clearBtn.dataset.idx);
+          const item = filtered[idx];
+          if (!item) return;
+
+          if (!window.confirm(`Remover o link do comprovante ausente do registro #${item.id} ("${item.titulo}")?\nO registro continuará no sistema sem comprovante.`)) return;
+
+          const r = await api.clearMissingLinks([item]).catch((e) => ({ ok: 0, erros: [String(e)] }));
+          if (r.ok) {
+            showToast(`Vínculo inválido removido do registro #${item.id}`, "success");
+            fc.ausentes = fc.ausentes.filter((x) => !(x.id === item.id && x.category === item.category && x.path === item.path));
+            this.toolInvalidProofs();
+            this.onChanged && this.onChanged();
+          } else {
+            showToast(`Erro ao remover vínculo: ${r.erros.join(", ")}`, "error");
+          }
+        }
+      });
+    }
+  }
+
+  // ===== LATTES TIME MACHINE (COMPARADOR) =====
+  async toolTimeMachine() {
+    const st = this.state;
+    st.mode ??= "db";
+    st.statusFilter ??= "all";
+    st.catFilter ??= "all";
+
+    if (!st.diff) {
+      this.shell(
+        "Lattes Time Machine (Comparador de Versões)",
+        "Compare versões curriculares e audite o que foi adicionado, alterado ou removido.",
+        `<div class="tm-welcome">
+          <div class="tm-hero">
+            <span class="tm-hero-ic">🕰️</span>
+            <h3>Histórico e Auditoria de Alterações Curriculares</h3>
+            <p>Selecione um novo arquivo XML exportado da Plataforma Lattes para comparar com a base de dados atual ou compare diretamente dois arquivos XML distintos para extrair o relatório exato de novidades e modificações.</p>
+          </div>
+
+          <div class="seg tl-seg" style="max-width:440px; margin:0 auto 20px;">
+            <button type="button" data-tm-mode="db" class="${st.mode === "db" ? "on" : ""}">Banco Atual × Novo XML</button>
+            <button type="button" data-tm-mode="two_xmls" class="${st.mode === "two_xmls" ? "on" : ""}">Dois Arquivos XML (.xml)</button>
+          </div>
+
+          <div class="tm-pick-box">
+            ${st.mode === "db" ? `
+              <div class="tm-file-slot">
+                <span class="muted">Versão Base:</span> <b>Banco de Dados Local Atual</b>
+              </div>
+              <div class="tm-file-slot" style="margin-top:12px">
+                <span class="muted">Nova Versão:</span>
+                <b>${st.newXml ? escapeHtml(st.newXml.split(/[\\/]/).pop()) : "Nenhum arquivo XML selecionado"}</b>
+                <button type="button" class="btn btn-secondary btn-sm" data-tm="pick-new">📄 Escolher novo XML…</button>
+              </div>
+            ` : `
+              <div class="tm-file-slot">
+                <span class="muted">XML Anterior (Base):</span>
+                <b>${st.oldXml ? escapeHtml(st.oldXml.split(/[\\/]/).pop()) : "Nenhum selecionado"}</b>
+                <button type="button" class="btn btn-secondary btn-sm" data-tm="pick-old">📄 Escolher XML anterior…</button>
+              </div>
+              <div class="tm-file-slot" style="margin-top:12px">
+                <span class="muted">XML Recente:</span>
+                <b>${st.newXml ? escapeHtml(st.newXml.split(/[\\/]/).pop()) : "Nenhum selecionado"}</b>
+                <button type="button" class="btn btn-secondary btn-sm" data-tm="pick-new">📄 Escolher XML recente…</button>
+              </div>
+            `}
+
+            <div style="margin-top:20px; text-align:center;">
+              <button type="button" class="btn btn-primary" data-tm="run" ${!st.newXml || (st.mode === "two_xmls" && !st.oldXml) ? "disabled" : ""}>
+                ⚡ Comparar Versões
+              </button>
+            </div>
+          </div>
+        </div>`
+      );
+
+      this.el.querySelectorAll("[data-tm-mode]").forEach((b) => b.addEventListener("click", () => {
+        st.mode = b.dataset.tmMode;
+        this.toolTimeMachine();
+      }));
+
+      this.el.querySelector('[data-tm="pick-new"]')?.addEventListener("click", async () => {
+        try {
+          const path = await api.selectXmlFile();
+          if (path) {
+            st.newXml = path;
+            this.toolTimeMachine();
+          }
+        } catch (e) {
+          showToast(`Erro: ${e}`, "error");
+        }
+      });
+
+      this.el.querySelector('[data-tm="pick-old"]')?.addEventListener("click", async () => {
+        try {
+          const path = await api.selectXmlFile();
+          if (path) {
+            st.oldXml = path;
+            this.toolTimeMachine();
+          }
+        } catch (e) {
+          showToast(`Erro: ${e}`, "error");
+        }
+      });
+
+      this.el.querySelector('[data-tm="run"]')?.addEventListener("click", async () => {
+        this.shell(
+          "Lattes Time Machine",
+          "Cruzando dados curriculares e calculando diferenças…",
+          `<div class="loading-state" style="display:flex; flex-direction:column; gap:16px;">
+            <div class="spinner"></div>
+            <div>Processando comparação semântica entre as duas versões…</div>
+          </div>`
+        );
+        try {
+          st.diff = await api.diffLattesXml(st.newXml, st.mode === "two_xmls" ? st.oldXml : null);
+          this.toolTimeMachine();
+        } catch (e) {
+          st.diff = null;
+          showToast(`Falha na comparação: ${e}`, "error");
+          this.toolTimeMachine();
+        }
+      });
+      return;
+    }
+
+    const diff = st.diff;
+    let list = [];
+    if (st.statusFilter === "added" || st.statusFilter === "all") {
+      list.push(...diff.added.map((x) => ({ ...x, _kind: "added" })));
+    }
+    if (st.statusFilter === "modified" || st.statusFilter === "all") {
+      list.push(...diff.modified.map((x) => ({ ...x, _kind: "modified" })));
+    }
+    if (st.statusFilter === "removed" || st.statusFilter === "all") {
+      list.push(...diff.removed.map((x) => ({ ...x, _kind: "removed" })));
+    }
+
+    if (st.catFilter !== "all") {
+      list = list.filter((x) => x.category === st.catFilter);
+    }
+
+    this.shell(
+      "Lattes Time Machine (Comparador de Versões)",
+      `Comparação: <b>${escapeHtml(diff.title_old)}</b> (${escapeHtml(diff.date_old || "data anterior")}) ➔ <b>${escapeHtml(diff.title_new)}</b> (${escapeHtml(diff.date_new || "recente")})`,
+      `<div class="tm-container">
+        <div class="tm-stats-grid">
+          <div class="tm-stat-card good">
+            <b>+${diff.total_added}</b>
+            <span>Novos Registros</span>
+          </div>
+          <div class="tm-stat-card warn">
+            <b>Δ${diff.total_modified}</b>
+            <span>Registros Alterados</span>
+          </div>
+          <div class="tm-stat-card bad">
+            <b>-${diff.total_removed}</b>
+            <span>Registros Ausentes</span>
+          </div>
+          <div class="tm-stat-card info">
+            <b>=${diff.total_unchanged}</b>
+            <span>Inalterados</span>
+          </div>
+        </div>
+
+        <div class="tl-bar">
+          <div class="seg tl-seg-sm">
+            <button type="button" data-tm-st="all" class="${st.statusFilter === "all" ? "on" : ""}">Todos (${diff.total_added + diff.total_modified + diff.total_removed})</button>
+            <button type="button" data-tm-st="added" class="${st.statusFilter === "added" ? "on" : ""}">🟢 Novos (+${diff.total_added})</button>
+            <button type="button" data-tm-st="modified" class="${st.statusFilter === "modified" ? "on" : ""}">🟡 Alterados (Δ${diff.total_modified})</button>
+            <button type="button" data-tm-st="removed" class="${st.statusFilter === "removed" ? "on" : ""}">🔴 Ausentes (-${diff.total_removed})</button>
+          </div>
+          <div style="flex:1"></div>
+          <button type="button" class="btn btn-secondary btn-sm" data-tm="copy">📋 Copiar relatório das alterações</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-tm="reset">Nova comparação</button>
+        </div>
+
+        <div class="tm-cat-pills">
+          <button type="button" class="tm-pill ${st.catFilter === "all" ? "on" : ""}" data-cat="all">Todas as categorias</button>
+          ${diff.categories.filter((c) => (c.added + c.modified + c.removed) > 0).map((c) => `
+            <button type="button" class="tm-pill ${st.catFilter === c.category ? "on" : ""}" data-cat="${escapeHtml(c.category)}">
+              ${escapeHtml(c.category_label)} (${c.added + c.modified + c.removed})
+            </button>
+          `).join("")}
+        </div>
+
+        ${list.length ? `
+          <div class="tl-table">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width:100px">Status</th>
+                  <th style="width:170px">Categoria</th>
+                  <th style="width:60px">Ano</th>
+                  <th>Título / Alterações Detectadas</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${list.map((it) => {
+        let badge = "";
+        if (it._kind === "added") badge = '<span class="badge" style="background:rgba(16,185,129,0.12);color:var(--success);font-weight:700;">+ NOVO</span>';
+        else if (it._kind === "modified") badge = '<span class="badge" style="background:rgba(245,158,11,0.12);color:var(--warning);font-weight:700;">Δ ALTERADO</span>';
+        else badge = '<span class="badge" style="background:rgba(239,68,68,0.12);color:var(--danger);font-weight:700;">- AUSENTE</span>';
+
+        return `
+                    <tr>
+                      <td>${badge}</td>
+                      <td>
+                        <span class="badge badge-tipo">${escapeHtml(it.category_label)}</span><br>
+                        <small class="muted">${escapeHtml(it.tipo)}</small>
+                      </td>
+                      <td>${it.ano || "—"}</td>
+                      <td>
+                        <div style="font-weight:600; color:var(--text-primary); margin-bottom:4px;">
+                          ${escapeHtml(it.titulo)}
+                        </div>
+                        ${it._kind === "modified" && it.changes ? `
+                          <div class="tm-diff-block">
+                            ${it.changes.map((c) => `
+                              <div class="tm-diff-line">
+                                <b style="color:var(--text-secondary)">${escapeHtml(c.field_label)}:</b>
+                                <span class="tl-old">${escapeHtml(c.old_val)}</span>
+                                <span style="color:var(--text-secondary)">➔</span>
+                                <span class="tl-new">${escapeHtml(c.new_val)}</span>
+                              </div>
+                            `).join("")}
+                          </div>
+                        ` : it.extra ? `<small class="muted">${escapeHtml(it.extra)}</small>` : ""}
+                      </td>
+                    </tr>
+                  `;
+      }).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="tl-empty">
+            Nenhum registro para o filtro selecionado.
+          </div>
+        `}
+      </div>`
+    );
+
+    this.el.querySelectorAll("[data-tm-st]").forEach((b) => b.addEventListener("click", () => {
+      st.statusFilter = b.dataset.tmSt;
+      this.toolTimeMachine();
+    }));
+
+    this.el.querySelectorAll("[data-cat]").forEach((b) => b.addEventListener("click", () => {
+      st.catFilter = b.dataset.cat;
+      this.toolTimeMachine();
+    }));
+
+    this.el.querySelector('[data-tm="reset"]')?.addEventListener("click", () => {
+      st.diff = null;
+      st.newXml = null;
+      st.oldXml = null;
+      this.toolTimeMachine();
+    });
+
+    this.el.querySelector('[data-tm="copy"]')?.addEventListener("click", async () => {
+      const lines = [];
+      lines.push("=== RELATÓRIO DE ALTERAÇÕES CURRICULARES (LATTES TIME MACHINE) ===");
+      lines.push(`Base: ${diff.title_old} (${diff.date_old || "data anterior"})`);
+      lines.push(`Nova: ${diff.title_new} (${diff.date_new || "recente"})`);
+      lines.push(`Data do relatório: ${new Date().toLocaleDateString("pt-BR")}`);
+      lines.push("");
+      lines.push(`RESUMO GERAL:`);
+      lines.push(`• Novos registros: ${diff.total_added}`);
+      lines.push(`• Registros alterados: ${diff.total_modified}`);
+      lines.push(`• Registros ausentes: ${diff.total_removed}`);
+      lines.push(`• Inalterados: ${diff.total_unchanged}`);
+      lines.push("");
+
+      if (diff.added.length) {
+        lines.push("--- NOVOS REGISTROS ADICIONADOS ---");
+        for (const it of diff.added) {
+          lines.push(`+ [${it.category_label}] (${it.ano || "s/ ano"}) ${it.titulo}${it.extra ? ` — ${it.extra}` : ""}`);
+        }
+        lines.push("");
+      }
+
+      if (diff.modified.length) {
+        lines.push("--- REGISTROS ALTERADOS ---");
+        for (const it of diff.modified) {
+          lines.push(`Δ [${it.category_label}] (${it.ano || "s/ ano"}) ${it.titulo}`);
+          for (const c of it.changes) {
+            lines.push(`    • ${c.field_label}: ${c.old_val} ➔ ${c.new_val}`);
+          }
+        }
+        lines.push("");
+      }
+
+      const txt = lines.join("\n");
+      try {
+        await navigator.clipboard.writeText(txt);
+        showToast("Relatório copiado para a área de transferência!", "success", 3000);
+      } catch {
+        showToast("Erro ao copiar para a área de transferência", "error");
+      }
+    });
   }
 
   // ===== 1. formatador =====
@@ -708,14 +1994,18 @@ export class ToolsView {
         <div class="${fc.orfaos.length ? "warn" : "good"}"><b>${fc.orfaos.length}</b><span>arquivos sem registro (${mb(fc.orfaos_bytes)})</span></div>
         <div class="good"><b>${fc.total_vinculados - fc.ausentes.length}</b><span>vínculos OK</span></div>
       </div>
-      ${fc.ausentes.length ? `<h3 class="tl-h3">Arquivo ausente <button type="button" class="btn btn-secondary btn-sm" data-clear>Remover esses vínculos quebrados</button></h3>
+      ${fc.ausentes.length ? `<h3 class="tl-h3">Arquivo ausente
+        <button type="button" class="btn btn-secondary btn-sm" data-clear>Remover esses vínculos quebrados</button>
+        <button type="button" class="btn btn-primary btn-sm" data-open-invalid style="margin-left:8px;">⚠️ Corrigir na Tabela de Inválidos</button>
+      </h3>
         <div class="tl-table sm"><table class="data-table"><tbody>${fc.ausentes.map((x) => `<tr><td style="width:130px"><span class="badge badge-tipo">${escapeHtml(CATEGORY_SCHEMAS[x.category]?.group || x.category)}</span></td><td>#${x.id} ${escapeHtml(x.titulo)}</td><td class="mono tl-old">${escapeHtml(x.path)}</td></tr>`).join("")}</tbody></table></div>` : ""}
       ${fc.orfaos.length ? `<h3 class="tl-h3">Arquivos sem registro <button type="button" class="btn btn-primary btn-sm" data-link>🔗 Vincular automaticamente</button></h3>
         <div class="tl-table sm"><table class="data-table"><tbody>${fc.orfaos.slice(0, 500).map((f) => `<tr><td class="mono">${escapeHtml(f)}</td><td style="width:90px;text-align:right"><button type="button" class="ibtn" data-reveal="${escapeHtml(f)}" title="Mostrar na pasta">📂</button></td></tr>`).join("")}</tbody></table></div>` : ""}
       ${!fc.ausentes.length && !fc.orfaos.length ? '<div class="tl-empty">✅ Tudo em ordem: todos os vínculos apontam para arquivos existentes e não há arquivos soltos.</div>' : ""}`
     );
     this.el.querySelector("[data-link]")?.addEventListener("click", () => this.openLinker && this.openLinker());
-    this.el.querySelectorAll("[data-reveal]").forEach((b) => b.addEventListener("click", () => api.revealInExplorer(b.dataset.reveal).catch(() => {})));
+    this.el.querySelector("[data-open-invalid]")?.addEventListener("click", () => this.open("invalid_proofs"));
+    this.el.querySelectorAll("[data-reveal]").forEach((b) => b.addEventListener("click", () => api.revealInExplorer(b.dataset.reveal).catch(() => { })));
     this.el.querySelector("[data-clear]")?.addEventListener("click", async () => {
       if (!window.confirm(`Remover o vínculo de ${fc.ausentes.length} registro(s) com arquivos que não existem mais?\nOs registros continuam; só ficam "sem comprovante".`)) return;
       const r = await api.clearMissingLinks(fc.ausentes).catch((e) => ({ ok: 0, erros: [String(e)] }));
@@ -753,7 +2043,7 @@ export class ToolsView {
         try {
           await api.updateRecord("producoes", x.r.id, { qualis: x.q });
           ok++;
-        } catch {}
+        } catch { }
       }
       showToast(`Qualis preenchido em ${ok} produção(ões)`, "success");
       st.data = null;
@@ -807,7 +2097,7 @@ export class ToolsView {
               await api.updateRecord("producoes", r.id, { identifier: doi }, res.pdf_path);
               st.log[r.id] = { s: "ok", m: `📄 anexado (${res.pdf_versao || "PDF"})` };
             } else {
-              if (!isDoi(r.identifier)) await api.updateRecord("producoes", r.id, { identifier: doi }).catch(() => {});
+              if (!isDoi(r.identifier)) await api.updateRecord("producoes", r.id, { identifier: doi }).catch(() => { });
               st.log[r.id] = { s: "skip", m: res.oa_status === "closed" ? "sem acesso aberto" : "PDF bloqueado pela editora" };
             }
           }
@@ -862,20 +2152,20 @@ export class ToolsView {
             <span data-count>${contador()}</span>
             <label class="tl-chk"><input type="checkbox" data-online ${st.online ? "checked" : ""} ${run ? "disabled" : ""}/> procurar pelo título na Crossref (mais lento)</label>
             ${run
-              ? '<button type="button" class="btn btn-secondary btn-sm" data-stop>■ Parar</button>'
-              : '<button type="button" class="btn btn-secondary btn-sm" data-run>🔎 Procurar DOI</button>'}
+          ? '<button type="button" class="btn btn-secondary btn-sm" data-stop>■ Parar</button>'
+          : '<button type="button" class="btn btn-secondary btn-sm" data-run>🔎 Procurar DOI</button>'}
             ${nAchados() && !run ? `<button type="button" class="btn btn-primary btn-sm" data-apply>Gravar ${st.sel.size} DOI(s)</button>` : ""}
           </div>
           ${run ? `<div class="tl-progress"><i style="width:${Math.round((st.i / Math.max(1, st.n || 1)) * 100)}%"></i></div>` : ""}
           <div class="tl-table"><table class="data-table"><thead><tr><th style="width:36px"></th><th style="width:60px">Ano</th><th>Título</th><th style="width:320px">DOI encontrado</th></tr></thead><tbody>
           ${cands
-            .map(
-              (r) => `<tr><td data-chk="${r.id}">${chkHtml(r)}</td>
+          .map(
+            (r) => `<tr><td data-chk="${r.id}">${chkHtml(r)}</td>
                 <td>${r.ano || "—"}</td>
                 <td>${escapeHtml(r.titulo || "")}</td>
                 <td class="tl-st ${st.found[r.id]?.s || ""}" data-cell="${r.id}">${cellHtml(r)}</td></tr>`
-            )
-            .join("")}
+          )
+          .join("")}
           </tbody></table></div>
           <p class="dd-note">O DOI lido de dentro do PDF é confiável. O encontrado na Crossref pelo título casa ≥85% do texto, mas vale conferir no 🌐 antes de gravar.</p>`
         : `<div class="tl-empty">✅ Todas as produções já têm DOI cadastrado.</div>`
@@ -906,7 +2196,7 @@ export class ToolsView {
     const tabela = this.el.querySelector(".tl-table");
     tabela?.addEventListener("click", (e) => {
       const b = e.target.closest("[data-open]");
-      if (b) api.openDoi(b.dataset.open).catch(() => {});
+      if (b) api.openDoi(b.dataset.open).catch(() => { });
     });
     tabela?.addEventListener("change", (e) => {
       const c = e.target.closest("[data-id]");
@@ -992,12 +2282,12 @@ export class ToolsView {
     });
   }
 
-  // ===== 8. backup e restauração =====
+  // ===== COFRE PORTÁTIL DE COMPROVANTES (BACKUP & RESTAURAÇÃO) =====
   async toolBackup() {
     const st = this.state;
     st.include ??= true;
     if (!st.est) {
-      this.shell("Backup e restauração", "Calculando o tamanho dos seus dados…", `<div class="loading-state" style="display:flex"><div class="spinner"></div></div>`);
+      this.shell("Cofre Portátil de Comprovantes", "Calculando o tamanho dos seus dados…", `<div class="loading-state" style="display:flex"><div class="spinner"></div></div>`);
       try {
         st.est = await api.backupEstimate();
       } catch (e) {
@@ -1018,150 +2308,180 @@ export class ToolsView {
 
     let restoreBody;
     if (!ins) {
-      restoreBody = `<p class="bk-p">Escolha um backup <b>.zip</b> criado aqui (ou um <b>lattes.db</b> antigo da pasta <code>backups</code>). Antes de substituir, o app guarda uma cópia do banco atual.</p>
-        <button type="button" class="btn btn-secondary" data-bk="pick" ${busy ? "disabled" : ""}>📂 Escolher backup…</button>`;
+      restoreBody = `<p class="bk-p">Escolha um cofre <b>.lattespack</b> ou <b>.zip</b> criado aqui (ou um <b>lattes.db</b> antigo da pasta <code>backups</code>). Antes de substituir, o app guarda uma cópia de segurança do banco atual.</p>
+        <button type="button" class="btn btn-secondary" data-bk="pick" ${busy ? "disabled" : ""}>📂 Escolher arquivo de cofre…</button>`;
     } else {
       const m = ins.manifest;
       const hasFiles = ins.kind === "zip" && ins.files > 0;
-      restoreBody = `<div class="bk-file"><span class="bk-ic">${ins.kind === "zip" ? "🗜️" : "🗄️"}</span><div>
+      const shaHtml = ins.sha256
+        ? `<div class="bk-sha"><span><b>SHA-256:</b></span> <code>${escapeHtml(ins.sha256)}</code></div>`
+        : "";
+
+      restoreBody = `<div class="bk-file"><span class="bk-ic">${ins.kind === "zip" ? "🗄️" : "💾"}</span><div>
           <b>${escapeHtml(ins.path.split(/[\\/]/).pop())}</b>
           <small>${mb(ins.bytes)}${m ? ` · criado em ${escapeHtml(m.created)} · v${escapeHtml(m.version)}` : ins.kind === "db" ? " · banco avulso (só registros)" : ""}</small></div>
           <button type="button" class="btn-icon-subtle" data-bk="pick" ${busy ? "disabled" : ""}>Trocar</button></div>
+        ${shaHtml}
         <div class="bk-counts"><b>${ins.records}</b> registros${hasFiles ? ` · <b>${ins.files}</b> arquivos de comprovantes` : ""}
           <span>${ins.counts.filter((c) => c[1]).map(([t, n]) => `${escapeHtml(catName(t))} ${n}`).join(" · ")}</span></div>
-        <label class="bk-opt"><input type="checkbox" data-bko="restoreDb" ${st.restoreDb ? "checked" : ""}/><span><b>Restaurar os registros (banco de dados)</b><small>Substitui todos os registros atuais pelos do backup.</small></span></label>
-        ${hasFiles ? `<label class="bk-opt"><input type="checkbox" data-bko="restoreFiles" ${st.restoreFiles ? "checked" : ""}/><span><b>Restaurar os arquivos dos comprovantes</b><small>Copia os arquivos do backup para a pasta de dados.</small></span></label>
+        <div style="margin: 10px 0;">
+          <button type="button" class="btn btn-secondary btn-sm" data-bk="verify" ${busy ? "disabled" : ""}>🩺 Testar integridade do cofre</button>
+        </div>
+        <label class="bk-opt"><input type="checkbox" data-bko="restoreDb" ${st.restoreDb ? "checked" : ""}/><span><b>Restaurar os registros (banco de dados)</b><small>Substitui todos os registros atuais pelos do cofre.</small></span></label>
+        ${hasFiles ? `<label class="bk-opt"><input type="checkbox" data-bko="restoreFiles" ${st.restoreFiles ? "checked" : ""}/><span><b>Restaurar os arquivos dos comprovantes</b><small>Copia os arquivos do cofre para a pasta de dados.</small></span></label>
         <label class="bk-opt sub ${st.restoreFiles ? "" : "off"}"><input type="checkbox" data-bko="overwrite" ${st.overwrite ? "checked" : ""} ${st.restoreFiles ? "" : "disabled"}/><span><b>Substituir arquivos que já existem</b><small>Desmarcado: mantém os arquivos atuais e só traz os que faltam.</small></span></label>` : ""}
-        <button type="button" class="btn btn-danger" data-bk="restore" ${busy || !(st.restoreDb || (hasFiles && st.restoreFiles)) ? "disabled" : ""}>♻️ Restaurar backup</button>`;
+        <button type="button" class="btn btn-danger" data-bk="restore" ${busy || !(st.restoreDb || (hasFiles && st.restoreFiles)) ? "disabled" : ""}>♻️ Restaurar dados do cofre</button>`;
     }
 
     this.shell(
-      "Backup e restauração",
-      "Proteja o seu currículo: um arquivo .zip com todos os registros — e, se quiser, todos os comprovantes.",
+      "Cofre Portátil de Comprovantes",
+      "Consolide 100% dos seus registros e comprovantes em um arquivo único (.lattespack / .zip) portátil e verificável.",
       `<div class="bk-grid">
         <section class="bk-card">
-          <div class="bk-h"><span class="bk-ic">🛟</span><div><h3>Criar backup</h3><small>Funciona com o app aberto</small></div></div>
-          <label class="bk-opt"><input type="radio" name="bk-inc" value="0" ${!st.include ? "checked" : ""}/><span><b>Só os registros</b><small>Banco de dados · ${mb(e.db_bytes)} (o .zip fica menor)</small></span></label>
-          <label class="bk-opt"><input type="radio" name="bk-inc" value="1" ${st.include ? "checked" : ""}/><span><b>Registros + arquivos dos comprovantes</b><small>${e.files} arquivo(s) · ${mb(e.bytes + e.db_bytes)} — cópia completa para outro computador ou HD externo</small></span></label>
-          <button type="button" class="btn btn-primary" data-bk="create" ${busy ? "disabled" : ""}>💾 Criar backup…</button>
+          <div class="bk-h"><span class="bk-ic">🗄️</span><div><h3>Exportar cofre</h3><small>Arquivo único (.lattespack / .zip)</small></div></div>
+          <label class="bk-opt"><input type="radio" name="bk-inc" value="0" ${!st.include ? "checked" : ""}/><span><b>Só os registros</b><small>Banco SQLite · ${mb(e.db_bytes)} (arquivo ultra compacto)</small></span></label>
+          <label class="bk-opt"><input type="radio" name="bk-inc" value="1" ${st.include ? "checked" : ""}/><span><b>Registros + fotos + todos os comprovantes em PDF</b><small>${e.files} arquivo(s) · ${mb(e.bytes + e.db_bytes)} — cofre completo para backup, nuvem ou outro computador</small></span></label>
+          <button type="button" class="btn btn-primary" data-bk="create" ${busy ? "disabled" : ""}>📦 Exportar cofre…</button>
           <button type="button" class="btn-icon-subtle" data-bk="quick" ${busy ? "disabled" : ""} title="Cópia datada do lattes.db na pasta backups">⚡ Cópia rápida do banco na pasta backups</button>
         </section>
         <section class="bk-card">
-          <div class="bk-h"><span class="bk-ic">♻️</span><div><h3>Restaurar backup</h3><small>Recupera registros e/ou comprovantes</small></div></div>
+          <div class="bk-h"><span class="bk-ic">♻️</span><div><h3>Abrir / Restaurar cofre</h3><small>Recupera registros e comprovantes</small></div></div>
           ${restoreBody}
         </section>
       </div>
       ${prog}
       ${st.result ? `<div class="bk-result ${st.result.ok ? "ok" : "err"}">${st.result.html}</div>` : ""}
-      <p class="dd-note">💡 Dica: guarde o backup completo fora do computador (nuvem, pen drive ou HD externo). Pastas incluídas: ${e.folders.map((f) => `<code>${escapeHtml(f)}</code>`).join(" ") || "—"}</p>`
+      <p class="dd-note">💡 Dica: guarde o cofre completo fora do computador (Google Drive, OneDrive, pen drive ou HD externo). Pastas incluídas: ${e.folders.map((f) => `<code>${escapeHtml(f)}</code>`).join(" ") || "—"}</p>`
     );
 
-    const o = this.el;
-    o.querySelectorAll('input[name="bk-inc"]').forEach((r) => r.addEventListener("change", () => { st.include = r.value === "1"; this.toolBackup(); }));
-    o.querySelectorAll("[data-bko]").forEach((c) => c.addEventListener("change", () => { st[c.dataset.bko] = c.checked; this.toolBackup(); }));
-    const on = (k, fn) => o.querySelector(`[data-bk="${k}"]`)?.addEventListener("click", fn);
+        const o = this.el;
+        o.querySelectorAll('input[name="bk-inc"]').forEach((r) => r.addEventListener("change", () => { st.include = r.value === "1"; this.toolBackup(); }));
+        o.querySelectorAll("[data-bko]").forEach((c) => c.addEventListener("change", () => { st[c.dataset.bko] = c.checked; this.toolBackup(); }));
+        const on = (k, fn) => o.querySelector(`[data-bk="${k}"]`)?.addEventListener("click", fn);
 
-    on("quick", async () => {
-      try {
-        const b = await api.backupDatabase();
-        st.result = { ok: true, html: `✓ Cópia do banco criada (${mb(b.bytes)}) — ${b.total} cópia(s) na pasta backups.` };
-        api.revealInExplorer(b.path).catch(() => {});
-      } catch (err) {
-        st.result = { ok: false, html: `Falha: ${escapeHtml(String(err))}` };
-      }
-      this.toolBackup();
-    });
+        on("quick", async () => {
+          try {
+            const b = await api.backupDatabase();
+            st.result = { ok: true, html: `✓ Cópia do banco criada (${mb(b.bytes)}) — ${b.total} cópia(s) na pasta backups.` };
+            api.revealInExplorer(b.path).catch(() => { });
+          } catch (err) {
+            st.result = { ok: false, html: `Falha: ${escapeHtml(String(err))}` };
+          }
+          this.toolBackup();
+        });
 
-    on("create", async () => {
-      let path;
-      try {
-        path = await api.pickBackupTarget(st.include);
-      } catch (err) {
-        return showToast(String(err), "error");
-      }
-      if (!path) return;
-      st.running = true;
-      st.step = "Copiando o banco de dados…";
-      st.prog = null;
-      st.result = null;
-      this.toolBackup();
-      const stop = await api.onBackupProgress((p) => {
-        st.prog = p;
-        if (this.active === "backup") this.toolBackup();
-      });
-      try {
-        const r = await api.createBackup(path, st.include);
-        st.result = {
-          ok: true,
-          html: `✓ <b>Backup criado</b> — ${mb(r.bytes)}${r.files ? ` · ${r.files} comprovantes` : " · só registros"}<br><code>${escapeHtml(r.path)}</code> <button type="button" class="btn-icon-subtle" data-bk="show">📂 Mostrar na pasta</button>`,
-          path: r.path,
-        };
-        showToast("🛟 Backup criado", "success", 3500);
-      } catch (err) {
-        st.result = { ok: false, html: `Falha no backup: ${escapeHtml(String(err))}` };
-      } finally {
-        stop && stop();
-        st.running = false;
-        st.prog = null;
-      }
-      if (this.active === "backup") this.toolBackup();
-    });
-    on("show", () => st.result?.path && api.revealInExplorer(st.result.path).catch(() => {}));
+        on("create", async () => {
+          let path;
+          try {
+            path = await api.pickBackupTarget(st.include);
+          } catch (err) {
+            return showToast(String(err), "error");
+          }
+          if (!path) return;
+          st.running = true;
+          st.step = "Compactando cofre e gerando manifesto…";
+          st.prog = null;
+          st.result = null;
+          this.toolBackup();
+          const stop = await api.onBackupProgress((p) => {
+            st.prog = p;
+            if (this.active === "backup") this.toolBackup();
+          });
+          try {
+            const r = await api.createBackup(path, st.include);
+            st.result = {
+              ok: true,
+              html: `✓ <b>Cofre exportado com sucesso</b> — ${mb(r.bytes)}${r.files ? ` · ${r.files} comprovantes` : " · só registros"}<br><code>${escapeHtml(r.path)}</code> <button type="button" class="btn-icon-subtle" data-bk="show">📂 Mostrar na pasta</button>`,
+              path: r.path,
+            };
+            showToast("🗄️ Cofre exportado com sucesso!", "success", 3500);
+          } catch (err) {
+            st.result = { ok: false, html: `Falha na exportação: ${escapeHtml(String(err))}` };
+          } finally {
+            stop && stop();
+            st.running = false;
+            st.prog = null;
+          }
+          if (this.active === "backup") this.toolBackup();
+        });
+        on("show", () => st.result?.path && api.revealInExplorer(st.result.path).catch(() => { }));
 
-    on("pick", async () => {
-      let path;
-      try {
-        path = await api.pickBackupFile();
-      } catch (err) {
-        return showToast(String(err), "error");
-      }
-      if (!path) return;
-      st.running = true;
-      st.step = "Lendo o backup…";
-      st.result = null;
-      this.toolBackup();
-      try {
-        st.ins = await api.inspectBackup(path);
-        st.restoreDb = st.ins.has_db;
-        st.restoreFiles = st.ins.kind === "zip" && st.ins.files > 0;
-        st.overwrite = false;
-      } catch (err) {
-        st.ins = null;
-        st.result = { ok: false, html: `Não foi possível ler o backup: ${escapeHtml(String(err))}` };
-      } finally {
-        st.running = false;
-      }
-      if (this.active === "backup") this.toolBackup();
-    });
+        on("pick", async () => {
+          let path;
+          try {
+            path = await api.pickBackupFile();
+          } catch (err) {
+            return showToast(String(err), "error");
+          }
+          if (!path) return;
+          st.running = true;
+          st.step = "Lendo cofre e calculando hash SHA-256…";
+          st.result = null;
+          this.toolBackup();
+          try {
+            st.ins = await api.inspectBackup(path);
+            st.restoreDb = st.ins.has_db;
+            st.restoreFiles = st.ins.kind === "zip" && st.ins.files > 0;
+            st.overwrite = false;
+          } catch (err) {
+            st.ins = null;
+            st.result = { ok: false, html: `Não foi possível ler o cofre: ${escapeHtml(String(err))}` };
+          } finally {
+            st.running = false;
+          }
+          if (this.active === "backup") this.toolBackup();
+        });
 
-    on("restore", async () => {
-      const ins = st.ins;
-      const what = [st.restoreDb && `substituir TODOS os registros atuais pelos ${ins.records} registros do backup`, st.restoreFiles && ins.files && `copiar ${ins.files} arquivo(s) de comprovantes${st.overwrite ? " (substituindo os existentes)" : ""}`].filter(Boolean);
-      if (!window.confirm(`Restaurar o backup vai:\n\n• ${what.join("\n• ")}\n\nUma cópia do banco atual será guardada na pasta backups. Continuar?`)) return;
-      st.running = true;
-      st.step = "Restaurando…";
-      st.prog = null;
-      st.result = null;
-      this.toolBackup();
-      const stop = await api.onBackupProgress((p) => {
-        st.prog = p;
-        if (this.active === "backup") this.toolBackup();
-      });
-      try {
-        const r = await api.restoreBackup(ins.path, Boolean(st.restoreDb), Boolean(st.restoreFiles && ins.files), Boolean(st.overwrite));
-        const parts = [r.db_restored && "registros restaurados", (r.files_written || r.files_skipped) && `${r.files_written} arquivo(s) copiado(s)${r.files_skipped ? `, ${r.files_skipped} já existiam` : ""}`].filter(Boolean);
-        st.result = {
-          ok: !r.errors.length,
-          html: `✓ <b>Backup restaurado</b> — ${parts.join(" · ")}${r.safety_copy ? `<br><small>Cópia do banco anterior: <code>${escapeHtml(r.safety_copy)}</code></small>` : ""}${r.errors.length ? `<details><summary>⚠️ ${r.errors.length} aviso(s)</summary><ul>${r.errors.slice(0, 50).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></details>` : ""}
+        on("verify", async () => {
+          if (!ins?.path) return;
+          st.running = true;
+          st.step = "Testando integridade do cofre (CRC32 e SQLite)…";
+          st.result = null;
+          this.toolBackup();
+          try {
+            const rep = await api.verifyBackupIntegrity(ins.path);
+            st.result = {
+              ok: rep.is_valid,
+              html: `<b>${rep.is_valid ? "✓ Cofre Íntegro" : "⚠️ Inconsistências Detectadas"}</b>: ${escapeHtml(rep.message)}<br>
+                 <small>Arquivos testados: ${rep.total_files_tested} · Registros no banco: ${rep.db_records}${rep.crc_errors.length ? `<br>Erros de CRC: ${rep.crc_errors.join(", ")}` : ""}</small>`,
+            };
+            showToast(rep.is_valid ? "✓ Cofre íntegro e validado" : "Atenção: problemas encontrados", rep.is_valid ? "success" : "warning", 3500);
+          } catch (err) {
+            st.result = { ok: false, html: `Falha na verificação: ${escapeHtml(String(err))}` };
+          } finally {
+            st.running = false;
+          }
+          if (this.active === "backup") this.toolBackup();
+        });
+
+        on("restore", async () => {
+          const ins = st.ins;
+          const what = [st.restoreDb && `substituir TODOS os registros atuais pelos ${ins.records} registros do cofre`, st.restoreFiles && ins.files && `copiar ${ins.files} arquivo(s) de comprovantes${st.overwrite ? " (substituindo os existentes)" : ""}`].filter(Boolean);
+          if (!window.confirm(`Restaurar o cofre vai:\n\n• ${what.join("\n• ")}\n\nUma cópia de segurança do banco atual será guardada na pasta backups. Continuar?`)) return;
+          st.running = true;
+          st.step = "Restaurando…";
+          st.prog = null;
+          st.result = null;
+          this.toolBackup();
+          const stop = await api.onBackupProgress((p) => {
+            st.prog = p;
+            if (this.active === "backup") this.toolBackup();
+          });
+          try {
+            const r = await api.restoreBackup(ins.path, Boolean(st.restoreDb), Boolean(st.restoreFiles && ins.files), Boolean(st.overwrite));
+            const parts = [r.db_restored && "registros restaurados", (r.files_written || r.files_skipped) && `${r.files_written} arquivo(s) copiado(s)${r.files_skipped ? `, ${r.files_skipped} já existiam` : ""}`].filter(Boolean);
+            st.result = {
+              ok: !r.errors.length,
+              html: `✓ <b>Cofre restaurado</b> — ${parts.join(" · ")}${r.safety_copy ? `<br><small>Cópia do banco anterior: <code>${escapeHtml(r.safety_copy)}</code></small>` : ""}${r.errors.length ? `<details><summary>⚠️ ${r.errors.length} aviso(s)</summary><ul>${r.errors.slice(0, 50).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></details>` : ""}
             ${r.db_restored ? `<br><button type="button" class="btn btn-primary btn-sm" data-bk="reload">Recarregar o app</button>` : ""}`,
-        };
-        st.ins = null;
-        st.est = null;
-        if (r.db_restored) setTimeout(() => location.reload(), 4000);
-        this.onChanged && this.onChanged();
-      } catch (err) {
-        st.result = { ok: false, html: `Falha na restauração: ${escapeHtml(String(err))}` };
-      } finally {
+            };
+            st.ins = null;
+            st.est = null;
+            if (r.db_restored) setTimeout(() => location.reload(), 4000);
+            this.onChanged && this.onChanged();
+          } catch (err) {
+            st.result = { ok: false, html: `Falha na restauração: ${escapeHtml(String(err))}` };
+          } finally {
         stop && stop();
         st.running = false;
         st.prog = null;

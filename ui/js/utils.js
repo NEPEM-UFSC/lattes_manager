@@ -16,7 +16,7 @@ export function showToast(message, type = "info", duration = 3500) {
 
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
-  
+
   const icon = type === "success" ? "✓" : type === "error" ? "⚠️" : "ℹ️";
   toast.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-text">${escapeHtml(message)}</span>`;
 
@@ -146,6 +146,13 @@ export function renderQualisBadge(qualis) {
   return `<span class="badge badge-qualis badge-qualis-${clsKey}">${escapeHtml(clean)}</span>`;
 }
 
+export function renderCitationsBadge(citations) {
+  if (citations == null) {
+    return `<span class="badge badge-qualis badge-qualis-none" title="Sem dados de citação">—</span>`;
+  }
+  return `<span class="badge badge-citations" title="${citations} citação(ões) no Google Scholar">💬 ${citations}</span>`;
+}
+
 /** Data da última atualização; registros importados do XML ganham a etiqueta "XML". */
 export function renderLog(log) {
   const s = String(log || "");
@@ -156,10 +163,16 @@ export function renderLog(log) {
 }
 
 export function renderFileBadge(record) {
-  if (!record.path) {
-    return `<span class="badge-file-missing" title="Sem comprovante anexo">—</span>`;
+  if (!record.path || !record.path.trim()) {
+    return `<button type="button" class="badge-file-missing badge-file-link" data-action="link-proof" data-id="${record.id}" title="Sem comprovante — clique para vincular a um existente">+ Vincular</button>`;
   }
+  const count = record.attachments?.length || 1;
   const ext = record.path.split(".").pop()?.toUpperCase() || "DOC";
+  if (count > 1) {
+    return `<button type="button" class="badge-file-present badge-file-multi" data-action="preview" data-id="${record.id}" title="Visualizar comprovantes anexados (${count} arquivos)">
+      📎 <span>${escapeHtml(ext)}</span><span class="badge-att-counter" style="margin-left:4px; font-size:10px; font-weight:700; background:rgba(255,255,255,0.22); border-radius:8px; padding:0 4px;">+${count - 1}</span>
+    </button>`;
+  }
   return `<button type="button" class="badge-file-present" data-action="preview" data-id="${record.id}" title="Visualizar comprovante (${escapeHtml(record.file || record.path)})">
     📎 <span>${escapeHtml(ext)}</span>
   </button>`;
@@ -254,7 +267,7 @@ export const CATEGORY_SCHEMAS = {
       { key: "id", label: "#", width: "1%", render: (r) => r.id },
       { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
       { key: "tipo", label: "Nível", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
-      { key: "curso", label: "Curso", width: "18%", render: (r) => escapeHtml(r.curso || "—") },
+      { key: "curso", label: "Curso", width: "14%", render: (r) => escapeHtml(r.curso || "—") },
       { key: "disciplina", label: "Disciplina", render: (r) => `<strong>${escapeHtml(r.disciplina || "—")}</strong>` },
       { key: "horas", label: "Horas", width: "1%", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h</span>` : "—" },
       { key: "alunos", label: "Alunos", width: "1%", render: (r) => r.alunos != null ? `${r.alunos}` : "—" },
@@ -303,8 +316,9 @@ export const CATEGORY_SCHEMAS = {
       { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
       { key: "tipo", label: "Tipo de Produção", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "titulo", label: "Título da Obra", render: (r) => `<strong>${escapeHtml(r.titulo || "—")}</strong>` },
-      { key: "journal", label: "Periódico / Editora / Evento", width: "22%", render: (r) => escapeHtml(r.journal || "—") },
+      { key: "journal", label: "Periódico / Editora / Evento", width: "14%", render: (r) => escapeHtml(r.journal || "—") },
       { key: "qualis", label: "Qualis", width: "1%", render: (r) => renderQualisBadge(r.qualis) },
+      { key: "citations", label: "Citações", width: "1%", render: (r) => renderCitationsBadge(r.citations) },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
       { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
@@ -322,6 +336,7 @@ export const CATEGORY_SCHEMAS = {
         width: "half",
         options: ["", "A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"],
       },
+      { name: "citations", label: "Citações (Google Scholar)", type: "number", required: false, placeholder: "0", width: "half" },
     ],
   },
 
@@ -377,7 +392,7 @@ export const CATEGORY_SCHEMAS = {
       { key: "id", label: "#", width: "1%", render: (r) => r.id },
       { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
       { key: "tipo", label: "Nível", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
-      { key: "aluno", label: "Orientando(a)", width: "20%", render: (r) => `<strong>${escapeHtml(r.aluno || "—")}</strong>` },
+      { key: "aluno", label: "Orientando(a)", width: "15%", render: (r) => `<strong>${escapeHtml(r.aluno || "—")}</strong>` },
       { key: "titulo", label: "Título do Trabalho", render: (r) => escapeHtml(r.titulo || "—") },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
       { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
@@ -400,7 +415,7 @@ export const CATEGORY_SCHEMAS = {
       { key: "id", label: "#", width: "1%", render: (r) => r.id },
       { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
       { key: "tipo", label: "Nível da Banca", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
-      { key: "aluno", label: "Candidato(a)", width: "20%", render: (r) => `<strong>${escapeHtml(r.aluno || "—")}</strong>` },
+      { key: "aluno", label: "Candidato(a)", width: "15%", render: (r) => `<strong>${escapeHtml(r.aluno || "—")}</strong>` },
       { key: "titulo", label: "Título da Defesa", render: (r) => escapeHtml(r.titulo || "—") },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
       { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
@@ -438,7 +453,7 @@ export function registerCustomCategory(c, index = 0) {
       { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
       { key: "tipo", label: "Subcategoria", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "titulo", label: tl, render: (r) => `<strong>${escapeHtml(r.titulo || "—")}</strong>` },
-      { key: "descricao", label: dl, width: "22%", render: (r) => escapeHtml(r.descricao || "—") },
+      { key: "descricao", label: dl, width: "15%", render: (r) => escapeHtml(r.descricao || "—") },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
       { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
@@ -500,7 +515,7 @@ export function writeSavedCategoryOverrides(overrides) {
   try {
     if (!Object.keys(clean).length) localStorage.removeItem(CATEGORY_OVERRIDES_STORAGE_KEY);
     else localStorage.setItem(CATEGORY_OVERRIDES_STORAGE_KEY, JSON.stringify(clean));
-  } catch {}
+  } catch { }
   return clean;
 }
 
@@ -586,7 +601,7 @@ export function writeSavedCategoryOrder(keys) {
   try {
     if (!Array.isArray(keys) || !keys.length) localStorage.removeItem(CATEGORY_ORDER_STORAGE_KEY);
     else localStorage.setItem(CATEGORY_ORDER_STORAGE_KEY, JSON.stringify(keys));
-  } catch {}
+  } catch { }
 }
 
 /** Reordena CATEGORY_SCHEMAS in-place mantendo categorias padrão e personalizadas unificadas. */

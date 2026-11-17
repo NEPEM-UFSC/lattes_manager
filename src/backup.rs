@@ -10,7 +10,8 @@
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeSet, HashSet};
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 
@@ -50,12 +51,25 @@ pub struct BackupInspection {
     /// "zip" | "db"
     pub kind: String,
     pub bytes: u64,
+    pub sha256: Option<String>,
     pub manifest: Option<Manifest>,
     pub has_db: bool,
     /// arquivos de comprovantes contidos no backup
     pub files: usize,
     pub records: usize,
     pub counts: Vec<(String, usize)>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct IntegrityReport {
+    pub is_valid: bool,
+    pub total_files_tested: usize,
+    pub crc_errors: Vec<String>,
+    pub db_check_ok: bool,
+    pub db_records: usize,
+    pub missing_record_files: Vec<String>,
+    pub sha256: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -255,6 +269,21 @@ fn extract_db(zip_path: &Path) -> Result<PathBuf, String> {
     Ok(tmp)
 }
 
+fn compute_file_sha256(path: &Path) -> Option<String> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let res = hasher.finalize();
+    Some(res.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
 pub fn inspect(path: &Path) -> Result<BackupInspection, String> {
     if !path.is_file() {
         return Err(format!("Arquivo não encontrado: {}", path.display()));
@@ -262,6 +291,7 @@ pub fn inspect(path: &Path) -> Result<BackupInspection, String> {
     let mut ins = BackupInspection {
         path: path.to_string_lossy().to_string(),
         bytes: std::fs::metadata(path).map(|m| m.len()).unwrap_or(0),
+        sha256: compute_file_sha256(path),
         ..Default::default()
     };
     if is_zip(path) {
@@ -286,10 +316,116 @@ pub fn inspect(path: &Path) -> Result<BackupInspection, String> {
         ins.has_db = true;
         ins.counts = count_records(path)?;
     } else {
-        return Err("Formato não reconhecido: escolha um backup .zip do Lattes Manager ou um arquivo lattes.db".into());
+        return Err("Formato não reconhecido: escolha um backup .zip/.lattespack do Lattes Manager ou um arquivo lattes.db".into());
     }
     ins.records = ins.counts.iter().map(|c| c.1).sum();
     Ok(ins)
+}
+
+/// Verifica a integridade completa do cofre (CRC de cada arquivo do zip e integridade SQLite).
+pub fn verify_integrity(path: &Path) -> Result<IntegrityReport, String> {
+    if !path.is_file() {
+        return Err(format!("Arquivo não encontrado: {}", path.display()));
+    }
+
+    let sha = compute_file_sha256(path).unwrap_or_default();
+    let mut report = IntegrityReport {
+        sha256: sha,
+        ..Default::default()
+    };
+
+    if !is_zip(path) {
+        if is_sqlite(path) {
+            report.total_files_tested = 1;
+            let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
+            let chk: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap_or_else(|_| "falha".into());
+            report.db_check_ok = chk == "ok";
+            report.db_records = count_records(path)?.iter().map(|c| c.1).sum();
+            report.is_valid = report.db_check_ok;
+            report.message = if report.is_valid {
+                "Banco SQLite testado com sucesso (PRAGMA integrity_check: ok).".into()
+            } else {
+                format!("Falha na verificação SQLite: {}", chk)
+            };
+            return Ok(report);
+        }
+        return Err("Arquivo não é um arquivo .zip/.lattespack nem banco SQLite válido.".into());
+    }
+
+    let f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut za = zip::ZipArchive::new(f).map_err(|e| format!("Arquivo corrompido: {}", e))?;
+
+    let mut zip_filenames = HashSet::new();
+    let n_entries = za.len();
+    report.total_files_tested = n_entries;
+
+    // Testa CRC32 de cada entrada lendo todo o conteúdo
+    let mut buf = [0u8; 32768];
+    for i in 0..n_entries {
+        let mut entry = match za.by_index(i) {
+            Ok(e) => e,
+            Err(e) => {
+                report.crc_errors.push(format!("Entrada #{}: {}", i, e));
+                continue;
+            }
+        };
+        let name = entry.name().to_string();
+        if !name.ends_with('/') {
+            zip_filenames.insert(name.replace('/', "\\").to_lowercase());
+        }
+
+        loop {
+            match entry.read(&mut buf) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(e) => {
+                    report.crc_errors.push(format!("Arquivo '{}' corrompido: {}", name, e));
+                    break;
+                }
+            }
+        }
+    }
+
+    // Se tem lattes.db, verifica a consistência do banco
+    if za.by_name(DB_ENTRY).is_ok() {
+        let tmp = extract_db(path)?;
+        if let Ok(conn) = Connection::open_with_flags(&tmp, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            let chk: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap_or_else(|_| "falha".into());
+            report.db_check_ok = chk == "ok";
+            report.db_records = count_records(&tmp).unwrap_or_default().iter().map(|c| c.1).sum();
+
+            // Verifica se arquivos citados no banco estão no cofre
+            for t in crate::db::schema::ENTITY_TABLES {
+                let sql = format!("SELECT path FROM {} WHERE path IS NOT NULL AND trim(path) != ''", t);
+                if let Ok(mut stmt) = conn.prepare(&sql) {
+                    if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+                        for p in rows.flatten() {
+                            let p_norm = p.replace('/', "\\").to_lowercase();
+                            if !zip_filenames.contains(&p_norm) {
+                                report.missing_record_files.push(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    report.is_valid = report.crc_errors.is_empty() && report.db_check_ok;
+    report.message = if report.is_valid {
+        format!(
+            "Cofre 100% íntegro: {} arquivo(s) testados, integridade do banco confirmada ({} registros).",
+            report.total_files_tested, report.db_records
+        )
+    } else {
+        format!(
+            "Foram detectadas inconsistências: {} erro(s) de integridade.",
+            report.crc_errors.len() + if report.db_check_ok { 0 } else { 1 }
+        )
+    };
+
+    Ok(report)
 }
 
 /// Caminho seguro dentro da raiz (sem "..", sem caminhos absolutos).

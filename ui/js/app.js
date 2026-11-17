@@ -31,6 +31,7 @@ import { SettingsView, DEFAULT_QUALIS } from "./components/settings.js";
 import { XmlImportModal } from "./components/xmlImport.js";
 import { ReportBuilder, buildCategoryPreview } from "./components/reportBuilder.js";
 import { LinkerModal } from "./components/linker.js";
+import { ProofPickerModal } from "./components/proofPicker.js";
 import { FilterBar, matchesSearch } from "./components/filterBar.js";
 import { applyTheme, easyClose } from "./theme.js";
 
@@ -98,9 +99,12 @@ class App {
 
     // Components
     this.previewer = new Previewer();
+    window._previewer = this.previewer;
+    window._app = this;
 
     this.tableView = new TableView({
       onEdit: (rec) => this.recordModal.openEdit(this.currentCategory, rec, this.mappings),
+      onDuplicate: (rec) => this.recordModal.openDuplicate(this.currentCategory, rec, this.mappings),
       onDelete: (rec) => this.openDeleteConfirm(rec),
       onPreview: (rec) => this.previewer.open(rec, this.tableView.records),
       onReveal: async (rec) => {
@@ -113,6 +117,9 @@ class App {
       },
       onFetchPdf: (rec) => this.fetchPdfFor(rec),
       onOpenDoi: (rec) => api.openDoi(rec.identifier).catch((e) => showToast(String(e), "error")),
+      onLinkProof: (recs) => this.openProofPickerFor(recs),
+      onBulkLinkProof: (recs) => this.openProofPickerFor(recs),
+      onBulkDuplicate: (recs) => this.bulkDuplicateRecords(recs),
       onBulkEdit: (recs) => this.openBatchEditModal(recs),
       onBulkDelete: (recs) => this.openBatchDeleteConfirm(recs),
       onBulkFetchPdfs: (recs) => this.batchFetchPdfs(recs),
@@ -237,6 +244,7 @@ class App {
     this.toolsView = new ToolsView({
       container: this.toolsContainer,
       openLinker: () => this.linker.open(),
+      onCreateWithData: (cat, data, cb) => this.openCreateRecordWithData(cat, data, cb),
       onChanged: async () => {
         await this.loadStats();
         if (this.view === "home") this.homeView.show();
@@ -1100,6 +1108,53 @@ class App {
 
     this._batchEditModal = { overlay, close };
     return this._batchEditModal;
+  }
+
+  openProofPickerFor(records) {
+    if (!records?.length) return;
+    new ProofPickerModal({
+      currentCategory: this.currentCategory,
+      records,
+      previewer: this.previewer,
+      onSelect: () => {
+        this.loadRecords();
+        this.loadStats();
+      },
+    }).open();
+  }
+
+  openCreateRecordWithData(category, initialData = {}, onSaved = null) {
+    if (onSaved) {
+      const origOnSaved = this.recordModal.onSaved;
+      this.recordModal.onSaved = async () => {
+        this.recordModal.onSaved = origOnSaved;
+        if (typeof origOnSaved === "function") await origOnSaved();
+        onSaved();
+      };
+    }
+    this.recordModal.openCreateWithData(category, initialData, this.mappings);
+  }
+
+  async bulkDuplicateRecords(records) {
+    if (!records?.length) return;
+    const cat = this.currentCategory;
+    const count = records.length;
+    if (!window.confirm(`Deseja duplicar ${count} registro(s) selecionado(s) em ${cat}?`)) return;
+    try {
+      this.tableView.setBulkBusy(true, `Duplicando ${count} registro(s)...`);
+      for (const rec of records) {
+        const copyData = { ...rec };
+        delete copyData.id;
+        delete copyData.log;
+        await api.createRecord(cat, copyData, null);
+      }
+      showToast(`${count} registro(s) duplicado(s) com sucesso!`, "success", 3500);
+      await Promise.all([this.loadRecords(), this.loadStats()]);
+    } catch (err) {
+      showToast(`Erro ao duplicar em lote: ${err}`, "error");
+    } finally {
+      this.tableView.setBulkBusy(false);
+    }
   }
 
   openBatchEditModal(records) {

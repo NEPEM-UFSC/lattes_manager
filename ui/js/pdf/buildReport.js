@@ -347,72 +347,108 @@ export async function buildReport(cfg) {
     });
 
     // ----- anexos -----
+    const norm = (p) => String(p || "").trim().toLowerCase().replace(/\//g, "\\");
+    const itemsByPath = new Map();
     for (const it of s.items) {
-      if (!it.path) continue;
-      progress(`${it.num} · ${it.title || ""}`);
-      it.page = doc.getPageCount() + 1;
-      try {
-        const bytes = await api.readFileBytes(it.path);
-        const ext = it.path.split(".").pop().toLowerCase();
-        if (ext === "pdf") {
-          const src = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-          if (src.isEncrypted) throw new Error("PDF protegido por senha/criptografia");
-          const srcPages = src.getPages();
-          // Links/anotações apontam para outras páginas e criam cadeias enormes de
-          // referências (estouro de pilha no copiador do pdf-lib). Uma página embutida
-          // não preserva links de qualquer forma, então removemos esses vínculos.
-          for (const sp of srcPages) {
-            for (const k of ["Annots", "B", "PieceInfo", "Thumb", "StructParents", "Metadata"]) sp.node.delete(PDFLib.PDFName.of(k));
+      const atts = it.attachments && it.attachments.length ? it.attachments : (it.path ? [{ path: it.path }] : []);
+      for (const a of atts) {
+        if (!a.path) continue;
+        const k = norm(a.path);
+        if (!itemsByPath.has(k)) itemsByPath.set(k, []);
+        itemsByPath.get(k).push(it);
+      }
+    }
+    const sectionAttached = new Map();
+
+    for (const it of s.items) {
+      const atts = it.attachments && it.attachments.length ? it.attachments : (it.path ? [{ path: it.path, file: it.file }] : []);
+      if (!atts.length) continue;
+
+      for (let attIdx = 0; attIdx < atts.length; attIdx++) {
+        const att = atts[attIdx];
+        if (!att.path) continue;
+        const k = norm(att.path);
+        const sharedItems = itemsByPath.get(k) || [it];
+
+        const attLabel = atts.length > 1
+          ? (att.description || `Doc ${attIdx + 1}/${atts.length}`)
+          : "";
+
+        // Se este mesmo comprovante já foi incorporado nesta seção, não duplica as páginas no relatório
+        if (sectionAttached.has(k)) {
+          const prev = sectionAttached.get(k);
+          if (!it.page) {
+            it.page = prev.startPage;
+            it.sharedWith = prev.firstItem;
           }
-          const total = srcPages.length;
-          const use = cfg.firstPageOnly ? srcPages.slice(0, 1) : srcPages;
-          let embedded = null;
-          try {
-            embedded = await doc.embedPages(use);
-          } catch (e) {
-            // alguns PDFs estouram a pilha no lote; página a página costuma funcionar
-            console.warn(`embedPages em lote falhou para ${it.path}, tentando página a página:`, e);
-            try {
-              embedded = [];
-              for (const sp of use) embedded.push(await doc.embedPage(sp));
-            } catch (e2) {
-              console.warn(`embedPage falhou para ${it.path}, usando copyPages:`, e2);
-              embedded = null;
-            }
-          }
-          if (embedded) {
-            embedded.forEach((ep, k) => addAttachmentPage(ep, use[k].getRotation().angle, it, s, k + 1, total));
-          } else {
-            // Alternativa: copia as páginas originais e carimba por cima (sem reduzir)
-            const copied = await doc.copyPages(src, cfg.firstPageOnly ? [0] : src.getPageIndices());
-            copied.forEach((cp, k) => {
-              doc.addPage(cp);
-              stamp(cp, it, s, k + 1, total);
-            });
-          }
-        } else if (["png", "jpg", "jpeg"].includes(ext)) {
-          const img = ext === "png" ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
-          addAttachmentPage(img, 0, it, s, 1, 1, true);
-        } else {
-          throw new Error(`formato .${ext} não suportado`);
-        }
-      } catch (err) {
-        const msg = String(err?.message || err);
-        failed.push(`${it.num} — ${it.path}: ${msg}`);
-        if (/não encontrado/i.test(msg)) {
-          // arquivo registrado mas apagado/renomeado no disco: só marca na lista
-          it.absent = true;
-          done++;
+          it.pages = it.pages || [];
+          it.pages.push(prev.startPage);
           continue;
         }
-        it.missing = true;
-        it.page = doc.getPageCount() + 1;
-        const p2 = doc.addPage(A4);
-        stamp(p2, it, s, 1, 1);
-        rrect(p2, M, A4[1] / 2 + 60, A4[0] - 2 * M, 120, 16, { color: hex(C.warnBg) });
-        text(p2, "Comprovante não pôde ser incorporado", M + 24, A4[1] / 2 + 20, { font: F.bold, size: 14, color: C.warn });
-        text(p2, ellipsize(it.path, F.reg, 9, A4[0] - 2 * M - 48), M + 24, A4[1] / 2 - 2, { size: 9, color: C.text });
-        text(p2, ellipsize(String(err.message || err), F.reg, 9, A4[0] - 2 * M - 48), M + 24, A4[1] / 2 - 18, { size: 9, color: C.muted });
+
+        const startPage = doc.getPageCount() + 1;
+        if (!it.page) it.page = startPage;
+        it.pages = it.pages || [];
+        it.pages.push(startPage);
+
+        sectionAttached.set(k, { startPage, firstItem: it, count: sharedItems.length });
+        progress(`${it.num} · ${it.title || ""}${attLabel ? ` (${attLabel})` : ""}`);
+
+        try {
+          const bytes = await api.readFileBytes(att.path);
+          const ext = att.path.split(".").pop().toLowerCase();
+          if (ext === "pdf") {
+            const src = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+            if (src.isEncrypted) throw new Error("PDF protegido por senha/criptografia");
+            const srcPages = src.getPages();
+            for (const sp of srcPages) {
+              for (const key of ["Annots", "B", "PieceInfo", "Thumb", "StructParents", "Metadata"]) sp.node.delete(PDFLib.PDFName.of(key));
+            }
+            const total = srcPages.length;
+            const use = cfg.firstPageOnly ? srcPages.slice(0, 1) : srcPages;
+            let embedded = null;
+            try {
+              embedded = await doc.embedPages(use);
+            } catch (e) {
+              console.warn(`embedPages em lote falhou para ${att.path}, tentando página a página:`, e);
+              try {
+                embedded = [];
+                for (const sp of use) embedded.push(await doc.embedPage(sp));
+              } catch (e2) {
+                console.warn(`embedPage falhou para ${att.path}, usando copyPages:`, e2);
+                embedded = null;
+              }
+            }
+            if (embedded) {
+              embedded.forEach((ep, idx) => addAttachmentPage(ep, use[idx].getRotation().angle, it, s, idx + 1, total, false, sharedItems, attLabel));
+            } else {
+              const copied = await doc.copyPages(src, cfg.firstPageOnly ? [0] : src.getPageIndices());
+              copied.forEach((cp, idx) => {
+                doc.addPage(cp);
+                stamp(cp, it, s, idx + 1, total, sharedItems, attLabel);
+              });
+            }
+          } else if (["png", "jpg", "jpeg"].includes(ext)) {
+            const img = ext === "png" ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+            addAttachmentPage(img, 0, it, s, 1, 1, true, sharedItems, attLabel);
+          } else {
+            throw new Error(`formato .${ext} não suportado`);
+          }
+        } catch (err) {
+          const msg = String(err?.message || err);
+          failed.push(`${it.num} — ${att.path}: ${msg}`);
+          if (/não encontrado/i.test(msg)) {
+            it.absent = true;
+            continue;
+          }
+          it.missing = true;
+          const p2 = doc.addPage(A4);
+          stamp(p2, it, s, 1, 1, sharedItems, attLabel);
+          rrect(p2, M, A4[1] / 2 + 60, A4[0] - 2 * M, 120, 16, { color: hex(C.warnBg) });
+          text(p2, "Comprovante não pôde ser incorporado", M + 24, A4[1] / 2 + 20, { font: F.bold, size: 14, color: C.warn });
+          text(p2, ellipsize(att.path, F.reg, 9, A4[0] - 2 * M - 48), M + 24, A4[1] / 2 - 2, { size: 9, color: C.text });
+          text(p2, ellipsize(String(err.message || err), F.reg, 9, A4[0] - 2 * M - 48), M + 24, A4[1] / 2 - 18, { size: 9, color: C.muted });
+        }
       }
       done++;
       await tick();
@@ -527,7 +563,7 @@ export async function buildReport(cfg) {
     }
   }
 
-  function addAttachmentPage(embedded, rotation, it, s, k, n, isImage = false) {
+  function addAttachmentPage(embedded, rotation, it, s, k, n, isImage = false, sharedItems = [], attLabel = "") {
     const w0 = embedded.width, h0 = embedded.height;
     const rot = ((rotation % 360) + 360) % 360;
     const dw0 = rot % 180 ? h0 : w0, dh0 = rot % 180 ? w0 : h0;
@@ -545,24 +581,39 @@ export async function buildReport(cfg) {
       const pos = { 0: [ox, oy], 90: [ox, oy + dh], 180: [ox + dw, oy + dh], 270: [ox + dw, oy] }[rot] || [ox, oy];
       p.drawPage(embedded, { x: pos[0], y: pos[1], xScale: sc, yScale: sc, rotate: degrees(-rot) });
     }
-    stamp(p, it, s, k, n);
+    stamp(p, it, s, k, n, sharedItems, attLabel);
   }
 
-  function stamp(p, it, s, k, n) {
+  function stamp(p, it, s, k, n, sharedItems = [], attLabel = "") {
     const { width: W, height: H } = p.getSize();
     p.drawRectangle({ x: 0, y: H - STAMP_H, width: W, height: STAMP_H, color: hex(C.soft) });
     p.drawRectangle({ x: 0, y: H - STAMP_H, width: 4, height: STAMP_H, color: hex(s.color) });
-    const tag = `Item ${it.num}`;
+
+    const shared = sharedItems && sharedItems.length > 1 ? sharedItems : [it];
+    let tag;
+    if (shared.length > 1) {
+      const nums = shared.map((x) => x.num);
+      tag = nums.length <= 4 ? `Itens ${nums.join(", ")}` : `Itens ${nums[0]}–${nums[nums.length - 1]} (${nums.length} itens)`;
+    } else {
+      tag = `Item ${it.num}`;
+    }
+    if (attLabel) {
+      tag += ` · ${attLabel}`;
+    }
+
     const tw = width(tag, F.bold, 8.5) + 14;
     rrect(p, 14, H - 7, tw, 16, 8, { color: hex(s.color) });
     text(p, tag, 21, H - 18.5, { font: F.bold, size: 8.5, color: C.white });
     addLink(p, [14, H - 23, 14 + tw, H - 7], it.listPage);
     const pg = n > 1 ? (cfg.firstPageOnly ? `  ·  1ª pág. de ${n}` : `  ·  pág. ${k}/${n}`) : "";
-    const head = [s.name, it.tipo, it.ano].filter(Boolean).join(" · ");
+    const head = [s.name, shared.length > 1 ? `${shared.length} registros vinculados` : it.tipo, it.ano].filter(Boolean).join(" · ");
     const right = `${head}${pg}`;
     const rw = width(right, F.reg, 8);
     text(p, right, W - 16 - rw, H - 18.5, { size: 8, color: C.muted });
-    text(p, ellipsize(it.title || "", F.semi, 8.5, W - 16 - rw - (14 + tw + 10) - 12), 14 + tw + 10, H - 18.5, { font: F.semi, size: 8.5, color: C.ink });
+    const dispTitle = shared.length > 1
+      ? `${it.title || ""}${shared.length > 1 ? ` (+${shared.length - 1} outros registros)` : ""}`
+      : (it.title || "");
+    text(p, ellipsize(dispTitle, F.semi, 8.5, W - 16 - rw - (14 + tw + 10) - 12), 14 + tw + 10, H - 18.5, { font: F.semi, size: 8.5, color: C.ink });
   }
 
   function pageHeader(p, title, sub) {
@@ -578,11 +629,17 @@ export async function buildReport(cfg) {
   // =====================================================================
   for (const r of refs) {
     const it = r.item;
+    let pageLabel = `p. ${it.page}`;
+    if (it.pages && it.pages.length > 1) {
+      const u = [...new Set(it.pages)].sort((a, b) => a - b);
+      if (u.length > 1) pageLabel = `p. ${u.join(", ")}`;
+    }
     let label, fg, bg;
     if (!it.path) { label = "sem comprovante"; fg = C.warn; bg = C.warnBg; }
     else if (it.absent) { label = "arquivo ausente"; fg = "#b91c1c"; bg = "#fee2e2"; }
-    else if (it.missing) { label = `falhou · p. ${it.page}`; fg = C.warn; bg = C.warnBg; }
-    else { label = `p. ${it.page}`; fg = C.indigo; bg = "#eef2ff"; }
+    else if (it.missing) { label = `falhou · ${pageLabel}`; fg = C.warn; bg = C.warnBg; }
+    else if (it.sharedWith) { label = `mesmo doc · ${pageLabel}`; fg = C.indigo; bg = "#eef2ff"; }
+    else { label = pageLabel; fg = C.indigo; bg = "#eef2ff"; }
     const w = width(label, F.semi, 7.5) + 12;
     rrect(r.page, r.x - w, r.y + 11.5, w, 15, 7.5, { color: hex(bg) });
     text(r.page, label, r.x - w + 6, r.y + 0.5, { font: F.semi, size: 7.5, color: fg });

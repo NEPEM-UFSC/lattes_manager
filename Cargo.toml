@@ -28,6 +28,7 @@ pdf-extract = "0.12"
 ureq = { version = "2", features = ["json"] }
 rust_xlsxwriter = "0.102"
 zip = { version = "=2.1.0", default-features = false, features = ["deflate"] }
+sha2 = "0.11.1"
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

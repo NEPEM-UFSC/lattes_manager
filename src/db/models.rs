@@ -44,6 +44,10 @@ fn optional_url(row: &Row<'_>) -> Option<String> {
         .filter(|s| !s.trim().is_empty())
 }
 
+fn optional_citations(row: &Row<'_>) -> Option<i64> {
+    row.get::<_, Option<i64>>("citations").ok().flatten()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct DadosGeraisRecord {
     pub id: i64,
@@ -223,6 +227,7 @@ pub struct ProducoesRecord {
     pub log: Option<String>,
     pub path: Option<String>,
     pub url: Option<String>,
+    pub citations: Option<i64>,
 }
 
 impl ProducoesRecord {
@@ -240,6 +245,7 @@ impl ProducoesRecord {
             log: row.get("log")?,
             path: row.get("path")?,
             url: optional_url(row),
+            citations: optional_citations(row),
         })
     }
 }
@@ -377,6 +383,16 @@ impl BancasRecord {
 // ==========================================
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AttachmentDto {
+    pub id: Option<i64>,
+    pub file: String,
+    pub path: String,
+    pub folder: Option<String>,
+    pub description: Option<String>,
+    pub ord: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RecordDto {
     pub id: i64,
     pub category: String,
@@ -398,6 +414,11 @@ pub struct RecordDto {
     pub path: Option<String>,
     /// Link opcional do registro (coluna `url` de todas as tabelas).
     pub url: Option<String>,
+    /// Citações extraídas do Google Scholar (aplicável principalmente a produções).
+    pub citations: Option<i64>,
+    /// Lista de comprovantes anexados ao registro (para suporte a múltiplos comprovantes).
+    #[serde(default)]
+    pub attachments: Vec<AttachmentDto>,
 }
 
 impl From<DadosGeraisRecord> for RecordDto {
@@ -516,6 +537,7 @@ impl From<ProducoesRecord> for RecordDto {
             log: r.log,
             path: r.path,
             url: r.url,
+            citations: r.citations,
             ..Default::default()
         }
     }

@@ -4,6 +4,7 @@ import { CATEGORY_SCHEMAS, DEFAULT_DADOS_GERAIS_MAPPINGS, escapeHtml, showToast 
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 import { FieldHistory } from "./fieldHistory.js";
+import { ProofPickerModal } from "./proofPicker.js";
 
 const foldKey = (s) =>
   String(s || "")
@@ -36,17 +37,23 @@ export class RecordModal {
     this.btnUnselected = document.getElementById("file-unselected");
     this.btnSelectedCard = document.getElementById("file-selected-card");
     this.btnSelectFile = document.getElementById("btn-select-file");
+    this.btnLinkExistingFile = document.getElementById("btn-link-existing-file");
     this.btnRemoveAttachment = document.getElementById("btn-remove-attachment");
     this.selectedFileName = document.getElementById("selected-file-name");
     this.fileExtBadge = document.getElementById("file-ext-badge");
     this.targetSubfolderPath = document.getElementById("target-subfolder-path");
+    this.attachmentsList = document.getElementById("attachments-list");
+    this.attachmentsBadge = document.getElementById("attachments-count-badge");
 
     this.onSaved = onSaved;
 
     this.mode = "create"; // "create" or "edit"
     this.category = null;
     this.currentRecord = null;
+    this.attachments = []; // [{ id, file, path, folder, description, ord, isNew, sourcePath, isLinked }]
     this.selectedSourceFile = null;
+    this.selectedExistingProof = null;
+    this.fileRemoved = false;
     this.mappings = [];
     this.metaPanel = document.getElementById("meta-panel");
     this.meta = null;
@@ -70,10 +77,94 @@ export class RecordModal {
       if (e.target === this.overlay && easyClose()) this.close();
     });
 
-    this.btnSelectFile.addEventListener("click", () => this.handlePickFile());
-    this.btnRemoveAttachment.addEventListener("click", () => this.clearSelectedFile());
+    this.btnSelectFile?.addEventListener("click", () => this.handlePickFile());
+    this.btnLinkExistingFile?.addEventListener("click", () => this.handlePickExistingProof());
+    this.btnRemoveAttachment?.addEventListener("click", () => this.clearSelectedFile());
 
     this.form.addEventListener("submit", (e) => this.handleSubmit(e));
+  }
+
+  renderAttachmentsList() {
+    if (!this.attachmentsList) return;
+    this.attachmentsList.innerHTML = "";
+    const total = this.attachments.length;
+
+    if (this.attachmentsBadge) {
+      if (total > 0) {
+        this.attachmentsBadge.textContent = `${total} comprovante${total > 1 ? "s" : ""}`;
+        this.attachmentsBadge.style.display = "inline-block";
+      } else {
+        this.attachmentsBadge.style.display = "none";
+      }
+    }
+
+    if (total === 0) return;
+
+    this.attachments.forEach((att, idx) => {
+      const card = document.createElement("div");
+      card.className = "attachment-item-card";
+      card.style.cssText = "display:flex; align-items:center; gap:10px; background:var(--surface-1); border:1px solid var(--border-color); border-radius:8px; padding:8px 12px;";
+
+      const ext = (att.file || att.path || "").split(".").pop()?.toUpperCase() || "PDF";
+      const isNew = att.isNew;
+
+      card.innerHTML = `
+        <span class="file-type-badge" style="background:var(--surface-2); color:var(--primary); font-size:10px; font-weight:700; padding:3px 6px; border-radius:4px;">${escapeHtml(ext)}</span>
+        <div style="flex:1; min-width:0;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <b style="font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(att.file || att.path)}">${escapeHtml(att.file || att.path)}</b>
+            ${isNew ? '<span class="badge" style="font-size:9.5px; background:rgba(16,185,129,0.15); color:#10b981;">Novo</span>' : ""}
+            ${att.isLinked ? '<span class="badge" style="font-size:9.5px; background:rgba(99,102,241,0.15); color:#818cf8;">Vinculado</span>' : ""}
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+            <input type="text" class="form-input form-input-xs att-desc-input" placeholder="Rótulo / Semestre (ex: 2023-1, Portaria, etc.)" value="${escapeHtml(att.description || "")}" style="height:24px; font-size:11.5px; padding:2px 8px; flex:1; max-width:280px;" data-idx="${idx}" />
+            <small style="color:var(--text-muted); font-size:11px;">#${idx + 1}</small>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <button type="button" class="btn btn-secondary btn-xs att-preview-btn" data-idx="${idx}" title="Visualizar comprovante" style="padding:4px 8px;">👁</button>
+          <button type="button" class="btn-icon-danger att-remove-btn" data-idx="${idx}" title="Remover este comprovante" style="padding:4px 8px;">&times;</button>
+        </div>
+      `;
+
+      card.querySelector(".att-desc-input")?.addEventListener("input", (e) => {
+        att.description = e.target.value;
+      });
+
+      card.querySelector(".att-preview-btn")?.addEventListener("click", () => {
+        if (att.sourcePath) {
+          window.app?.previewer?.openAbsolute(att.sourcePath, att.file);
+        } else if (att.path) {
+          window.app?.previewer?.open({ path: att.path, file: att.file, id: -1 });
+        }
+      });
+
+      card.querySelector(".att-remove-btn")?.addEventListener("click", () => {
+        this.attachments.splice(idx, 1);
+        this.renderAttachmentsList();
+      });
+
+      this.attachmentsList.appendChild(card);
+    });
+  }
+
+  handlePickExistingProof() {
+    new ProofPickerModal({
+      currentCategory: this.category,
+      onSelect: (chosen) => {
+        this.attachments.push({
+          id: null,
+          file: chosen.file,
+          path: chosen.path,
+          folder: chosen.folder,
+          isLinked: true,
+          description: "",
+          ord: this.attachments.length,
+        });
+        this.renderAttachmentsList();
+        showToast(`Comprovante vinculado: ${chosen.file}`, "success", 2500);
+      },
+    }).open();
   }
 
   setMappings(mappings) {
@@ -84,7 +175,10 @@ export class RecordModal {
     this.mode = "create";
     this.category = category;
     this.currentRecord = null;
+    this.attachments = [];
     this.selectedSourceFile = null;
+    this.selectedExistingProof = null;
+    this.fileRemoved = false;
     if (mappings.length) this.mappings = mappings;
 
     const schema = CATEGORY_SCHEMAS[category];
@@ -93,7 +187,7 @@ export class RecordModal {
 
     this.renderFormFields(schema);
     this.history.load(category);
-    this.clearSelectedFile();
+    this.renderAttachmentsList();
     this.resetMeta();
     this.overlay.style.display = "flex";
   }
@@ -104,12 +198,63 @@ export class RecordModal {
     this.setSourceFile(path, extract);
   }
 
+  /** Abre "Novo registro" pré-preenchendo dados (ex: artigos importados do Scholar). */
+  openCreateWithData(category, initialData = {}, mappings = []) {
+    this.openCreate(category, mappings);
+    if (initialData) {
+      for (const [key, val] of Object.entries(initialData)) {
+        const el = document.getElementById(`field-${key}`);
+        if (el && val != null) {
+          el.value = String(val);
+        }
+      }
+      if (initialData.identifier) {
+        const idEl = document.getElementById("field-identifier");
+        if (idEl) {
+          idEl.value = initialData.identifier;
+          idEl.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      }
+      if (initialData.tipo) {
+        const tipoEl = document.getElementById("field-tipo");
+        if (tipoEl) {
+          tipoEl.value = initialData.tipo;
+          tipoEl.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+    }
+  }
+
   openEdit(category, record, mappings = []) {
     this.mode = "edit";
     this.category = category;
     this.currentRecord = record;
     this.selectedSourceFile = null;
+    this.selectedExistingProof = null;
+    this.fileRemoved = false;
     if (mappings.length) this.mappings = mappings;
+
+    if (record.attachments && record.attachments.length > 0) {
+      this.attachments = record.attachments.map((a, i) => ({
+        ...a,
+        isNew: false,
+        ord: a.ord ?? i,
+      }));
+    } else if (record.path) {
+      this.attachments = [
+        {
+          id: null,
+          file: record.file || record.path.split(/[\\/]/).pop(),
+          path: record.path,
+          folder: record.folder,
+          description: null,
+          ord: 0,
+          isNew: false,
+        },
+      ];
+    } else {
+      this.attachments = [];
+    }
 
     const schema = CATEGORY_SCHEMAS[category];
     this.titleEl.textContent = `Editar Registro #${record.id} — ${schema?.name || category}`;
@@ -118,12 +263,51 @@ export class RecordModal {
     this.renderFormFields(schema, record);
     this.history.load(category);
     this.resetMeta();
+    this.renderAttachmentsList();
 
-    if (record.file) {
-      this.displayExistingFile(record.file, record.folder || record.path);
+    this.overlay.style.display = "flex";
+  }
+
+  /** Abre modal duplicando os dados de um registro existente para criar um novo. */
+  openDuplicate(category, record, mappings = []) {
+    this.mode = "create";
+    this.category = category;
+    this.currentRecord = null;
+    this.selectedSourceFile = null;
+    this.fileRemoved = false;
+    if (mappings.length) this.mappings = mappings;
+
+    if (record.attachments && record.attachments.length > 0) {
+      this.attachments = record.attachments.map((a, i) => ({
+        ...a,
+        id: null,
+        isLinked: true,
+        ord: i,
+      }));
+    } else if (record.path) {
+      this.attachments = [
+        {
+          id: null,
+          file: record.file || record.path.split(/[\\/]/).pop(),
+          path: record.path,
+          folder: record.folder,
+          description: null,
+          ord: 0,
+          isLinked: true,
+        },
+      ];
     } else {
-      this.clearSelectedFile();
+      this.attachments = [];
     }
+
+    const schema = CATEGORY_SCHEMAS[category];
+    this.titleEl.textContent = `Duplicar Registro — ${schema?.name || category} (Cópia do #${record.id})`;
+    this.btnSave.textContent = "Salvar como Novo Registro";
+
+    this.renderFormFields(schema, record);
+    this.history.load(category);
+    this.resetMeta();
+    this.renderAttachmentsList();
 
     this.overlay.style.display = "flex";
   }
@@ -260,26 +444,54 @@ export class RecordModal {
 
   async handlePickFile() {
     try {
-      const picked = await api.selectSourceFile();
-      if (!picked) return; // User canceled dialog
-      this.setSourceFile(picked);
+      const pickedFiles = await api.pickFiles({
+        title: "Selecionar Comprovante(s)",
+        multiple: true,
+        extensions: ["pdf", "png", "jpg", "jpeg", "docx", "xlsx"],
+      });
+      if (!pickedFiles || !pickedFiles.length) return;
+      const folder = document.getElementById("field-folder")?.value || "";
+      for (const p of pickedFiles) {
+        const fileName = p.split(/[\\/]/).pop() || "documento.pdf";
+        this.attachments.push({
+          id: null,
+          file: fileName,
+          path: p,
+          sourcePath: p,
+          isNew: true,
+          folder,
+          description: "",
+          ord: this.attachments.length,
+        });
+      }
+      this.renderAttachmentsList();
+      const firstPdf = pickedFiles.find((f) => f.toLowerCase().endsWith(".pdf"));
+      if (firstPdf) {
+        if (this.category === "producoes") this.extractMetadata(firstPdf);
+        else this.analyzeForForm(firstPdf);
+      }
     } catch (err) {
-      console.error("Falha ao selecionar arquivo:", err);
-      showToast(`Erro ao selecionar arquivo: ${err}`, "error");
+      console.error("Falha ao selecionar arquivos:", err);
+      showToast(`Erro ao selecionar arquivos: ${err}`, "error");
     }
   }
 
   /** Anexa um arquivo do disco; se for PDF de produção, extrai os metadados. */
   setSourceFile(picked, extract = true) {
-    this.selectedSourceFile = picked;
     const fileName = picked.split(/[\\/]/).pop() || "documento.pdf";
+    const folder = document.getElementById("field-folder")?.value || "";
+    this.attachments.push({
+      id: null,
+      file: fileName,
+      path: picked,
+      sourcePath: picked,
+      isNew: true,
+      folder,
+      description: "",
+      ord: this.attachments.length,
+    });
+    this.renderAttachmentsList();
     const ext = fileName.split(".").pop()?.toUpperCase() || "DOC";
-    this.selectedFileName.textContent = fileName;
-    this.fileExtBadge.textContent = ext;
-    const currentFolder = document.getElementById("field-folder")?.value || "subpasta";
-    this.targetSubfolderPath.textContent = `Destino: ${currentFolder.replace(/[\\/]+$/, "")}\\`;
-    this.btnUnselected.style.display = "none";
-    this.btnSelectedCard.style.display = "flex";
     if (extract && this.category === "producoes" && ext === "PDF") this.extractMetadata(picked);
     else if (extract && ext === "PDF") this.analyzeForForm(picked);
   }
@@ -562,9 +774,10 @@ export class RecordModal {
 
   clearSelectedFile() {
     this.selectedSourceFile = null;
-    this.btnUnselected.style.display = "flex";
-    this.btnSelectedCard.style.display = "none";
-    this.selectedFileName.textContent = "";
+    this.selectedExistingProof = null;
+    this.attachments = [];
+    this.fileRemoved = true;
+    this.renderAttachmentsList();
   }
 
   async handleSubmit(e) {
@@ -587,16 +800,37 @@ export class RecordModal {
     if (idEl && !data.identifier && idEl.dataset.legacy) delete data.identifier;
     if (data.identifier) data.identifier = data.identifier.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/^doi:\s*/i, "");
 
+    // Prepara os múltiplos comprovantes
+    const newSourceFiles = this.attachments.filter((a) => a.isNew && a.sourcePath).map((a) => a.sourcePath);
+    const serializedAttachments = this.attachments.map((a, idx) => ({
+      id: a.id || null,
+      file: a.file,
+      path: a.path,
+      folder: a.folder || data.folder,
+      description: a.description || null,
+      ord: idx,
+    }));
+
+    data.attachments = serializedAttachments;
+    if (this.attachments.length > 0) {
+      data.file = this.attachments[0].file;
+      data.path = this.attachments[0].path;
+      data.folder = this.attachments[0].folder || data.folder;
+    } else {
+      data.file = null;
+      data.path = null;
+    }
+
     try {
       this.btnSave.disabled = true;
       this.btnSave.textContent = "Salvando...";
 
       let result;
       if (this.mode === "create") {
-        result = await api.createRecord(this.category, data, this.selectedSourceFile);
+        result = await api.createRecord(this.category, data, null, newSourceFiles);
         showToast("Registro criado com sucesso!", "success");
       } else {
-        result = await api.updateRecord(this.category, this.currentRecord.id, data, this.selectedSourceFile);
+        result = await api.updateRecord(this.category, this.currentRecord.id, data, null, newSourceFiles);
         showToast("Registro atualizado com sucesso!", "success");
       }
 

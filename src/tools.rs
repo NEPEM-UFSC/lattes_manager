@@ -123,6 +123,12 @@ fn set_file(conn: &Connection, cat: &str, id: i64, old_file: Option<&str>, file:
     if n == 0 {
         return Err(format!("registro {} não encontrado", id));
     }
+    if file.is_none() && path.is_none() {
+        let _ = conn.execute(
+            "DELETE FROM record_attachments WHERE table_name = ?1 AND record_id = ?2",
+            params![table, id],
+        );
+    }
     Ok(())
 }
 
@@ -167,8 +173,10 @@ pub fn apply_renames(conn: &Connection, root: &Path, items: &[RenameItem]) -> Ap
 pub struct MissingFile {
     pub category: String,
     pub id: i64,
+    pub nivel: Option<String>,
     pub titulo: String,
     pub path: String,
+    pub ano: Option<i64>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -184,11 +192,41 @@ pub fn check_files(conn: &Connection, root: &Path) -> Result<FileCheck, String> 
     let mut referenced = HashSet::new();
     for cat in all_categories(conn) {
         for r in queries::get_records(conn, &cat, None, None, None).map_err(|e| e.to_string())? {
-            let Some(p) = r.path.clone().filter(|p| !p.trim().is_empty()) else { continue };
-            fc.total_vinculados += 1;
-            referenced.insert(linker::norm_rel(&p));
-            if !crate::files::rel_join(root, &p).is_file() {
-                fc.ausentes.push(MissingFile { category: cat.clone(), id: r.id, titulo: label_of(&r), path: p });
+            let mut checked_paths = HashSet::new();
+            if let Some(p) = r.path.clone().filter(|p| !p.trim().is_empty()) {
+                fc.total_vinculados += 1;
+                let norm = linker::norm_rel(&p);
+                referenced.insert(norm.clone());
+                checked_paths.insert(norm);
+                if !crate::files::rel_join(root, &p).is_file() {
+                    fc.ausentes.push(MissingFile {
+                        category: cat.clone(),
+                        id: r.id,
+                        nivel: r.tipo.clone(),
+                        titulo: label_of(&r),
+                        path: p,
+                        ano: r.ano,
+                    });
+                }
+            }
+            for att in &r.attachments {
+                let norm = linker::norm_rel(&att.path);
+                if att.path.trim().is_empty() || checked_paths.contains(&norm) {
+                    continue;
+                }
+                fc.total_vinculados += 1;
+                referenced.insert(norm.clone());
+                checked_paths.insert(norm);
+                if !crate::files::rel_join(root, &att.path).is_file() {
+                    fc.ausentes.push(MissingFile {
+                        category: cat.clone(),
+                        id: r.id,
+                        nivel: r.tipo.clone(),
+                        titulo: label_of(&r),
+                        path: att.path.clone(),
+                        ano: r.ano,
+                    });
+                }
             }
         }
     }

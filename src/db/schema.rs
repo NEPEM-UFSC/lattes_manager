@@ -233,6 +233,25 @@ ALTER TABLE orientacoes ADD COLUMN url TEXT;
 ALTER TABLE bancas ADD COLUMN url TEXT;
 ALTER TABLE custom_records ADD COLUMN url TEXT;
 "#,
+    // 4: contagem de citações do Google Scholar para produções
+    r#"
+ALTER TABLE producoes ADD COLUMN citations INTEGER;
+"#,
+    // 5: suporte a múltiplos comprovantes por registro
+    r#"
+CREATE TABLE IF NOT EXISTS record_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    file TEXT NOT NULL,
+    path TEXT NOT NULL,
+    folder TEXT,
+    description TEXT,
+    ord INTEGER DEFAULT 0,
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_record_attachments_lookup ON record_attachments(category, record_id, ord);
+"#,
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

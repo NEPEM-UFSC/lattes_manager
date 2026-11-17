@@ -4,9 +4,9 @@ import { api } from "../api.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 
 const QUALIS_ORDER = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"];
-const NUMERIC = new Set(["id", "ano", "horas", "alunos"]);
+const NUMERIC = new Set(["id", "ano", "horas", "alunos", "citations"]);
 // direção inicial ao clicar: números/datas começam do maior; textos e Qualis do "melhor"/A→Z
-const FIRST_DIR = { id: "desc", ano: "desc", horas: "desc", alunos: "desc", log: "desc", file: "desc" };
+const FIRST_DIR = { id: "desc", ano: "desc", horas: "desc", alunos: "desc", log: "desc", file: "desc", citations: "desc" };
 const collator = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
 const DOI_RE = /^10\.\d{4,9}\//;
 
@@ -48,18 +48,30 @@ export function sortRecords(records, { key, dir }) {
 export class TableView {
   constructor({
     onEdit,
+    onDuplicate = null,
     onDelete,
     onPreview,
     onReveal,
     onFetchPdf,
     onOpenDoi,
+    onLinkProof = null,
+    onBulkLinkProof = null,
+    onBulkDuplicate = null,
     onBulkEdit = null,
     onBulkDelete = null,
     onBulkFetchPdfs = null,
     onFileDropOnRow = null,
   }) {
+    this.onEdit = onEdit;
+    this.onDuplicate = onDuplicate;
+    this.onDelete = onDelete;
+    this.onPreview = onPreview;
+    this.onReveal = onReveal;
     this.onFetchPdf = onFetchPdf;
     this.onOpenDoi = onOpenDoi;
+    this.onLinkProof = onLinkProof;
+    this.onBulkLinkProof = onBulkLinkProof;
+    this.onBulkDuplicate = onBulkDuplicate;
     this.onBulkEdit = onBulkEdit;
     this.onBulkDelete = onBulkDelete;
     this.onBulkFetchPdfs = onBulkFetchPdfs;
@@ -173,6 +185,10 @@ export class TableView {
       const selected = this.getSelectedRecords();
       if (action === "clear") {
         this.clearSelection();
+      } else if (action === "link-proof" && selected.length) {
+        this.onBulkLinkProof?.(selected);
+      } else if (action === "duplicate" && selected.length) {
+        this.onBulkDuplicate?.(selected);
       } else if (action === "edit" && selected.length) {
         this.onBulkEdit?.(selected);
       } else if (action === "delete" && selected.length) {
@@ -329,6 +345,8 @@ export class TableView {
         ${this.bulkStatus ? `<span class="bulk-status">${escapeHtml(this.bulkStatus)}</span>` : ""}
       </div>
       <div class="bulk-actions">
+        <button type="button" class="btn btn-secondary btn-sm" data-bulk-action="duplicate" ${this.bulkBusy ? "disabled" : ""} title="Criar uma cópia dos registros selecionados">📋 Duplicar selecionados</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bulk-action="link-proof" ${this.bulkBusy ? "disabled" : ""} title="Vincular o mesmo comprovante a todos os registros selecionados sem duplicar arquivo">🔗 Vincular mesmo comprovante...</button>
         <button type="button" class="btn btn-secondary btn-sm" data-bulk-action="edit" ${this.bulkBusy ? "disabled" : ""}>✏️ Alterar em lote</button>
         ${
           doiMissingCount > 0
@@ -431,25 +449,19 @@ export class TableView {
       // ⚡ só onde costuma haver DOI (artigos, capítulos, livros, resumos em anais)
       const doiLike = doi || /artigo|cap[ií]tulo|livro|resumo|trabalhos completos/i.test(String(rec.tipo || ""));
       const fetchBtn = isProd && !hasFile && doiLike
-        ? `<button type="button" class="ibtn ibtn-accent ${busy ? "spin" : ""}" data-action="fetchpdf" data-id="${rec.id}" ${busy ? "disabled" : ""} title="${doi ? "Resolver o DOI e baixar o PDF de acesso aberto" : "Procurar o DOI pelo título e baixar o PDF de acesso aberto"}">${busy ? "⏳" : "⚡"}</button><span class="ibtn-gap"></span>`
+        ? `<button type="button" class="ibtn ibtn-accent ${busy ? "spin" : ""}" data-action="fetchpdf" data-id="${rec.id}" ${busy ? "disabled" : ""} title="${doi ? "Resolver o DOI e baixar o PDF de acesso aberto" : "Procurar o DOI pelo título e baixar o PDF de acesso aberto"}">${busy ? "⏳" : "⚡"}</button>`
         : "";
       const fileCellHtml = fetchBtn
         ? fetchBtn
         : hasFile
           ? `<button type="button" class="ibtn ibtn-primary" data-action="preview" data-id="${rec.id}" title="Visualizar comprovante">👁</button>
              <button type="button" class="ibtn" data-action="reveal" data-id="${rec.id}" title="Mostrar na pasta (Explorer)">📂</button>`
-          : anyFileOrFetch
-            ? `<span class="ibtn-gap"></span><span class="ibtn-gap"></span>`
-            : "";
-      const doiBtn = anyDoi
-        ? doi
-          ? `<button type="button" class="ibtn" data-action="opendoi" data-id="${rec.id}" title="Abrir ${escapeHtml(doi)} em doi.org">🌐</button>`
-          : `<span class="ibtn-gap"></span>`
+          : `<button type="button" class="ibtn" data-action="link-proof" data-id="${rec.id}" title="Vincular a um comprovante existente (sem duplicar arquivo)">🔗</button>`;
+      const doiBtn = anyDoi && doi
+        ? `<button type="button" class="ibtn" data-action="opendoi" data-id="${rec.id}" title="Abrir ${escapeHtml(doi)} em doi.org">🌐</button>`
         : "";
-      const urlBtn = anyUrl
-        ? rec.url
-          ? `<button type="button" class="ibtn" data-action="openurl" data-id="${rec.id}" title="Abrir ${escapeHtml(rec.url)}">🔗</button>`
-          : `<span class="ibtn-gap"></span>`
+      const urlBtn = anyUrl && rec.url
+        ? `<button type="button" class="ibtn" data-action="openurl" data-id="${rec.id}" title="Abrir ${escapeHtml(rec.url)}">🔗</button>`
         : "";
       tbodyHtml += `
         <td class="col-actions" style="text-align: right;">
@@ -457,6 +469,7 @@ export class TableView {
             ${fileCellHtml}
             ${doiBtn}
             ${urlBtn}
+            <button type="button" class="ibtn" data-action="duplicate" data-id="${rec.id}" title="Duplicar registro (criar cópia)">📋</button>
             <button type="button" class="ibtn" data-action="edit" data-id="${rec.id}" title="Editar registro (ou duplo clique na linha)">✏️</button>
             <button type="button" class="ibtn ibtn-danger" data-action="delete" data-id="${rec.id}" title="Excluir registro">🗑</button>
           </div>
@@ -497,6 +510,9 @@ export class TableView {
     if (!record) return;
 
     switch (action) {
+      case "link-proof":
+        if (this.onLinkProof) this.onLinkProof([record]);
+        break;
       case "preview":
         if (this.onPreview) this.onPreview(record);
         break;
@@ -505,6 +521,9 @@ export class TableView {
         break;
       case "edit":
         if (this.onEdit) this.onEdit(record);
+        break;
+      case "duplicate":
+        if (this.onDuplicate) this.onDuplicate(record);
         break;
       case "delete":
         if (this.onDelete) this.onDelete(record);

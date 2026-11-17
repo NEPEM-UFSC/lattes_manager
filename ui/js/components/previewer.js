@@ -16,6 +16,7 @@ export class Previewer {
     this.counterEl = document.getElementById("preview-counter");
     this.btnPrev = document.getElementById("btn-preview-prev");
     this.btnNext = document.getElementById("btn-preview-next");
+    this.attTabsEl = document.getElementById("preview-att-tabs");
 
     this.list = [];
     this.index = -1;
@@ -197,6 +198,36 @@ export class Previewer {
     this.btnPrev.disabled = !many;
     this.btnNext.disabled = !many;
 
+    if (this.attTabsEl) {
+      if (rec.attachments && rec.attachments.length > 1) {
+        this.attTabsEl.style.display = "flex";
+        this.attTabsEl.innerHTML = `
+          <span style="font-size:11px; font-weight:600; color:var(--text-muted); margin-right:4px;">Comprovantes (${rec.attachments.length}):</span>
+          ${rec.attachments
+            .map((att, i) => {
+              const active = (att.path === rec.path);
+              const lbl = att.description || att.file || `Anexo ${i + 1}`;
+              return `<button type="button" class="btn btn-xs ${active ? "btn-primary" : "btn-secondary"}" data-att-idx="${i}" style="font-size:11px; padding:3px 8px; border-radius:12px;">📎 ${escapeHtml(lbl)}</button>`;
+            })
+            .join("")}
+        `;
+        this.attTabsEl.querySelectorAll("[data-att-idx]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const idx = Number(btn.dataset.attIdx);
+            const targetAtt = rec.attachments[idx];
+            if (targetAtt) {
+              rec.path = targetAtt.path;
+              rec.file = targetAtt.file;
+              this.show();
+            }
+          });
+        });
+      } else {
+        this.attTabsEl.style.display = "none";
+        this.attTabsEl.innerHTML = "";
+      }
+    }
+
     this.drawer.classList.add("open");
     this.backdrop.classList.toggle("on", this.drawer.classList.contains("expanded"));
     this.syncDock();
@@ -343,6 +374,10 @@ export class Previewer {
   close() {
     this.drawer.classList.remove("open", "expanded");
     this.backdrop.classList.remove("on");
+    if (this.attTabsEl) {
+      this.attTabsEl.style.display = "none";
+      this.attTabsEl.innerHTML = "";
+    }
     this.syncDock();
     this.contentEl.innerHTML = "";
     this.current = null;

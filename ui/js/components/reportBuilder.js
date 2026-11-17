@@ -117,7 +117,7 @@ export async function buildCategoryPreview(cat, records, { onProgress } = {}) {
         name: schema.group,
         color: PALETTE[cat] || "#6366f1",
         grouped: true,
-        items: recs.map((r) => ({ ...describe(cat, r), ano: r.ano, tipo: r.tipo, path: r.path, url: linkOf(r) })),
+        items: recs.map((r) => ({ ...describe(cat, r), ano: r.ano, tipo: r.tipo, path: r.path, attachments: r.attachments, url: linkOf(r) })),
       },
     ],
     version,
@@ -279,7 +279,7 @@ export class ReportBuilder {
         name: schema.group,
         color: PALETTE[cat] || "#6366f1",
         grouped: this.order === "tipo",
-        items: recs.map((r) => ({ ...describe(cat, r), ano: r.ano, tipo: r.tipo, path: r.path && r.path.trim() ? r.path : null, url: linkOf(r) })),
+        items: recs.map((r) => ({ ...describe(cat, r), ano: r.ano, tipo: r.tipo, path: r.path && r.path.trim() ? r.path : null, attachments: r.attachments, url: linkOf(r) })),
       });
     }
     return out;

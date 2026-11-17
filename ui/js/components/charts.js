@@ -42,6 +42,11 @@ export class ChartsView {
       showToast(`Erro ao carregar dados: ${e}`, "error");
       return;
     }
+    try {
+      this.scholarConfig = await api.getScholarConfig();
+    } catch (_) {
+      this.scholarConfig = null;
+    }
     const years = this.allYears();
     if (this.from == null) {
       this.from = years[0];
@@ -86,6 +91,23 @@ export class ChartsView {
     // spark de artigos
     const sparkArt = range.map((y) => artigos.filter((r) => r.ano === y).length);
     const sparkAll = range.map((y) => perYear[y] || 0);
+
+    // Google Scholar & citações
+    const scCfg = this.scholarConfig;
+    const prodsWithCitations = (d.producoes || []).filter((r) => (r.citations || 0) > 0);
+    const hasScholar =
+      (scCfg && ((scCfg.total_citations || 0) > 0 || (scCfg.graph && scCfg.graph.length > 0))) ||
+      prodsWithCitations.length > 0;
+    const totalCitations = scCfg?.total_citations ?? prodsWithCitations.reduce((acc, r) => acc + (r.citations || 0), 0);
+
+    let sparkCitations = null;
+    if (scCfg?.graph && scCfg.graph.length > 1) {
+      const inRangeGraph = scCfg.graph.filter((g) => g.year >= this.from && g.year <= this.to);
+      sparkCitations = inRangeGraph.length > 1 ? inRangeGraph.map((g) => g.citations) : scCfg.graph.map((g) => g.citations);
+    } else if (hasScholar) {
+      sparkCitations = range.map((y) => prods.filter((r) => r.ano === y).reduce((acc, r) => acc + (r.citations || 0), 0));
+    }
+
     this.kpiRows = [
       ["Período", `${range[0] ?? "—"} – ${range[range.length - 1] ?? "—"}`],
       ["Registros no período", total],
@@ -93,11 +115,18 @@ export class ChartsView {
       ["Artigos publicados", artigos.length],
       [`Artigos por ano (últimos ${last5.length} anos)`, Number(art5.toFixed(2))],
       ["Produções Qualis A1 + A2", topQ],
+      ...(hasScholar
+        ? [
+            ["Citações Google Scholar", totalCitations],
+            ...(scCfg?.h_index != null ? [["Índice H (Google Scholar)", scCfg.h_index]] : []),
+            ...(scCfg?.i10_index != null ? [["Índice i10 (Google Scholar)", scCfg.i10_index]] : []),
+          ]
+        : []),
       ["Ano mais produtivo", best ? `${best[0]} (${best[1]} registros)` : "—"],
       ["Registros com comprovante", withFile],
       ["% com comprovante", allR.length ? Math.round((withFile / allR.length) * 100) : 0],
     ];
-    this.ctx = { range, cats, recsOf, prods };
+    this.ctx = { range, cats, recsOf, prods, hasScholar, scCfg };
 
     this.container.innerHTML = `
       <div class="dash">
@@ -133,6 +162,7 @@ export class ChartsView {
           ${this.kpi("Registros no período", fmt(total), "📚", sparkAll, "#6366f1")}
           ${this.kpi("Produções", fmt(prods.length), "📄", range.map((y) => prods.filter((r) => r.ano === y).length), "#06b6d4")}
           ${this.kpi("Artigos publicados", fmt(artigos.length), "📰", sparkArt, "#10b981", `${art5.toFixed(1)}/ano nos últimos ${last5.length} anos`)}
+          ${hasScholar ? this.kpi("Citações Google Scholar", fmt(totalCitations), "🎓", sparkCitations, "#38bdf8", scCfg?.h_index != null ? `Índice H: ${scCfg.h_index} · i10: ${scCfg.i10_index ?? 0}` : `${prodsWithCitations.length} artigos citados`) : ""}
           ${this.kpi("Qualis A1 + A2", fmt(topQ), "🏆", null, "#f59e0b", prods.length ? `${Math.round((topQ / Math.max(1, artigos.length)) * 100)}% dos artigos` : "")}
           ${this.kpi("Ano mais produtivo", best ? best[0] : "—", "🚀", null, "#ec4899", best ? `${fmt(best[1])} registros` : "")}
           ${this.kpi("Com comprovante", allR.length ? Math.round((withFile / allR.length) * 100) + "%" : "—", "📎", null, "#8b5cf6", `${fmt(withFile)} de ${fmt(allR.length)}`)}
@@ -147,6 +177,24 @@ export class ChartsView {
           <div class="card card-wide"><div class="card-h"><h3>Produções por tipo ao longo dos anos</h3><span>áreas suavizadas</span></div><div id="ch-area" class="chart"></div></div>
           <div class="card"><div class="card-h"><h3>Estratos Qualis</h3><span>produções classificadas</span></div><div id="ch-qualis" class="chart"></div></div>
         </section>
+
+        ${hasScholar ? `
+        <section class="grid-2">
+          <div class="card card-wide">
+            <div class="card-h">
+              <h3>Citações por ano (Google Scholar)</h3>
+              <span>${scCfg?.author_name ? `perfil de ${escapeHtml(scCfg.author_name)} · ` : ""}evolução anual de citações</span>
+            </div>
+            <div id="ch-scholar-citations" class="chart"></div>
+          </div>
+          <div class="card">
+            <div class="card-h">
+              <h3>Artigos mais citados</h3>
+              <span>top publicações no Google Scholar</span>
+            </div>
+            <div id="ch-top-cited" class="chart"></div>
+          </div>
+        </section>` : ""}
 
         <section class="grid-2">
           <div class="card card-wide"><div class="card-h"><h3>Mapa de calor — ano × categoria</h3><span>intensidade = quantidade</span></div><div id="ch-heat" class="chart"></div></div>
@@ -166,6 +214,10 @@ export class ChartsView {
     this.drawDonut(cats, recsOf);
     this.drawArea(range, prods);
     this.drawQualis(prods);
+    if (hasScholar) {
+      this.drawScholarCitations(range, scCfg, prods);
+      this.drawTopCited(prods);
+    }
     this.drawHeat(range, cats, recsOf);
     this.drawCum(range, allR);
     this.drawJournals(prods);
@@ -265,10 +317,29 @@ export class ChartsView {
       if ((r.ano || 0) >= js[k].ano && r.qualis) { js[k].q = r.qualis.toUpperCase(); js[k].ano = r.ano; }
     }
     sheets.push({ name: "Periódicos", title: "Periódicos, livros e eventos", columns: ["Periódico / evento", "Produções", "Qualis mais recente", "Anos"], rows: Object.entries(js).sort((a, b) => b[1].n - a[1].n).map(([j, o]) => [j, o.n, o.q, [...o.anos].filter(Boolean).sort().join(", ")]) });
+
+    const citedProds = prods.filter((r) => (r.citations || 0) > 0).sort((a, b) => (b.citations || 0) - (a.citations || 0));
+    if (citedProds.length > 0) {
+      sheets.push({
+        name: "Citações",
+        title: `Produções com Citações (Google Scholar) · ${period}`,
+        columns: ["Título", "Ano", "Tipo", "Periódico / Evento", "Qualis", "Citações", "DOI / Identificador"],
+        rows: citedProds.map((r) => [
+          r.titulo || "",
+          r.ano ?? null,
+          r.tipo || "",
+          r.journal || "",
+          r.qualis || "",
+          r.citations || 0,
+          /^10\./.test(r.identifier || "") ? r.identifier : r.url || "",
+        ]),
+      });
+    }
+
     sheets.push({
       name: "Registros",
       title: `Todos os registros do período · ${period}`,
-      columns: ["Categoria", "Ano", "Tipo", "Título / descrição", "Detalhe", "Periódico / evento", "Qualis", "DOI", "Comprovante", "Arquivo"],
+      columns: ["Categoria", "Ano", "Tipo", "Título / descrição", "Detalhe", "Periódico / evento", "Qualis", "Citações", "DOI", "Comprovante", "Arquivo"],
       rows: all
         .sort((a, b) => (b[1].ano || 0) - (a[1].ano || 0))
         .map(([c, r]) => [
@@ -279,6 +350,7 @@ export class ChartsView {
           [r.aluno, r.curso, r.titulo && r.descricao ? r.descricao : null, r.horas ? `${r.horas} h` : null].filter(Boolean).join(" · "),
           r.journal || "",
           r.qualis || "",
+          r.citations ?? "",
           /^10\./.test(r.identifier || "") ? r.identifier : "",
           r.path ? "sim" : "não",
           r.path || "",
@@ -533,6 +605,103 @@ body{overflow:auto!important;height:auto!important;background:var(--bg-app,#f6f7
         ([t, n], i) => `<div class="hbar wide" data-tip="<b>${escapeHtml(t)}</b><br>${n} registros">
         <span class="hb-l" title="${escapeHtml(t)}">${escapeHtml(t)}</span><div class="hb-track"><div class="hb-fill" style="--w:${(n / max) * 100}%;--d:${i * 50}ms;background:${SERIES[i % SERIES.length]}"></div></div><b>${n}</b></div>`
       )
+      .join("")}</div>`;
+    this.attachTip(el);
+  }
+
+  drawScholarCitations(range, scCfg, prods) {
+    const el = this.container.querySelector("#ch-scholar-citations");
+    if (!el) return;
+
+    let rows = [];
+    let isScholarGraph = false;
+    if (scCfg?.graph && scCfg.graph.length > 0) {
+      const graphYears = scCfg.graph.filter((g) => g.year >= this.from && g.year <= this.to);
+      if (graphYears.length > 0) {
+        if (range.length > 0 && range[0] <= graphYears[0].year) {
+          rows = range.map((y) => {
+            const found = scCfg.graph.find((g) => g.year === y);
+            return { y, n: found ? found.citations : 0 };
+          });
+        } else {
+          rows = graphYears.map((g) => ({ y: g.year, n: g.citations }));
+        }
+        isScholarGraph = true;
+      }
+    }
+
+    if (!rows.length) {
+      rows = range.map((y) => ({
+        y,
+        n: prods.filter((r) => r.ano === y).reduce((acc, r) => acc + (r.citations || 0), 0),
+      }));
+    }
+
+    if (!rows.length || rows.every((r) => r.n === 0)) return this.empty(el);
+
+    const W = 760, H = 280, P = { l: 44, r: 16, t: 16, b: 28 };
+    const max = niceMax(Math.max(1, ...rows.map((r) => r.n)));
+    const bw = (W - P.l - P.r) / rows.length;
+    const sy = (v) => ((H - P.t - P.b) * v) / max;
+
+    let s = `<defs>
+      <linearGradient id="g-scholar-bar" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#38bdf8" />
+        <stop offset="100%" stop-color="#0284c7" />
+      </linearGradient>
+    </defs>`;
+    s += gridY(W, H, P, max);
+
+    rows.forEach((r, i) => {
+      const x = P.l + i * bw + bw * 0.16;
+      const w = bw * 0.68;
+      const h = sy(r.n);
+      const y = H - P.b - h;
+      const tip = `<b>${r.y}</b> · <i style="background:#38bdf8"></i><b>${fmt(r.n)}</b> citações<br>${isScholarGraph ? "citações recebidas no ano (Google Scholar)" : "soma das produções deste ano"}`;
+      s += `<g class="bar-g" data-tip="${escapeHtml(tip)}" style="--d:${i * 25}ms">`;
+      if (h > 0) {
+        s += `<rect class="grow" x="${x}" y="${y}" width="${w}" height="${Math.max(0, h)}" rx="3" fill="url(#g-scholar-bar)"/>`;
+      }
+      s += `<rect x="${P.l + i * bw}" y="${P.t}" width="${bw}" height="${H - P.t - P.b}" fill="transparent"/></g>`;
+
+      const step = Math.ceil(rows.length / 16);
+      if (i % step === 0) {
+        s += `<text class="ax" x="${x + w / 2}" y="${H - 8}" text-anchor="middle">${r.y}</text>`;
+      }
+    });
+
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="svg">${s}</svg>`;
+    this.attachTip(el);
+  }
+
+  drawTopCited(prods) {
+    const el = this.container.querySelector("#ch-top-cited");
+    if (!el) return;
+    const cited = prods
+      .filter((r) => (r.citations || 0) > 0)
+      .sort((a, b) => (b.citations || 0) - (a.citations || 0))
+      .slice(0, 7);
+
+    if (!cited.length) return this.empty(el);
+    const maxCits = cited[0].citations || 1;
+
+    el.innerHTML = `<div class="top-cited-list">${cited
+      .map((r, i) => {
+        const cits = r.citations || 0;
+        const pct = Math.round((cits / maxCits) * 100);
+        const tip = `<b>#${i + 1} ${escapeHtml(r.titulo || "Sem título")}</b><br>${r.ano ? `<b>${r.ano}</b> · ` : ""}${escapeHtml(r.journal || r.tipo || "Artigo")}${r.qualis ? ` · Qualis ${escapeHtml(r.qualis)}` : ""}<br><i style="background:#38bdf8"></i><b>${fmt(cits)}</b> citações`;
+        return `<div class="top-cited-item" data-tip="${escapeHtml(tip)}">
+          <span class="top-cited-rank">${i + 1}</span>
+          <div class="top-cited-info">
+            <div class="top-cited-title" title="${escapeHtml(r.titulo || "")}">${escapeHtml(r.titulo || "Sem título")}</div>
+            <div class="top-cited-meta">${r.ano ? `<b>${r.ano}</b> · ` : ""}${escapeHtml(r.journal || r.tipo || "Artigo")}${r.qualis ? ` · <span style="font-weight:600;color:var(--primary);">${escapeHtml(r.qualis)}</span>` : ""}</div>
+          </div>
+          <div class="top-cited-count">
+            <span class="top-cited-badge">💬 ${fmt(cits)}</span>
+            <div class="top-cited-bar"><div class="top-cited-bar-fill" style="width:${pct}%"></div></div>
+          </div>
+        </div>`;
+      })
       .join("")}</div>`;
     this.attachTip(el);
   }

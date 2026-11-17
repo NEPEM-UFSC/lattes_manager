@@ -335,21 +335,45 @@ export const api = {
       tipo: tipo || null,
     }),
 
-  createRecord: (category, data, sourceFile = null) =>
+  createRecord: (category, data, sourceFile = null, sourceFiles = null) =>
     invokeCommand("create_record", {
       category,
       data,
       sourceFile: sourceFile || null,
       source_file: sourceFile || null,
+      sourceFiles: sourceFiles || null,
+      source_files: sourceFiles || null,
     }),
 
-  updateRecord: (category, id, data, newSourceFile = null) =>
+  updateRecord: (category, id, data, newSourceFile = null, newSourceFiles = null) =>
     invokeCommand("update_record", {
       category,
       id: Number(id),
       data,
       newSourceFile: newSourceFile || null,
       new_source_file: newSourceFile || null,
+      newSourceFiles: newSourceFiles || null,
+      new_source_files: newSourceFiles || null,
+    }),
+
+  addRecordAttachment: (category, recordId, filePath, description = null) =>
+    invokeCommand("add_record_attachment", {
+      category,
+      recordId: Number(recordId),
+      record_id: Number(recordId),
+      filePath,
+      file_path: filePath,
+      description: description || null,
+    }),
+
+  removeRecordAttachment: (category, recordId, path, deleteFile = false) =>
+    invokeCommand("remove_record_attachment", {
+      category,
+      recordId: Number(recordId),
+      record_id: Number(recordId),
+      path,
+      deleteFile: Boolean(deleteFile),
+      delete_file: Boolean(deleteFile),
     }),
 
   deleteRecord: (category, id, deleteFile = false) =>
@@ -391,6 +415,7 @@ export const api = {
     }),
 
   selectSourceFile: () => invokeCommand("select_source_file"),
+  selectFile: () => invokeCommand("select_source_file"),
 
   openFile: (relativePath) =>
     invokeCommand("open_file", {
@@ -480,6 +505,42 @@ export const api = {
   suggestFileLinks: () => invokeCommand("suggest_file_links"),
   applyFileLinks: (links) => invokeCommand("apply_file_links", { links }),
   findDuplicateRecords: () => invokeCommand("find_duplicate_records"),
+  // Vassoura de comprovantes & Time Machine
+  scanVassoura: (externalDir) =>
+    invokeCommand("scan_vassoura", { externalDir, external_dir: externalDir }),
+  applyVassoura: (items, moveFiles = false) =>
+    invokeCommand("apply_vassoura", { items, moveFiles: Boolean(moveFiles), move_files: Boolean(moveFiles) }),
+  diffLattesXml: (xmlPathNew, xmlPathOld = null) =>
+    invokeCommand("diff_lattes_xml", {
+      xmlPathNew,
+      xml_path_new: xmlPathNew,
+      xmlPathOld: xmlPathOld || null,
+      xml_path_old: xmlPathOld || null,
+    }),
+  verifyBackupIntegrity: (path) => invokeCommand("verify_backup_integrity", { path }),
+
+  // Google Scholar (SerpApi)
+  getScholarConfig: () => invokeCommand("get_scholar_config"),
+  saveScholarConfig: (authorId, apiKey) =>
+    invokeCommand("save_scholar_config", {
+      authorId,
+      author_id: authorId,
+      apiKey,
+      api_key: apiKey,
+    }),
+  syncScholarCitations: (authorId = null, apiKey = null) =>
+    invokeCommand("sync_scholar_citations", {
+      authorId: authorId || null,
+      author_id: authorId || null,
+      apiKey: apiKey || null,
+      api_key: apiKey || null,
+    }),
+  getUnmatchedScholarArticles: (forceRefresh = false) =>
+    invokeCommand("get_unmatched_scholar_articles", {
+      forceRefresh,
+      force_refresh: forceRefresh,
+    }),
+
   getSetting: (key) => invokeCommand("get_setting", { key }),
   setSetting: (key, value) => invokeCommand("set_setting", { key, value }),
 };

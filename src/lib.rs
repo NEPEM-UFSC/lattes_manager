@@ -9,6 +9,9 @@ pub mod tools;
 pub mod db;
 pub mod files;
 pub mod migration;
+pub mod vassoura;
+pub mod diff;
+pub mod scholar;
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};

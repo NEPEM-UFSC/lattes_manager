@@ -52,49 +52,21 @@ pub fn get_records(
     }
     let table = normalize_category(category).ok_or(rusqlite::Error::InvalidQuery)?;
 
-    match table {
-        "dadosgerais" => {
-            let records = list_dadosgerais(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "formacao" => {
-            let records = list_formacao(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "encargos" => {
-            let records = list_encargos(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "disciplinas" => {
-            let records = list_disciplinas(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "projetos" => {
-            let records = list_projetos(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "producoes" => {
-            let records = list_producoes(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "patentes" => {
-            let records = list_patentes(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "eventos" => {
-            let records = list_eventos(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "orientacoes" => {
-            let records = list_orientacoes(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        "bancas" => {
-            let records = list_bancas(conn, search, year, tipo)?;
-            Ok(records.into_iter().map(Into::into).collect())
-        }
-        _ => Ok(vec![]),
-    }
+    let mut out: Vec<RecordDto> = match table {
+        "dadosgerais" => list_dadosgerais(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "formacao" => list_formacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "encargos" => list_encargos(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "disciplinas" => list_disciplinas(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "projetos" => list_projetos(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "producoes" => list_producoes(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "patentes" => list_patentes(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "eventos" => list_eventos(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "orientacoes" => list_orientacoes(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "bancas" => list_bancas(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        _ => vec![],
+    };
+    populate_attachments_for_records(conn, table, &mut out)?;
+    Ok(out)
 }
 
 pub fn list_dadosgerais(
@@ -269,7 +241,7 @@ pub fn list_producoes(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<ProducoesRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url FROM producoes WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url, citations FROM producoes WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -530,72 +502,78 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
         return crate::custom::get(conn, category, id);
     }
     let norm = normalize_category(category).ok_or(rusqlite::Error::InvalidQuery)?;
-    match norm {
+    let mut rec: RecordDto = match norm {
         "dadosgerais" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM dadosgerais WHERE id = ?1",
             )?;
-            stmt.query_row([id], DadosGeraisRecord::from_row).map(Into::into)
+            stmt.query_row([id], DadosGeraisRecord::from_row).map(Into::into)?
         }
         "formacao" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM formacao WHERE id = ?1",
             )?;
-            stmt.query_row([id], FormacaoRecord::from_row).map(Into::into)
+            stmt.query_row([id], FormacaoRecord::from_row).map(Into::into)?
         }
         "encargos" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM encargos WHERE id = ?1",
             )?;
-            stmt.query_row([id], EncargosRecord::from_row).map(Into::into)
+            stmt.query_row([id], EncargosRecord::from_row).map(Into::into)?
         }
         "disciplinas" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path, url FROM disciplinas WHERE id = ?1",
             )?;
-            stmt.query_row([id], DisciplinasRecord::from_row).map(Into::into)
+            stmt.query_row([id], DisciplinasRecord::from_row).map(Into::into)?
         }
         "projetos" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM projetos WHERE id = ?1",
             )?;
-            stmt.query_row([id], ProjetosRecord::from_row).map(Into::into)
+            stmt.query_row([id], ProjetosRecord::from_row).map(Into::into)?
         }
         "producoes" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url FROM producoes WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url, citations FROM producoes WHERE id = ?1",
             )?;
-            stmt.query_row([id], ProducoesRecord::from_row).map(Into::into)
+            stmt.query_row([id], ProducoesRecord::from_row).map(Into::into)?
         }
         "patentes" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM patentes WHERE id = ?1",
             )?;
-            stmt.query_row([id], PatentesRecord::from_row).map(Into::into)
+            stmt.query_row([id], PatentesRecord::from_row).map(Into::into)?
         }
         "eventos" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM eventos WHERE id = ?1",
             )?;
-            stmt.query_row([id], EventosRecord::from_row).map(Into::into)
+            stmt.query_row([id], EventosRecord::from_row).map(Into::into)?
         }
         "orientacoes" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM orientacoes WHERE id = ?1",
             )?;
-            stmt.query_row([id], OrientacoesRecord::from_row).map(Into::into)
+            stmt.query_row([id], OrientacoesRecord::from_row).map(Into::into)?
         }
         "bancas" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM bancas WHERE id = ?1",
             )?;
-            stmt.query_row([id], BancasRecord::from_row).map(Into::into)
+            stmt.query_row([id], BancasRecord::from_row).map(Into::into)?
         }
-        _ => Err(rusqlite::Error::InvalidQuery),
-    }
+        _ => return Err(rusqlite::Error::InvalidQuery),
+    };
+    populate_attachments_for_records(conn, norm, std::slice::from_mut(&mut rec))?;
+    Ok(rec)
 }
 
 pub fn delete_record(conn: &Connection, category: &str, id: i64) -> Result<()> {
+    let _ = conn.execute(
+        "DELETE FROM record_attachments WHERE category = ?1 AND record_id = ?2",
+        rusqlite::params![category, id],
+    );
     if crate::custom::is_custom(category) {
         return crate::custom::delete(conn, category, id);
     }
@@ -661,9 +639,10 @@ pub fn insert_record(
             let titulo = json_str(data, "titulo");
             let journal = json_str(data, "journal");
             let qualis = json_str(data, "qualis");
+            let citations = data.get("citations").and_then(|c| c.as_i64());
             conn.execute(
-                "INSERT INTO producoes (ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                params![ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path],
+                "INSERT INTO producoes (ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations],
             )?;
         }
         "orientacoes" | "bancas" => {
@@ -681,6 +660,22 @@ pub fn insert_record(
     }
 
     let id = conn.last_insert_rowid();
+    if let Some(arr) = data.get("attachments") {
+        if let Ok(atts) = serde_json::from_value::<Vec<AttachmentDto>>(arr.clone()) {
+            let _ = sync_record_attachments(conn, table, id, &atts);
+        }
+    } else if file.is_some() || path.is_some() {
+        let att = AttachmentDto {
+            id: None,
+            file: file.clone().unwrap_or_default(),
+            path: path.clone().unwrap_or_default(),
+            folder: folder.clone(),
+            description: None,
+            ord: Some(0),
+        };
+        let _ = sync_record_attachments(conn, table, id, &[att]);
+    }
+
     store_url(conn, table, id, data)?;
     get_record_by_id(conn, table, id)
 }
@@ -700,6 +695,7 @@ pub fn update_record(
     }
     let table = normalize_category(category).ok_or(rusqlite::Error::InvalidQuery)?;
     let existing = get_record_by_id(conn, table, id)?;
+    let has_new_attachment = new_attached_file.is_some() || new_attached_path.is_some();
 
     let ano = if data.get("ano").is_some() {
         json_i64(data, "ano")
@@ -815,9 +811,14 @@ pub fn update_record(
             } else {
                 existing.qualis
             };
+            let citations = if data.get("citations").is_some() {
+                data.get("citations").and_then(|c| c.as_i64())
+            } else {
+                existing.citations
+            };
             conn.execute(
-                "UPDATE producoes SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, titulo = ?6, journal = ?7, qualis = ?8, log = ?9, path = ?10 WHERE id = ?11",
-                params![ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, id],
+                "UPDATE producoes SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, titulo = ?6, journal = ?7, qualis = ?8, log = ?9, path = ?10, citations = ?11 WHERE id = ?12",
+                params![ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations, id],
             )?;
         }
         "orientacoes" | "bancas" => {
@@ -842,6 +843,173 @@ pub fn update_record(
         _ => return Err(rusqlite::Error::InvalidQuery),
     }
 
+    if let Some(arr) = data.get("attachments") {
+        if let Ok(atts) = serde_json::from_value::<Vec<AttachmentDto>>(arr.clone()) {
+            let _ = sync_record_attachments(conn, table, id, &atts);
+        }
+    } else if has_new_attachment {
+        let att = AttachmentDto {
+            id: None,
+            file: file.clone().unwrap_or_default(),
+            path: path.clone().unwrap_or_default(),
+            folder: folder.clone(),
+            description: None,
+            ord: Some(0),
+        };
+        let _ = sync_record_attachments(conn, table, id, &[att]);
+    }
+
     store_url(conn, table, id, data)?;
     get_record_by_id(conn, table, id)
+}
+
+// ==========================================
+// Múltiplos comprovantes (record_attachments)
+// ==========================================
+
+pub fn get_attachments_for_record(
+    conn: &Connection,
+    category: &str,
+    record_id: i64,
+) -> Result<Vec<AttachmentDto>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, file, path, folder, description, ord FROM record_attachments WHERE category = ?1 AND record_id = ?2 ORDER BY ord ASC, id ASC"
+    )?;
+    let rows = stmt.query_map(params![category, record_id], |row| {
+        Ok(AttachmentDto {
+            id: Some(row.get(0)?),
+            file: row.get(1)?,
+            path: row.get(2)?,
+            folder: row.get(3)?,
+            description: row.get(4)?,
+            ord: Some(row.get(5)?),
+        })
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+pub fn populate_attachments_for_records(
+    conn: &Connection,
+    category: &str,
+    records: &mut [RecordDto],
+) -> Result<()> {
+    if records.is_empty() {
+        return Ok(());
+    }
+
+    let mut stmt = match conn.prepare(
+        "SELECT id, record_id, file, path, folder, description, ord FROM record_attachments WHERE category = ?1 ORDER BY ord ASC, id ASC"
+    ) {
+        Ok(s) => s,
+        Err(_) => return Ok(()),
+    };
+
+    let mut map: HashMap<i64, Vec<AttachmentDto>> = HashMap::new();
+    let rows = stmt.query_map([category], |row| {
+        let id: i64 = row.get(0)?;
+        let record_id: i64 = row.get(1)?;
+        let file: String = row.get(2)?;
+        let path: String = row.get(3)?;
+        let folder: Option<String> = row.get(4)?;
+        let description: Option<String> = row.get(5)?;
+        let ord: i64 = row.get(6)?;
+        Ok((record_id, AttachmentDto {
+            id: Some(id),
+            file,
+            path,
+            folder,
+            description,
+            ord: Some(ord),
+        }))
+    })?;
+
+    for r in rows.flatten() {
+        map.entry(r.0).or_default().push(r.1);
+    }
+
+    for rec in records.iter_mut() {
+        if let Some(atts) = map.remove(&rec.id) {
+            if !atts.is_empty() {
+                if rec.path.is_none() || rec.path.as_deref() == Some("") {
+                    rec.path = Some(atts[0].path.clone());
+                    rec.file = Some(atts[0].file.clone());
+                    rec.folder = atts[0].folder.clone();
+                }
+                rec.attachments = atts;
+                continue;
+            }
+        }
+        // Fallback: se o registro tem path/file na linha principal mas ainda não na tabela de attachments
+        if let Some(ref p) = rec.path {
+            if !p.trim().is_empty() {
+                rec.attachments = vec![AttachmentDto {
+                    id: None,
+                    file: rec.file.clone().unwrap_or_else(|| {
+                        std::path::Path::new(p)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_string()
+                    }),
+                    path: p.clone(),
+                    folder: rec.folder.clone(),
+                    description: None,
+                    ord: Some(0),
+                }];
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn sync_record_attachments(
+    conn: &Connection,
+    category: &str,
+    record_id: i64,
+    attachments: &[AttachmentDto],
+) -> Result<()> {
+    conn.execute(
+        "DELETE FROM record_attachments WHERE category = ?1 AND record_id = ?2",
+        params![category, record_id],
+    )?;
+
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let mut stmt = conn.prepare(
+        "INSERT INTO record_attachments (category, record_id, file, path, folder, description, ord, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+    )?;
+
+    for (idx, att) in attachments.iter().enumerate() {
+        let ord = att.ord.unwrap_or(idx as i64);
+        stmt.execute(params![
+            category,
+            record_id,
+            att.file,
+            att.path,
+            att.folder,
+            att.description,
+            ord,
+            now
+        ])?;
+    }
+
+    // Mantém sincronizada a primeira anotação na linha principal da tabela para compatibilidade retroativa
+    let first = attachments.first();
+    let first_file = first.map(|a| a.file.clone());
+    let first_path = first.map(|a| a.path.clone());
+    let first_folder = first.and_then(|a| a.folder.clone());
+
+    if let Some(tbl) = normalize_category(category) {
+        let _ = conn.execute(
+            &format!("UPDATE {} SET file = ?1, path = ?2, folder = ?3 WHERE id = ?4", tbl),
+            params![first_file, first_path, first_folder, record_id],
+        );
+    } else if crate::custom::is_custom(category) {
+        let _ = conn.execute(
+            "UPDATE custom_records SET file = ?1, path = ?2, folder = ?3 WHERE category = ?4 AND id = ?5",
+            params![first_file, first_path, first_folder, category, record_id],
+        );
+    }
+
+    Ok(())
 }

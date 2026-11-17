@@ -98,6 +98,16 @@ fn main() {
             commands::pick_backup_file,
             commands::inspect_backup,
             commands::restore_backup,
+            commands::verify_backup_integrity,
+            commands::scan_vassoura,
+            commands::apply_vassoura,
+            commands::diff_lattes_xml,
+            commands::get_scholar_config,
+            commands::save_scholar_config,
+            commands::sync_scholar_citations,
+            commands::get_unmatched_scholar_articles,
+            commands::add_record_attachment,
+            commands::remove_record_attachment,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

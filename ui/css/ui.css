@@ -280,13 +280,14 @@ html.theme-anim, html.theme-anim * { transition: background-color 0.25s ease, bo
 .theme-toggle:hover { background: rgba(255, 255, 255, 0.1); }
 
 /* ações da tabela: ícones compactos */
-.cell-actions { display: flex; gap: 4px; }
-.ibtn, .ibtn-gap { width: 30px; height: 28px; flex-shrink: 0; }
+.cell-actions { display: flex; gap: 3px; align-items: center; justify-content: flex-end; }
 .ibtn {
-  display: grid; place-items: center; border-radius: 8px; font-size: calc(13px * var(--font-scale, 1)); line-height: 1;
+  width: 26px; height: 26px; flex-shrink: 0; padding: 0;
+  display: grid; place-items: center; border-radius: 6px; font-size: calc(12px * var(--font-scale, 1)); line-height: 1;
   border: 1px solid var(--border-light); background: var(--surface-bg); cursor: pointer;
-  transition: all var(--transition-fast); opacity: 0.8;
+  transition: all var(--transition-fast); opacity: 0.85;
 }
+.ibtn-gap { display: none !important; }
 .ibtn:hover { opacity: 1; background: var(--surface-3); border-color: var(--border-subtle); transform: translateY(-1px); }
 .ibtn-primary { background: var(--primary-light); border-color: var(--primary-border); opacity: 1; }
 .ibtn-danger:hover { background: var(--danger-bg); border-color: var(--danger-border); }

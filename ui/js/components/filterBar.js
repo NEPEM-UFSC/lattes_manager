@@ -433,7 +433,7 @@ export class FilterBar {
       const visibleEntries = entries.filter(({ value, count }) => count > 0 || selectedSet.has(value));
       if (visibleEntries.length === 0) return "";
       return `
-      < div class="fb-row" >
+      <div class="fb-row">
         <span class="fb-row-label">${escapeHtml(label)}</span>
         <div class="fpills">
           <button type="button" class="fpill ${selectedSet.size === 0 ? "on" : ""}" data-pill-all="${kind}" aria-pressed="${selectedSet.size === 0}">
@@ -452,8 +452,8 @@ export class FilterBar {
           })
         .join("")
       }
-        </div >
-      </div > `;
+        </div>
+      </div>`;
     };
 
     const tipoRow =
@@ -483,7 +483,7 @@ export class FilterBar {
       : "";
 
     this._secondaryEl.innerHTML = `
-        < div class="fb-row" >
+      <div class="fb-row">
         <span class="fb-row-label">Ano</span>
         <div class="fb-year-controls">
           <label class="fb-year-pair">
@@ -501,12 +501,12 @@ export class FilterBar {
             </select>
           </label>
           <button type="button" class="fb-quick ${last5Active ? "active" : ""}" data-fb-quick="5" title="Filtrar últimos 5 anos (${curYear - 4}–${curYear})">Últimos 5 anos</button>
-          <button type="button" class="fb-quick ${last10Active ? "active" : ""}" data - fb - quick="10" title = "Filtrar últimos 10 anos (${curYear - 9}–${curYear})" > Últimos 10 anos</button >
-        </div >
-      </div >
-        ${ tipoRow }
-      ${ qualisRow }
-      `;
+          <button type="button" class="fb-quick ${last10Active ? "active" : ""}" data-fb-quick="10" title="Filtrar últimos 10 anos (${curYear - 9}–${curYear})">Últimos 10 anos</button>
+        </div>
+      </div>
+      ${tipoRow}
+      ${qualisRow}
+    `;
   }
 
   renderCrossHints() {
@@ -518,16 +518,16 @@ export class FilterBar {
     }
     this._crossHintsEl.classList.remove("hidden");
     this._crossHintsEl.innerHTML = `
-        < span class="fb-cross-label" > Também encontrado em:</span >
-          ${
-            this.crossHints
-            .map(
-              (h) =>
-                `<button type="button" class="fb-cross-pill" data-cross-category="${escapeHtml(h.category)}">${escapeHtml(h.label)} (${h.count})</button>`
-            )
-            .join("")
+      <span class="fb-cross-label">Também encontrado em:</span>
+      ${
+        this.crossHints
+          .map(
+            (h) =>
+              `<button type="button" class="fb-cross-pill" data-cross-category="${escapeHtml(h.category)}">${escapeHtml(h.label)} (${h.count})</button>`
+          )
+          .join("")
       }
-      `;
+    `;
   }
 
   render() {
