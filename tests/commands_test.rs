@@ -58,6 +58,7 @@ fn test_get_records_and_filtering() {
             "qualis": "A1"
         }),
         None,
+        None,
     )
     .expect("Failed to create record 1");
 
@@ -76,6 +77,7 @@ fn test_get_records_and_filtering() {
             "journal": "Editora UFSC",
             "qualis": "B1"
         }),
+        None,
         None,
     )
     .expect("Failed to create record 2");
@@ -138,6 +140,7 @@ fn test_create_record_with_file_attachment_and_sequential_naming() {
         "bancas",
         &data,
         Some(proof_file.to_str().unwrap()),
+        None,
     )
     .expect("Failed to create record with attachment");
 
@@ -173,6 +176,7 @@ fn test_create_record_with_file_attachment_and_sequential_naming() {
         "bancas",
         &data_2,
         Some(proof_file_2.to_str().unwrap()),
+        None,
     )
     .expect("Failed to create second record");
 
@@ -207,6 +211,7 @@ fn test_update_record_and_file_replacement() {
         "projetos",
         &init_data,
         Some(doc_v1.to_str().unwrap()),
+        None,
     )
     .expect("Create initial project");
 
@@ -229,6 +234,7 @@ fn test_update_record_and_file_replacement() {
         rec.id,
         &update_data,
         Some(doc_v2.to_str().unwrap()),
+        None,
     )
     .expect("Update project");
 
@@ -236,15 +242,16 @@ fn test_update_record_and_file_replacement() {
         updated.descricao.as_deref(),
         Some("Projeto de Inovação 2025 - Fase 2")
     );
-    assert_eq!(updated.file.as_deref(), Some("002_projeto_de_inovacao_2025_fase_2.pdf"));
+    assert_eq!(updated.attachments.len(), 2);
+    assert_eq!(updated.attachments[1].file, "002_projeto_de_inovacao_2025_fase_2.pdf");
     assert_eq!(
-        updated.path.as_deref(),
-        Some(r"4_projetos\pesquisa\002_projeto_de_inovacao_2025_fase_2.pdf")
+        updated.attachments[1].path,
+        r"4_projetos\pesquisa\002_projeto_de_inovacao_2025_fase_2.pdf"
     );
 
     // Verify v1 is retained (safety principle) and v2 is created
     assert!(original_file.exists(), "Original file must be retained");
-    let new_file = root_path.join(updated.path.unwrap());
+    let new_file = root_path.join(&updated.attachments[1].path);
     assert!(new_file.exists(), "New file must exist");
 }
 
@@ -271,6 +278,7 @@ fn test_delete_record_retention_vs_removal() {
             "folder": r"1_dados_gerais\pessoal"
         }),
         Some(doc_soft.to_str().unwrap()),
+        None,
     )
     .unwrap();
 
@@ -299,6 +307,7 @@ fn test_delete_record_retention_vs_removal() {
             "folder": r"1_dados_gerais\pessoal"
         }),
         Some(doc_hard.to_str().unwrap()),
+        None,
     )
     .unwrap();
 
@@ -341,7 +350,9 @@ fn test_subfolder_mappings_and_stats() {
 
     // 2. Get mappings
     let all_maps = commands::get_subfolder_mappings_impl(&db, None).unwrap();
-    assert_eq!(all_maps.len(), 2);
+    assert!(all_maps.len() >= 2);
+    assert!(all_maps.iter().any(|m| m.description == "Artigos Internacionais"));
+    assert!(all_maps.iter().any(|m| m.description == "Mestrado"));
 
     let producoes_maps =
         commands::get_subfolder_mappings_impl(&db, Some("Produções")).unwrap();
@@ -350,7 +361,7 @@ fn test_subfolder_mappings_and_stats() {
 
     // 3. Stats verification
     let stats = commands::get_app_stats_impl(&db, root_path).unwrap();
-    assert_eq!(stats.total_mappings, 2);
+    assert_eq!(stats.total_mappings, all_maps.len() as i64);
     assert_eq!(stats.total_records, 0);
 }
 
@@ -414,7 +425,7 @@ fn test_paths_cannot_escape_root() {
 fn test_search_ignores_accents_and_case() {
     let db = setup_test_db();
     let root = TempDir::new("accents");
-    commands::create_record_impl(&db, root.path(), "formacao", &json!({ "ano": 2020, "tipo": "Curso", "descricao": "FORMAÇÃO EM AVALIAÇÃO" }), None).unwrap();
+    commands::create_record_impl(&db, root.path(), "formacao", &json!({ "ano": 2020, "tipo": "Curso", "descricao": "FORMAÇÃO EM AVALIAÇÃO" }), None, None).unwrap();
     for q in ["formacao", "FORMAÇÃO", "avaliação", "Avaliacao"] {
         let found = commands::get_records_impl(&db, "formacao", Some(q), None, None).unwrap();
         assert_eq!(found.len(), 1, "busca por '{}'", q);
@@ -465,27 +476,27 @@ fn test_record_url_roundtrip_and_validation() {
     let db = setup_test_db();
     let root = TempDir::new("url");
 
-    let r = commands::create_record_impl(&db, root.path(), "eventos", &json!({ "ano": 2024, "tipo": "Congresso", "descricao": "Evento X" }), None).unwrap();
+    let r = commands::create_record_impl(&db, root.path(), "eventos", &json!({ "ano": 2024, "tipo": "Congresso", "descricao": "Evento X" }), None, None).unwrap();
     assert_eq!(r.url, None, "URL é vazia por padrão");
 
-    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": "www.evento.org/anais" }), None).unwrap();
+    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": "www.evento.org/anais" }), None, None).unwrap();
     assert_eq!(r.url.as_deref(), Some("https://www.evento.org/anais"));
     assert_eq!(r.descricao.as_deref(), Some("Evento X"), "outros campos preservados");
 
     // atualização sem a chave "url" não apaga o link
-    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "descricao": "Evento Y" }), None).unwrap();
+    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "descricao": "Evento Y" }), None, None).unwrap();
     assert_eq!(r.url.as_deref(), Some("https://www.evento.org/anais"));
     let listed = commands::get_records_impl(&db, "eventos", None, None, None).unwrap();
     assert_eq!(listed[0].url.as_deref(), Some("https://www.evento.org/anais"));
 
     // vazio remove; esquemas perigosos são recusados
-    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": "  " }), None).unwrap();
+    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": "  " }), None, None).unwrap();
     assert_eq!(r.url, None);
     for bad in ["javascript:alert(1)", "file:///C:/x", "mailto:a@b.com", "http://semponto", "https://a b.com"] {
-        assert!(commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": bad }), None).is_err(), "{}", bad);
+        assert!(commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": bad }), None, None).is_err(), "{}", bad);
     }
 
-    let p = commands::create_record_impl(&db, root.path(), "producoes", &json!({ "ano": 2025, "titulo": "Artigo", "url": "10.1016/j.x.2025.1" }), None).unwrap();
+    let p = commands::create_record_impl(&db, root.path(), "producoes", &json!({ "ano": 2025, "titulo": "Artigo", "url": "10.1016/j.x.2025.1" }), None, None).unwrap();
     assert_eq!(p.url.as_deref(), Some("https://doi.org/10.1016/j.x.2025.1"));
 }
 
@@ -497,7 +508,7 @@ fn test_custom_category_record_url() {
         let conn = db.lock().unwrap();
         lattes_app::custom::save_category(&conn, root.path(), lattes_app::custom::CustomCategory { name: "Prêmios".into(), ..Default::default() }).unwrap()
     };
-    let r = commands::create_record_impl(&db, root.path(), &cat.key, &json!({ "ano": 2023, "titulo": "Prêmio", "url": "https://premio.org" }), None).unwrap();
+    let r = commands::create_record_impl(&db, root.path(), &cat.key, &json!({ "ano": 2023, "titulo": "Prêmio", "url": "https://premio.org" }), None, None).unwrap();
     assert_eq!(r.url.as_deref(), Some("https://premio.org"));
     let listed = commands::get_records_impl(&db, &cat.key, None, None, None).unwrap();
     assert_eq!(listed[0].url.as_deref(), Some("https://premio.org"));

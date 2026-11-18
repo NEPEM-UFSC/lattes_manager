@@ -2583,14 +2583,19 @@ export class ToolsView {
           </button>
         </div>
         <div style="display:flex; flex-direction:column; gap:12px;">
-          ${orphanFolders.map((f, fi) => `
-            <div style="border:1px solid var(--border-light); border-radius:10px; background:var(--surface-2); overflow:hidden;">
+          ${orphanFolders.map((f, fi) => {
+        const allFolderChecked = f.unlinked_files.length > 0 && f.unlinked_files.every((rf) => st.selOrphanFiles.has(rf));
+        return `
+            <div data-orphan-folder-card="${fi}" style="border:1px solid var(--border-light); border-radius:10px; background:var(--surface-2); overflow:hidden;">
               <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; background:var(--surface-3); flex-wrap:wrap;">
-                <div>
-                  <span class="mono" style="font-weight:700;">${escapeHtml(f.rel_path)}</span>
-                  ${f.is_mapped ? ` · <span class="badge badge-tipo">${escapeHtml(f.category_group || "")}: ${escapeHtml(f.description)}</span>` : ` · <span class="badge" style="background:rgba(245,158,11,0.14);color:var(--warning);">Pasta não mapeada</span>`}
-                  <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">
-                    <b>${f.unlinked_files_count}</b> arquivo(s) sem registro (${fmtSize(f.unlinked_bytes)}) · ${f.linked_files_count} arquivo(s) vinculado(s)
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <input type="checkbox" data-orphan-folder-chk="${fi}" ${allFolderChecked ? "checked" : ""} title="Marcar ou desmarcar todos os arquivos desta pasta" style="cursor:pointer; width:16px; height:16px; flex-shrink:0;" />
+                  <div>
+                    <span class="mono" style="font-weight:700;">${escapeHtml(f.rel_path)}</span>
+                    ${f.is_mapped ? ` · <span class="badge badge-tipo">${escapeHtml(f.category_group || "")}: ${escapeHtml(f.description)}</span>` : ` · <span class="badge" style="background:rgba(245,158,11,0.14);color:var(--warning);">Pasta não mapeada</span>`}
+                    <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">
+                      <b>${f.unlinked_files_count}</b> arquivo(s) sem registro (${fmtSize(f.unlinked_bytes)}) · ${f.linked_files_count} arquivo(s) vinculado(s)
+                    </div>
                   </div>
                 </div>
                 <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -2601,9 +2606,9 @@ export class ToolsView {
               <div class="tl-table sm" style="border:0; border-radius:0; max-height:220px;">
                 <table class="data-table"><tbody>
                   ${f.unlinked_files.map((rf) => {
-        const fname = rf.split(/[\\/]/).pop();
-        return `<tr>
-                      <td style="width:36px"><input type="checkbox" data-orphan-chk="${escapeHtml(rf)}" ${st.selOrphanFiles.has(rf) ? "checked" : ""}/></td>
+          const fname = rf.split(/[\\/]/).pop();
+          return `<tr>
+                      <td style="width:36px"><input type="checkbox" data-orphan-chk="${escapeHtml(rf)}" data-orphan-chk-folder="${fi}" ${st.selOrphanFiles.has(rf) ? "checked" : ""}/></td>
                       <td class="mono">${escapeHtml(fname)}</td>
                       <td style="width:120px; text-align:right; white-space:nowrap;">
                         <button type="button" class="ibtn" data-open-file-rel="${escapeHtml(rf)}" title="Abrir arquivo">👁️</button>
@@ -2611,11 +2616,11 @@ export class ToolsView {
                         <button type="button" class="ibtn" data-del-orphan-one="${escapeHtml(rf)}" title="Excluir arquivo órfão do disco">🗑️</button>
                       </td>
                     </tr>`;
-      }).join("")}
+        }).join("")}
                 </tbody></table>
               </div>
-            </div>
-          `).join("")}
+            </div>`;
+      }).join("")}
         </div>
       ` : `<div class="tl-empty">✅ Nenhum arquivo solto sem vínculo foi encontrado nas pastas do currículo.</div>`;
     } else if (st.tab === "missing_disk") {
@@ -2839,14 +2844,45 @@ export class ToolsView {
         if (files.length) window._app.batchImport.open(files);
       })
     );
+    const updateOrphanSelBtn = () => {
+      const btn = this.el.querySelector("[data-del-orphan-sel]");
+      if (btn) {
+        btn.disabled = st.selOrphanFiles.size === 0;
+        btn.textContent = `🗑️ Excluir ${st.selOrphanFiles.size} arquivo(s) selecionado(s)`;
+      }
+    };
+    const syncFolderChk = (fi) => {
+      const f = orphanFolders[Number(fi)];
+      const folderChk = this.el.querySelector(`[data-orphan-folder-chk="${fi}"]`);
+      if (!f || !folderChk) return;
+      const files = f.unlinked_files || [];
+      const selectedCount = files.filter((rf) => st.selOrphanFiles.has(rf)).length;
+      folderChk.checked = files.length > 0 && selectedCount === files.length;
+      folderChk.indeterminate = selectedCount > 0 && selectedCount < files.length;
+    };
+    orphanFolders.forEach((_, fi) => syncFolderChk(fi));
+
+    this.el.querySelectorAll("[data-orphan-folder-chk]").forEach((fc) =>
+      fc.addEventListener("change", () => {
+        const fi = fc.dataset.orphanFolderChk;
+        const f = orphanFolders[Number(fi)];
+        if (!f) return;
+        for (const rf of f.unlinked_files || []) {
+          if (fc.checked) st.selOrphanFiles.add(rf);
+          else st.selOrphanFiles.delete(rf);
+        }
+        this.el.querySelectorAll(`[data-orphan-chk-folder="${fi}"]`).forEach((c) => {
+          c.checked = fc.checked;
+        });
+        fc.indeterminate = false;
+        updateOrphanSelBtn();
+      })
+    );
     this.el.querySelectorAll("[data-orphan-chk]").forEach((c) =>
       c.addEventListener("change", () => {
         c.checked ? st.selOrphanFiles.add(c.dataset.orphanChk) : st.selOrphanFiles.delete(c.dataset.orphanChk);
-        const btn = this.el.querySelector("[data-del-orphan-sel]");
-        if (btn) {
-          btn.disabled = st.selOrphanFiles.size === 0;
-          btn.textContent = `🗑️ Excluir ${st.selOrphanFiles.size} arquivo(s) selecionado(s)`;
-        }
+        if (c.dataset.orphanChkFolder != null) syncFolderChk(c.dataset.orphanChkFolder);
+        updateOrphanSelBtn();
       })
     );
     this.el.querySelector("[data-del-orphan-sel]")?.addEventListener("click", async () => {
