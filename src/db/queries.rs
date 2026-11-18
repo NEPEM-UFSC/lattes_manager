@@ -1291,7 +1291,7 @@ pub fn cleanup_external_attachments(conn: &Connection) -> Result<()> {
     );
 
     // Corrige linha principal caso tenha ficado com caminho absoluto
-    for cat in &["formacao", "dadosgerais", "atuacao", "encargos", "disciplinas", "projetos", "producoes", "patentes", "eventos", "orientacoes", "bancas"] {
+    for cat in &["formacao", "dadosgerais", "atuacao", "projetos", "producoes", "patentes", "inovacao", "educacao_popularizacao", "eventos", "orientacoes", "bancas"] {
         let _ = conn.execute(
             &format!(
                 "UPDATE {cat} SET 

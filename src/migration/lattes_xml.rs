@@ -1514,7 +1514,7 @@ impl MultiTitleIndex {
             ("bancas", "SELECT titulo FROM bancas WHERE titulo IS NOT NULL"),
             ("dadosgerais", "SELECT descricao FROM dadosgerais WHERE descricao IS NOT NULL"),
             ("formacao", "SELECT descricao FROM formacao WHERE descricao IS NOT NULL"),
-            ("encargos", "SELECT descricao FROM encargos WHERE descricao IS NOT NULL UNION SELECT COALESCE(titulo, descricao) FROM atuacao WHERE COALESCE(titulo, descricao) IS NOT NULL"),
+            ("encargos", "SELECT COALESCE(titulo, descricao) FROM atuacao WHERE COALESCE(titulo, descricao) IS NOT NULL"),
             ("projetos", "SELECT descricao FROM projetos WHERE descricao IS NOT NULL"),
             ("patentes", "SELECT descricao FROM patentes WHERE descricao IS NOT NULL"),
             ("eventos", "SELECT descricao FROM eventos WHERE descricao IS NOT NULL"),
@@ -1530,7 +1530,7 @@ impl MultiTitleIndex {
 
         let mut disciplinas = HashSet::new();
         let mut stmt = conn
-            .prepare("SELECT disciplina, ano FROM disciplinas WHERE disciplina IS NOT NULL UNION SELECT COALESCE(titulo, descricao), ano FROM atuacao WHERE COALESCE(titulo, descricao) IS NOT NULL")
+            .prepare("SELECT COALESCE(titulo, descricao), ano FROM atuacao WHERE COALESCE(titulo, descricao) IS NOT NULL")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)))

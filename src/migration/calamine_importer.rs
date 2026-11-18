@@ -280,9 +280,9 @@ pub fn migrate_workbook(
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
             tx.execute(
-                "INSERT INTO encargos (ano, tipo, identifier, file, folder, descricao, horas, log, path)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                params![ano, tipo, identifier, file, folder, descricao, horas, log, path],
+                "INSERT INTO atuacao (ano, tipo, instituicao, titulo, identifier, file, folder, descricao, horas, log, path)
+                 VALUES (?1, ?2, 'UFSC', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![ano, tipo, descricao, identifier, file, folder, descricao, horas, log, path],
             )?;
             count += 1;
         }
@@ -310,10 +310,11 @@ pub fn migrate_workbook(
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
+            let desc = alunos.map(|a| format!("{} alunos", a)).or_else(|| disciplina.clone());
             tx.execute(
-                "INSERT INTO disciplinas (ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path],
+                "INSERT INTO atuacao (ano, tipo, instituicao, titulo, enquadramento, horas, descricao, identifier, file, folder, log, path)
+                 VALUES (?1, ?2, ?3, ?4, 'Docente', ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![ano, tipo, curso, disciplina, horas, desc, identifier, file, folder, log, path],
             )?;
             count += 1;
         }

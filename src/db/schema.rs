@@ -65,36 +65,6 @@ CREATE TABLE IF NOT EXISTS atuacao (
     url TEXT
 );
 
--- 3. encargos
-CREATE TABLE IF NOT EXISTS encargos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ano INTEGER,
-    tipo TEXT,
-    identifier TEXT,
-    file TEXT,
-    folder TEXT,
-    descricao TEXT,
-    horas INTEGER,
-    log TEXT,
-    path TEXT
-);
-
--- 4. disciplinas
-CREATE TABLE IF NOT EXISTS disciplinas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ano INTEGER,
-    tipo TEXT,
-    curso TEXT,
-    identifier TEXT,
-    file TEXT,
-    folder TEXT,
-    disciplina TEXT,
-    horas INTEGER,
-    alunos INTEGER,
-    log TEXT,
-    path TEXT
-);
-
 -- 5. projetos
 CREATE TABLE IF NOT EXISTS projetos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,8 +152,6 @@ CREATE INDEX IF NOT EXISTS idx_subfolder_group ON subfolder_mappings(category_gr
 CREATE INDEX IF NOT EXISTS idx_dadosgerais_ano ON dadosgerais(ano);
 CREATE INDEX IF NOT EXISTS idx_formacao_ano ON formacao(ano);
 CREATE INDEX IF NOT EXISTS idx_atuacao_ano ON atuacao(ano);
-CREATE INDEX IF NOT EXISTS idx_encargos_ano ON encargos(ano);
-CREATE INDEX IF NOT EXISTS idx_disciplinas_ano ON disciplinas(ano);
 CREATE INDEX IF NOT EXISTS idx_projetos_ano ON projetos(ano);
 CREATE INDEX IF NOT EXISTS idx_producoes_ano ON producoes(ano);
 CREATE INDEX IF NOT EXISTS idx_patentes_ano ON patentes(ano);
@@ -206,8 +174,6 @@ pub const ENTITY_TABLES: &[&str] = &[
     "eventos",
     "orientacoes",
     "bancas",
-    "encargos",
-    "disciplinas",
 ];
 
 pub const DEFAULT_ATUACAO_MAPPINGS: &[(&str, &str)] = &[
@@ -275,8 +241,6 @@ pub const MIGRATIONS: &[&str] = &[
     r#"
 CREATE INDEX IF NOT EXISTS idx_dadosgerais_ano_tipo ON dadosgerais(ano, tipo);
 CREATE INDEX IF NOT EXISTS idx_formacao_ano_tipo ON formacao(ano, tipo);
-CREATE INDEX IF NOT EXISTS idx_encargos_ano_tipo ON encargos(ano, tipo);
-CREATE INDEX IF NOT EXISTS idx_disciplinas_ano_tipo ON disciplinas(ano, tipo);
 CREATE INDEX IF NOT EXISTS idx_projetos_ano_tipo ON projetos(ano, tipo);
 CREATE INDEX IF NOT EXISTS idx_producoes_ano_tipo ON producoes(ano, tipo);
 CREATE INDEX IF NOT EXISTS idx_patentes_ano_tipo ON patentes(ano, tipo);
@@ -288,8 +252,6 @@ CREATE INDEX IF NOT EXISTS idx_bancas_ano_tipo ON bancas(ano, tipo);
     r#"
 ALTER TABLE dadosgerais ADD COLUMN url TEXT;
 ALTER TABLE formacao ADD COLUMN url TEXT;
-ALTER TABLE encargos ADD COLUMN url TEXT;
-ALTER TABLE disciplinas ADD COLUMN url TEXT;
 ALTER TABLE projetos ADD COLUMN url TEXT;
 ALTER TABLE producoes ADD COLUMN url TEXT;
 ALTER TABLE patentes ADD COLUMN url TEXT;
@@ -405,96 +367,12 @@ FROM custom_records WHERE category = 'x_atuacao'
     let _ = conn.execute("DELETE FROM custom_records WHERE category = 'x_atuacao'", []);
     let _ = conn.execute("DELETE FROM custom_categories WHERE key = 'x_atuacao'", []);
 
-    // Reorganiza registros legados de encargos para atuacao sem perda nem duplicidade (tabela encargos é preservada)
-    if let Ok(mut stmt) = conn.prepare("SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM encargos") {
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, Option<i64>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, Option<i64>>(7)?,
-                row.get::<_, Option<String>>(8)?,
-                row.get::<_, Option<String>>(9)?,
-                row.get::<_, Option<String>>(10)?,
-            ))
-        });
-        if let Ok(rows) = rows {
-            for r in rows.flatten() {
-                let (old_id, ano, tipo, ident, file, folder, desc, horas, log, path, url) = r;
-                let exists: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM atuacao WHERE ano IS ?1 AND titulo IS ?2",
-                    rusqlite::params![ano, desc],
-                    |r| r.get(0),
-                ).unwrap_or(0);
-                if exists == 0 {
-                    let _ = conn.execute(
-                        "INSERT INTO atuacao (ano, tipo, instituicao, titulo, horas, identifier, file, folder, log, path, url) VALUES (?1, ?2, 'UFSC', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-                        rusqlite::params![ano, tipo, desc, horas, ident, file, folder, log, path, url],
-                    );
-                    let new_id = conn.last_insert_rowid();
-                    let _ = conn.execute(
-                        "UPDATE record_attachments SET category = 'atuacao', record_id = ?1 WHERE category = 'encargos' AND record_id = ?2",
-                        rusqlite::params![new_id, old_id],
-                    );
-                }
-            }
-        }
-    }
-
-    // Reorganiza registros legados de disciplinas para atuacao sem perda nem duplicidade (tabela disciplinas é preservada)
-    if let Ok(mut stmt) = conn.prepare("SELECT id, ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path, url FROM disciplinas") {
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, Option<i64>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, Option<String>>(7)?,
-                row.get::<_, Option<i64>>(8)?,
-                row.get::<_, Option<i64>>(9)?,
-                row.get::<_, Option<String>>(10)?,
-                row.get::<_, Option<String>>(11)?,
-                row.get::<_, Option<String>>(12)?,
-            ))
-        });
-        if let Ok(rows) = rows {
-            for r in rows.flatten() {
-                let (old_id, ano, tipo, curso, ident, file, folder, disc, horas, alunos, log, path, url) = r;
-                let tipo_str = tipo.map(|t| {
-                    let trimmed = t.trim();
-                    if let Some(rest) = trimmed.strip_prefix("Ensino:") {
-                        rest.trim().to_string()
-                    } else {
-                        trimmed.to_string()
-                    }
-                });
-                let desc = alunos.map(|a| format!("{} alunos", a)).or_else(|| disc.clone());
-                let exists: i64 = conn.query_row(
-                    "SELECT COUNT(*) FROM atuacao WHERE ano IS ?1 AND titulo IS ?2",
-                    rusqlite::params![ano, disc],
-                    |r| r.get(0),
-                ).unwrap_or(0);
-                if exists == 0 {
-                    let _ = conn.execute(
-                        "INSERT INTO atuacao (ano, tipo, instituicao, titulo, enquadramento, horas, descricao, identifier, file, folder, log, path, url) VALUES (?1, ?2, ?3, ?4, 'Docente', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                        rusqlite::params![ano, tipo_str, curso, disc, horas, desc, ident, file, folder, log, path, url],
-                    );
-                    let new_id = conn.last_insert_rowid();
-                    let _ = conn.execute(
-                        "UPDATE record_attachments SET category = 'atuacao', record_id = ?1 WHERE category = 'disciplinas' AND record_id = ?2",
-                        rusqlite::params![new_id, old_id],
-                    );
-                }
-            }
-        }
-    }
+    // Remove todas as tabelas legadas mantendo somente os dados atuais do app
+    let _ = conn.execute_batch(
+        "DROP TABLE IF EXISTS encargos;
+         DROP TABLE IF EXISTS disciplinas;
+         DELETE FROM record_attachments WHERE category IN ('encargos', 'disciplinas');",
+    );
 
     // Remove prefixo legado "Ensino: " de atuacao e subfolder_mappings
     let _ = conn.execute(
