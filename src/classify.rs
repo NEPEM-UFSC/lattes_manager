@@ -330,6 +330,9 @@ fn cues(f: &str, raw: &str) -> HashMap<&'static str, f64> {
     if has("portaria") || has("designar") || has("resolve") {
         add("encargos", 4.0);
     }
+    if has("corpo editorial") || has("editorial board") || has("revisor") || has("reviewer") || has("contrato") || has("termo posse") || has("admissao") || has("vinculo") || has("nomeacao") || has("atuacao profissional") {
+        add("atuacao", 5.0);
+    }
     if has("banca") && (has("examinadora") || has("avaliadora") || has("defesa") || has("membro")) {
         add("bancas", 5.0);
     }
@@ -348,13 +351,24 @@ fn cues(f: &str, raw: &str) -> HashMap<&'static str, f64> {
         add("projetos", 3.5);
     }
     if has("disciplina") && (has("turma") || has("semestre") || has("encargo didatico") || has("plano ensino")) {
+        add("atuacao", 3.5);
         add("disciplinas", 3.5);
     }
     if has("diploma") || has("conferimos grau") || has("confere grau") || has("historico escolar") || (has("grau") && (has("mestre") || has("doutor") || has("bacharel") || has("engenheiro"))) {
         add("formacao", 6.0);
     }
     if has("regencia") || has("encargos didaticos") || (has("ministrou") && has("disciplina")) {
+        add("atuacao", 6.0);
         add("disciplinas", 6.0);
+    }
+    if has("portaria") || has("membro de comissao") || has("colegiado") || has("supervisao") || has("chefia") || has("coordenador de curso") {
+        add("atuacao", 5.0);
+    }
+    if has("inovacao") || has("transferencia de tecnologia") || has("spin-off") || has("incubadora") || has("aceleradora") {
+        add("inovacao", 4.0);
+    }
+    if has("divulgacao cientifica") || has("popularizacao") || has("feira de ciencias") || has("material instrucional") {
+        add("educacao_popularizacao", 4.0);
     }
     if has("premio") || has("mencao honrosa") || has("homenagem") {
         add("dadosgerais", 2.0);

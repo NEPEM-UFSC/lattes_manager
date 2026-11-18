@@ -50,7 +50,8 @@ pub struct DupPair {
 /// Coluna que funciona como "título" em cada tabela.
 pub fn title_col(table: &str) -> &'static str {
     match table {
-        "producoes" | "orientacoes" | "bancas" => "titulo",
+        "producoes" | "orientacoes" | "bancas" | "inovacao" | "educacao_popularizacao" => "titulo",
+        "atuacao" => "instituicao",
         "disciplinas" => "disciplina",
         _ => "descricao",
     }
@@ -305,13 +306,16 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
 
 fn default_cat_folder(cat: &str) -> String {
     match cat {
-        "dados_gerais" => "1_dados_gerais".to_string(),
+        "dados_gerais" | "dadosgerais" => "1_dados_gerais".to_string(),
         "formacao" => "2_formacao".to_string(),
-        "encargos" | "disciplinas" | "atuacao" => "3_atuacao".to_string(),
+        "atuacao" => "3_atuacao".to_string(),
+        "encargos" | "disciplinas" => "3_atuacao".to_string(),
         "projetos" => "4_projetos".to_string(),
         "producoes" => "5_producoes".to_string(),
         "patentes" => "6_patentes".to_string(),
-        "eventos" => "7_eventos".to_string(),
+        "inovacao" => "7_inovacao".to_string(),
+        "educacao_popularizacao" => "8_educacao".to_string(),
+        "eventos" => "9_eventos".to_string(),
         "orientacoes" => "10_orientacoes".to_string(),
         "bancas" => "11_bancas".to_string(),
         other => format!("custom_{}", other),

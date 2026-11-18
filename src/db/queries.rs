@@ -55,6 +55,9 @@ pub fn get_records(
     let mut out: Vec<RecordDto> = match table {
         "dadosgerais" => list_dadosgerais(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
         "formacao" => list_formacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "atuacao" => list_atuacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "inovacao" => list_inovacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "educacao_popularizacao" => list_educacao_popularizacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
         "encargos" => list_encargos(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
         "disciplinas" => list_disciplinas(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
         "projetos" => list_projetos(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
@@ -132,6 +135,115 @@ pub fn list_formacao(
     let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params_slice.as_slice(), FormacaoRecord::from_row)?;
+    rows.collect()
+}
+
+pub fn list_atuacao(
+    conn: &Connection,
+    search: Option<&str>,
+    year: Option<i64>,
+    tipo: Option<&str>,
+) -> Result<Vec<AtuacaoRecord>> {
+    let mut sql = "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url FROM atuacao WHERE 1=1".to_string();
+    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(y) = year {
+        sql.push_str(" AND (ano = ? OR (ano <= ? AND (ano_fim >= ? OR ano_fim IS NULL)))");
+        params_vec.push(Box::new(y));
+        params_vec.push(Box::new(y));
+        params_vec.push(Box::new(y));
+    }
+    if let Some(t) = tipo {
+        sql.push_str(" AND tipo = ?");
+        params_vec.push(Box::new(t.to_string()));
+    }
+    if let Some(s) = search {
+        if !s.trim().is_empty() {
+            sql.push_str(" AND (fold(instituicao) LIKE ? OR fold(titulo) LIKE ? OR fold(enquadramento) LIKE ? OR fold(vinculo) LIKE ? OR fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern));
+        }
+    }
+    sql.push_str(" ORDER BY CASE WHEN ano IS NULL THEN 1 ELSE 0 END, ano DESC, id DESC");
+
+    let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_slice.as_slice(), AtuacaoRecord::from_row)?;
+    rows.collect()
+}
+
+pub fn list_inovacao(
+    conn: &Connection,
+    search: Option<&str>,
+    year: Option<i64>,
+    tipo: Option<&str>,
+) -> Result<Vec<InovacaoRecord>> {
+    let mut sql = "SELECT id, ano, tipo, titulo, instituicao, descricao, identifier, file, folder, log, path, url FROM inovacao WHERE 1=1".to_string();
+    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(y) = year {
+        sql.push_str(" AND ano = ?");
+        params_vec.push(Box::new(y));
+    }
+    if let Some(t) = tipo {
+        sql.push_str(" AND tipo = ?");
+        params_vec.push(Box::new(t.to_string()));
+    }
+    if let Some(s) = search {
+        if !s.trim().is_empty() {
+            sql.push_str(" AND (fold(titulo) LIKE ? OR fold(instituicao) LIKE ? OR fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern));
+        }
+    }
+    sql.push_str(" ORDER BY ano DESC, id DESC");
+
+    let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_slice.as_slice(), InovacaoRecord::from_row)?;
+    rows.collect()
+}
+
+pub fn list_educacao_popularizacao(
+    conn: &Connection,
+    search: Option<&str>,
+    year: Option<i64>,
+    tipo: Option<&str>,
+) -> Result<Vec<EducacaoPopularizacaoRecord>> {
+    let mut sql = "SELECT id, ano, tipo, titulo, instituicao, descricao, identifier, file, folder, log, path, url FROM educacao_popularizacao WHERE 1=1".to_string();
+    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(y) = year {
+        sql.push_str(" AND ano = ?");
+        params_vec.push(Box::new(y));
+    }
+    if let Some(t) = tipo {
+        sql.push_str(" AND tipo = ?");
+        params_vec.push(Box::new(t.to_string()));
+    }
+    if let Some(s) = search {
+        if !s.trim().is_empty() {
+            sql.push_str(" AND (fold(titulo) LIKE ? OR fold(instituicao) LIKE ? OR fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            let pattern = format!("%{}%", crate::db::fold(s.trim()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern.clone()));
+            params_vec.push(Box::new(pattern));
+        }
+    }
+    sql.push_str(" ORDER BY ano DESC, id DESC");
+
+    let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_slice.as_slice(), EducacaoPopularizacaoRecord::from_row)?;
     rows.collect()
 }
 
@@ -515,6 +627,12 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
             )?;
             stmt.query_row([id], FormacaoRecord::from_row).map(Into::into)?
         }
+        "atuacao" => {
+            let mut stmt = conn.prepare(
+                "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url FROM atuacao WHERE id = ?1",
+            )?;
+            stmt.query_row([id], AtuacaoRecord::from_row).map(Into::into)?
+        }
         "encargos" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM encargos WHERE id = ?1",
@@ -544,6 +662,18 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM patentes WHERE id = ?1",
             )?;
             stmt.query_row([id], PatentesRecord::from_row).map(Into::into)?
+        }
+        "inovacao" => {
+            let mut stmt = conn.prepare(
+                "SELECT id, ano, tipo, titulo, instituicao, descricao, identifier, file, folder, log, path, url FROM inovacao WHERE id = ?1",
+            )?;
+            stmt.query_row([id], InovacaoRecord::from_row).map(Into::into)?
+        }
+        "educacao_popularizacao" => {
+            let mut stmt = conn.prepare(
+                "SELECT id, ano, tipo, titulo, instituicao, descricao, identifier, file, folder, log, path, url FROM educacao_popularizacao WHERE id = ?1",
+            )?;
+            stmt.query_row([id], EducacaoPopularizacaoRecord::from_row).map(Into::into)?
         }
         "eventos" => {
             let mut stmt = conn.prepare(
@@ -625,6 +755,21 @@ pub fn insert_record(
                 params![ano, tipo, identifier, file, folder, descricao, horas, log, path],
             )?;
         }
+        "atuacao" => {
+            let instituicao = json_str(data, "instituicao").or_else(|| json_str(data, "titulo"));
+            let titulo = instituicao.clone();
+            let ano_fim = json_i64(data, "ano_fim");
+            let vinculo = json_str(data, "vinculo");
+            let enquadramento = json_str(data, "enquadramento");
+            let horas = json_i64(data, "horas");
+            let dedicacao_exclusiva = json_str(data, "dedicacao_exclusiva");
+            let vinculo_empregaticio = json_str(data, "vinculo_empregaticio");
+            let descricao = json_str(data, "descricao");
+            conn.execute(
+                "INSERT INTO atuacao (ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path],
+            )?;
+        }
         "disciplinas" => {
             let curso = json_str(data, "curso");
             let disciplina = json_str(data, "disciplina");
@@ -633,6 +778,24 @@ pub fn insert_record(
             conn.execute(
                 "INSERT INTO disciplinas (ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path],
+            )?;
+        }
+        "inovacao" => {
+            let titulo = json_str(data, "titulo");
+            let instituicao = json_str(data, "instituicao");
+            let descricao = json_str(data, "descricao");
+            conn.execute(
+                "INSERT INTO inovacao (ano, tipo, identifier, file, folder, titulo, instituicao, descricao, log, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![ano, tipo, identifier, file, folder, titulo, instituicao, descricao, log, path],
+            )?;
+        }
+        "educacao_popularizacao" => {
+            let titulo = json_str(data, "titulo");
+            let instituicao = json_str(data, "instituicao");
+            let descricao = json_str(data, "descricao");
+            conn.execute(
+                "INSERT INTO educacao_popularizacao (ano, tipo, identifier, file, folder, titulo, instituicao, descricao, log, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![ano, tipo, identifier, file, folder, titulo, instituicao, descricao, log, path],
             )?;
         }
         "producoes" => {
@@ -769,6 +932,55 @@ pub fn update_record(
                 params![ano, tipo, identifier, file, folder, descricao, horas, log, path, id],
             )?;
         }
+        "atuacao" => {
+            let instituicao = if data.get("instituicao").is_some() {
+                json_str(data, "instituicao")
+            } else if data.get("titulo").is_some() {
+                json_str(data, "titulo")
+            } else {
+                existing.instituicao.or(existing.titulo)
+            };
+            let titulo = instituicao.clone();
+            let ano_fim = if data.get("ano_fim").is_some() {
+                json_i64(data, "ano_fim")
+            } else {
+                existing.ano_fim
+            };
+            let vinculo = if data.get("vinculo").is_some() {
+                json_str(data, "vinculo")
+            } else {
+                existing.vinculo
+            };
+            let enquadramento = if data.get("enquadramento").is_some() {
+                json_str(data, "enquadramento")
+            } else {
+                existing.enquadramento
+            };
+            let horas = if data.get("horas").is_some() {
+                json_i64(data, "horas")
+            } else {
+                existing.horas
+            };
+            let dedicacao_exclusiva = if data.get("dedicacao_exclusiva").is_some() {
+                json_str(data, "dedicacao_exclusiva")
+            } else {
+                existing.dedicacao_exclusiva
+            };
+            let vinculo_empregaticio = if data.get("vinculo_empregaticio").is_some() {
+                json_str(data, "vinculo_empregaticio")
+            } else {
+                existing.vinculo_empregaticio
+            };
+            let descricao = if data.get("descricao").is_some() {
+                json_str(data, "descricao")
+            } else {
+                existing.descricao
+            };
+            conn.execute(
+                "UPDATE atuacao SET ano = ?1, ano_fim = ?2, tipo = ?3, identifier = ?4, file = ?5, folder = ?6, instituicao = ?7, titulo = ?8, vinculo = ?9, enquadramento = ?10, horas = ?11, dedicacao_exclusiva = ?12, vinculo_empregaticio = ?13, descricao = ?14, log = ?15, path = ?16 WHERE id = ?17",
+                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, id],
+            )?;
+        }
         "disciplinas" => {
             let curso = if data.get("curso").is_some() {
                 json_str(data, "curso")
@@ -793,6 +1005,24 @@ pub fn update_record(
             conn.execute(
                 "UPDATE disciplinas SET ano = ?1, tipo = ?2, curso = ?3, identifier = ?4, file = ?5, folder = ?6, disciplina = ?7, horas = ?8, alunos = ?9, log = ?10, path = ?11 WHERE id = ?12",
                 params![ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path, id],
+            )?;
+        }
+        "inovacao" => {
+            let titulo = if data.get("titulo").is_some() { json_str(data, "titulo") } else { existing.titulo };
+            let instituicao = if data.get("instituicao").is_some() { json_str(data, "instituicao") } else { existing.instituicao };
+            let descricao = if data.get("descricao").is_some() { json_str(data, "descricao") } else { existing.descricao };
+            conn.execute(
+                "UPDATE inovacao SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, titulo = ?6, instituicao = ?7, descricao = ?8, log = ?9, path = ?10 WHERE id = ?11",
+                params![ano, tipo, identifier, file, folder, titulo, instituicao, descricao, log, path, id],
+            )?;
+        }
+        "educacao_popularizacao" => {
+            let titulo = if data.get("titulo").is_some() { json_str(data, "titulo") } else { existing.titulo };
+            let instituicao = if data.get("instituicao").is_some() { json_str(data, "instituicao") } else { existing.instituicao };
+            let descricao = if data.get("descricao").is_some() { json_str(data, "descricao") } else { existing.descricao };
+            conn.execute(
+                "UPDATE educacao_popularizacao SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, titulo = ?6, instituicao = ?7, descricao = ?8, log = ?9, path = ?10 WHERE id = ?11",
+                params![ano, tipo, identifier, file, folder, titulo, instituicao, descricao, log, path, id],
             )?;
         }
         "producoes" => {
@@ -1008,6 +1238,44 @@ pub fn sync_record_attachments(
         let _ = conn.execute(
             "UPDATE custom_records SET file = ?1, path = ?2, folder = ?3 WHERE category = ?4 AND id = ?5",
             params![first_file, first_path, first_folder, category, record_id],
+        );
+    }
+
+    Ok(())
+}
+
+/// Remove do banco de dados anexos redundantes que apontem para caminhos absolutos externos
+/// (ex: Downloads) quando o arquivo já foi copiado para a pasta gerenciada relativa.
+pub fn cleanup_external_attachments(conn: &Connection) -> Result<()> {
+    let _ = conn.execute(
+        "DELETE FROM record_attachments 
+         WHERE (path LIKE '%:\\%' OR path LIKE '%:/%') 
+           AND EXISTS (
+             SELECT 1 FROM record_attachments ra2 
+             WHERE ra2.category = record_attachments.category 
+               AND ra2.record_id = record_attachments.record_id 
+               AND ra2.id != record_attachments.id 
+               AND ra2.path NOT LIKE '%:\\%' 
+               AND ra2.path NOT LIKE '%:/%'
+           )",
+        [],
+    );
+
+    // Corrige linha principal caso tenha ficado com caminho absoluto
+    for cat in &["formacao", "dadosgerais", "atuacao", "encargos", "disciplinas", "projetos", "producoes", "patentes", "eventos", "orientacoes", "bancas"] {
+        let _ = conn.execute(
+            &format!(
+                "UPDATE {cat} SET 
+                   file = (SELECT ra.file FROM record_attachments ra WHERE ra.category = '{cat}' AND ra.record_id = {cat}.id AND ra.path NOT LIKE '%:\\%' AND ra.path NOT LIKE '%:/%' ORDER BY ra.ord ASC, ra.id ASC LIMIT 1),
+                   path = (SELECT ra.path FROM record_attachments ra WHERE ra.category = '{cat}' AND ra.record_id = {cat}.id AND ra.path NOT LIKE '%:\\%' AND ra.path NOT LIKE '%:/%' ORDER BY ra.ord ASC, ra.id ASC LIMIT 1),
+                   folder = (SELECT ra.folder FROM record_attachments ra WHERE ra.category = '{cat}' AND ra.record_id = {cat}.id AND ra.path NOT LIKE '%:\\%' AND ra.path NOT LIKE '%:/%' ORDER BY ra.ord ASC, ra.id ASC LIMIT 1)
+                 WHERE ({cat}.path LIKE '%:\\%' OR {cat}.path LIKE '%:/%')
+                   AND EXISTS (
+                     SELECT 1 FROM record_attachments ra 
+                     WHERE ra.category = '{cat}' AND ra.record_id = {cat}.id AND ra.path NOT LIKE '%:\\%' AND ra.path NOT LIKE '%:/%'
+                   )"
+            ),
+            [],
         );
     }
 

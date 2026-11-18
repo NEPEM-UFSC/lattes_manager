@@ -113,6 +113,123 @@ impl FormacaoRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AtuacaoRecord {
+    pub id: i64,
+    pub ano: Option<i64>,
+    pub ano_fim: Option<i64>,
+    pub tipo: Option<String>,
+    pub identifier: Option<String>,
+    pub file: Option<String>,
+    pub folder: Option<String>,
+    pub instituicao: Option<String>,
+    pub titulo: Option<String>,
+    pub vinculo: Option<String>,
+    pub enquadramento: Option<String>,
+    pub horas: Option<i64>,
+    pub dedicacao_exclusiva: Option<String>,
+    pub vinculo_empregaticio: Option<String>,
+    pub descricao: Option<String>,
+    pub log: Option<String>,
+    pub path: Option<String>,
+    pub url: Option<String>,
+}
+
+impl AtuacaoRecord {
+    pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get("id")?,
+            ano: row.get("ano")?,
+            ano_fim: row.get("ano_fim").unwrap_or(None),
+            tipo: row.get("tipo")?,
+            identifier: row.get("identifier")?,
+            file: row.get("file")?,
+            folder: row.get("folder")?,
+            instituicao: row.get("instituicao").unwrap_or(None),
+            titulo: row.get("titulo").unwrap_or(None),
+            vinculo: row.get("vinculo").unwrap_or(None),
+            enquadramento: row.get("enquadramento").unwrap_or(None),
+            horas: row.get("horas").unwrap_or(None),
+            dedicacao_exclusiva: row.get("dedicacao_exclusiva").unwrap_or(None),
+            vinculo_empregaticio: row.get("vinculo_empregaticio").unwrap_or(None),
+            descricao: row.get("descricao")?,
+            log: row.get("log")?,
+            path: row.get("path")?,
+            url: optional_url(row),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct InovacaoRecord {
+    pub id: i64,
+    pub ano: Option<i64>,
+    pub tipo: Option<String>,
+    pub titulo: Option<String>,
+    pub instituicao: Option<String>,
+    pub descricao: Option<String>,
+    pub identifier: Option<String>,
+    pub file: Option<String>,
+    pub folder: Option<String>,
+    pub log: Option<String>,
+    pub path: Option<String>,
+    pub url: Option<String>,
+}
+
+impl InovacaoRecord {
+    pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get("id")?,
+            ano: row.get("ano")?,
+            tipo: row.get("tipo")?,
+            titulo: row.get("titulo").unwrap_or(None),
+            instituicao: row.get("instituicao").unwrap_or(None),
+            descricao: row.get("descricao")?,
+            identifier: row.get("identifier")?,
+            file: row.get("file")?,
+            folder: row.get("folder")?,
+            log: row.get("log")?,
+            path: row.get("path")?,
+            url: optional_url(row),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct EducacaoPopularizacaoRecord {
+    pub id: i64,
+    pub ano: Option<i64>,
+    pub tipo: Option<String>,
+    pub titulo: Option<String>,
+    pub instituicao: Option<String>,
+    pub descricao: Option<String>,
+    pub identifier: Option<String>,
+    pub file: Option<String>,
+    pub folder: Option<String>,
+    pub log: Option<String>,
+    pub path: Option<String>,
+    pub url: Option<String>,
+}
+
+impl EducacaoPopularizacaoRecord {
+    pub fn from_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            id: row.get("id")?,
+            ano: row.get("ano")?,
+            tipo: row.get("tipo")?,
+            titulo: row.get("titulo").unwrap_or(None),
+            instituicao: row.get("instituicao").unwrap_or(None),
+            descricao: row.get("descricao")?,
+            identifier: row.get("identifier")?,
+            file: row.get("file")?,
+            folder: row.get("folder")?,
+            log: row.get("log")?,
+            path: row.get("path")?,
+            url: optional_url(row),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct EncargosRecord {
     pub id: i64,
     pub ano: Option<i64>,
@@ -397,10 +514,16 @@ pub struct RecordDto {
     pub id: i64,
     pub category: String,
     pub ano: Option<i64>,
+    pub ano_fim: Option<i64>,
     pub tipo: Option<String>,
     pub identifier: Option<String>,
     pub file: Option<String>,
     pub folder: Option<String>,
+    pub instituicao: Option<String>,
+    pub vinculo: Option<String>,
+    pub enquadramento: Option<String>,
+    pub dedicacao_exclusiva: Option<String>,
+    pub vinculo_empregaticio: Option<String>,
     pub descricao: Option<String>,
     pub horas: Option<i64>,
     pub curso: Option<String>,
@@ -432,6 +555,76 @@ impl From<DadosGeraisRecord> for RecordDto {
             file: r.file,
             folder: r.folder,
             descricao: r.descricao,
+            log: r.log,
+            path: r.path,
+            url: r.url,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<AtuacaoRecord> for RecordDto {
+    fn from(r: AtuacaoRecord) -> Self {
+        let inst = r.instituicao.or(r.titulo);
+        Self {
+            id: r.id,
+            category: "atuacao".to_string(),
+            ano: r.ano,
+            ano_fim: r.ano_fim,
+            tipo: r.tipo,
+            identifier: r.identifier,
+            file: r.file,
+            folder: r.folder,
+            instituicao: inst.clone(),
+            titulo: inst,
+            vinculo: r.vinculo,
+            enquadramento: r.enquadramento,
+            dedicacao_exclusiva: r.dedicacao_exclusiva,
+            vinculo_empregaticio: r.vinculo_empregaticio,
+            descricao: r.descricao,
+            horas: r.horas,
+            log: r.log,
+            path: r.path,
+            url: r.url,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<InovacaoRecord> for RecordDto {
+    fn from(r: InovacaoRecord) -> Self {
+        Self {
+            id: r.id,
+            category: "inovacao".to_string(),
+            ano: r.ano,
+            tipo: r.tipo,
+            titulo: r.titulo,
+            instituicao: r.instituicao,
+            descricao: r.descricao,
+            identifier: r.identifier,
+            file: r.file,
+            folder: r.folder,
+            log: r.log,
+            path: r.path,
+            url: r.url,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<EducacaoPopularizacaoRecord> for RecordDto {
+    fn from(r: EducacaoPopularizacaoRecord) -> Self {
+        Self {
+            id: r.id,
+            category: "educacao_popularizacao".to_string(),
+            ano: r.ano,
+            tipo: r.tipo,
+            titulo: r.titulo,
+            instituicao: r.instituicao,
+            descricao: r.descricao,
+            identifier: r.identifier,
+            file: r.file,
+            folder: r.folder,
             log: r.log,
             path: r.path,
             url: r.url,

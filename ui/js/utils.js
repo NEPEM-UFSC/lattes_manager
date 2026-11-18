@@ -189,6 +189,43 @@ export const DEFAULT_DADOS_GERAIS_MAPPINGS = [
   { description: "Outras informações relevantes", folder: "1_dados_gerais\\outras_informacoes\\" },
 ];
 
+/** Subcategorias padrão do menu "Atuação" do Lattes (garantidas no seed automático). */
+export const DEFAULT_ATUACAO_MAPPINGS = [
+  { description: "Atuação profissional", folder: "3_atuacao\\atuacao_profissional\\" },
+  { description: "Linhas de pesquisa", folder: "3_atuacao\\linhas_de_pesquisa\\" },
+  { description: "Membro de corpo editorial", folder: "3_atuacao\\membro_de_corpo_editorial\\" },
+  { description: "Membro de comitê de assessoramento", folder: "3_atuacao\\membro_de_comite_de_assessoramento\\" },
+  { description: "Revisor de periódico", folder: "3_atuacao\\revisor_de_periodico\\" },
+  { description: "Revisor de projeto de agência de fomento", folder: "3_atuacao\\revisor_de_projeto_de_agencia_de_fomento\\" },
+  { description: "Áreas de atuação", folder: "3_atuacao\\areas_de_atuacao\\" },
+  { description: "Comissão", folder: "3_atuacao\\atuacao_profissional\\comissão\\" },
+  { description: "Supervisão", folder: "3_atuacao\\atuacao_profissional\\supervisão\\" },
+  { description: "Coordenação", folder: "3_atuacao\\atuacao_profissional\\coordenação\\" },
+  { description: "Chefia", folder: "3_atuacao\\atuacao_profissional\\chefia\\" },
+  { description: "Direção", folder: "3_atuacao\\atuacao_profissional\\direção\\" },
+  { description: "Encargos Graduação", folder: "3_atuacao\\atuacao_profissional\\encargos_graduação\\" },
+  { description: "Encargos Pós-Graduação", folder: "3_atuacao\\atuacao_profissional\\encargos_pós\\" },
+];
+
+export const DEFAULT_INOVACAO_MAPPINGS = [
+  { description: "Projetos de inovação", folder: "7_inovacao\\projetos_de_inovacao\\" },
+  { description: "Produtos tecnológicos", folder: "7_inovacao\\produtos_tecnologicos\\" },
+  { description: "Processos ou técnicas", folder: "7_inovacao\\processos_ou_tecnicas\\" },
+  { description: "Transferência de tecnologia", folder: "7_inovacao\\transferencia_de_tecnologia\\" },
+  { description: "Spin-offs e startups", folder: "7_inovacao\\spin_offs_e_startups\\" },
+  { description: "Outras produções de inovação", folder: "7_inovacao\\outras_inovacoes\\" },
+];
+
+export const DEFAULT_EDUCACAO_MAPPINGS = [
+  { description: "Artigos de divulgação científica", folder: "8_educacao\\divulgacao_cientifica\\" },
+  { description: "Livros e capítulos de divulgação", folder: "8_educacao\\livros_divulgacao\\" },
+  { description: "Material didático ou instrucional", folder: "8_educacao\\material_didatico\\" },
+  { description: "Mídias sociais, websites e blogs", folder: "8_educacao\\midias_sociais_e_websites\\" },
+  { description: "Cursos de curta duração ministrados", folder: "8_educacao\\cursos_de_extensao\\" },
+  { description: "Eventos de popularização de C&T", folder: "8_educacao\\eventos_de_popularizacao\\" },
+  { description: "Outras produções de divulgação", folder: "8_educacao\\outras_producoes\\" },
+];
+
 export const CATEGORY_SCHEMAS = {
   dadosgerais: {
     name: "Dados Gerais",
@@ -234,7 +271,38 @@ export const CATEGORY_SCHEMAS = {
     ],
   },
 
+  atuacao: {
+    name: "Atuação Profissional",
+    subtitle: "Vínculos institucionais, linhas de pesquisa, corpo editorial, comitês, ensino e encargos",
+    group: "Atuação",
+    icon: "💼",
+    folder: "3_atuacao",
+    columns: [
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Período", width: "1%", render: (r) => r.ano_fim ? `${r.ano || "—"}–${r.ano_fim}` : (r.ano ? `${r.ano}–Atual` : "—") },
+      { key: "tipo", label: "Subcategoria", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
+      { key: "instituicao", label: "Instituição / Revista / Empresa", render: (r) => `<strong>${escapeHtml(r.instituicao || r.titulo || "—")}</strong>` },
+      { key: "enquadramento", label: "Vínculo / Cargo", width: "16%", render: (r) => escapeHtml([r.vinculo, r.enquadramento].filter(Boolean).join(" · ") || "—") },
+      { key: "horas", label: "Horas", width: "1%", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h/sem</span>` : "—" },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
+    ],
+    fields: [
+      { name: "tipo", label: "Subcategoria / Tipo de Atuação", type: "tipo_select", required: true, width: "half" },
+      { name: "instituicao", label: "Nome da Instituição / Revista / Empresa", type: "text", required: true, placeholder: "Ex: Universidade Federal de Santa Catarina (UFSC) ou Revista Ciência Rural", width: "half" },
+      { name: "ano", label: "Ano de Início", type: "number", required: false, placeholder: "Ex: 2021", width: "half" },
+      { name: "ano_fim", label: "Ano de Fim / Término", type: "number", required: false, placeholder: "Ex: 2025 (deixe em branco se atual)", width: "half" },
+      { name: "vinculo", label: "Tipo do Vínculo", type: "text", required: false, placeholder: "Ex: Servidor Público, Celetista, Bolsista, Colaborador...", width: "half" },
+      { name: "enquadramento", label: "Enquadramento Funcional / Cargo", type: "text", required: false, placeholder: "Ex: Professor Adjunto, Editor Associado, Revisor...", width: "half" },
+      { name: "horas", label: "Carga Horária Semanal (horas)", type: "number", required: false, placeholder: "Ex: 40", width: "half" },
+      { name: "dedicacao_exclusiva", label: "Dedicação Exclusiva", type: "select", options: ["", "Sim", "Não"], required: false, width: "half" },
+      { name: "vinculo_empregaticio", label: "Possui Vínculo Empregatício", type: "select", options: ["", "Sim", "Não"], required: false, width: "half" },
+      { name: "descricao", label: "Outras Informações / Descrição", type: "textarea", required: false, placeholder: "Linhas de pesquisa, projetos associados ou detalhes da atuação...", width: "full" },
+    ],
+  },
+
   encargos: {
+    legacy: true,
     name: "Encargos e Funções",
     subtitle: "Cargos de gestão, representações de colegiado e comissões institucionais",
     group: "Encargos",
@@ -258,6 +326,7 @@ export const CATEGORY_SCHEMAS = {
   },
 
   disciplinas: {
+    legacy: true,
     name: "Disciplinas Ministradas",
     subtitle: "Cursos de graduação e pós-graduação, turmas e cargas horárias",
     group: "Disciplinas",
@@ -358,6 +427,54 @@ export const CATEGORY_SCHEMAS = {
       { name: "ano", label: "Ano do Registro", type: "number", required: true, placeholder: "2024", width: "half" },
       { name: "tipo", label: "Tipo de Registro", type: "tipo_select", required: true, width: "half" },
       { name: "descricao", label: "Título e Detalhes da Patente / Software", type: "textarea", required: true, placeholder: "Ex: Sistema Embarcado para Diagnóstico Remoto", width: "full" },
+    ],
+  },
+
+  inovacao: {
+    name: "Inovação",
+    subtitle: "Projetos de desenvolvimento tecnológico, produtos, processos inovadores, transferência de tecnologia e spin-offs",
+    group: "Inovação",
+    icon: "🚀",
+    folder: "7_inovacao",
+    columns: [
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Tipo", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
+      { key: "titulo", label: "Título da Tecnologia / Projeto", render: (r) => `<strong>${escapeHtml(r.titulo || "—")}</strong>` },
+      { key: "instituicao", label: "Parceiro / Entidade", width: "16%", render: (r) => escapeHtml(r.instituicao || "—") },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
+    ],
+    fields: [
+      { name: "ano", label: "Ano de Concessão / Início", type: "number", required: true, placeholder: "2024", width: "half" },
+      { name: "tipo", label: "Subcategoria de Inovação", type: "tipo_select", required: true, width: "half" },
+      { name: "titulo", label: "Título do Projeto / Produto / Processo", type: "textarea", required: true, placeholder: "Ex: Plataforma Autônoma de Fenotipagem Digital", width: "full" },
+      { name: "instituicao", label: "Instituição / Empresa Parceira / Financiador", type: "text", required: false, placeholder: "Ex: FAPESC / EMBRAPA", width: "full" },
+      { name: "descricao", label: "Descrição / Impacto Tecnológico", type: "textarea", required: false, placeholder: "Resumo da solução inovadora, estágio de maturidade (TRL), patente associada ou transferência...", width: "full" },
+    ],
+  },
+
+  educacao_popularizacao: {
+    name: "Educação e Popularização de C&T",
+    subtitle: "Divulgação científica, material didático e instrucional, mídias sociais, cursos de extensão e eventos",
+    group: "Educação e Popularização de C&T",
+    icon: "📢",
+    folder: "8_educacao",
+    columns: [
+      { key: "id", label: "#", width: "1%", render: (r) => r.id },
+      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "tipo", label: "Subcategoria", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
+      { key: "titulo", label: "Título do Trabalho / Ação", render: (r) => `<strong>${escapeHtml(r.titulo || "—")}</strong>` },
+      { key: "instituicao", label: "Veículo / Canal / Evento", width: "16%", render: (r) => escapeHtml(r.instituicao || "—") },
+      { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
+      { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
+    ],
+    fields: [
+      { name: "ano", label: "Ano de Publicação / Realização", type: "number", required: true, placeholder: "2024", width: "half" },
+      { name: "tipo", label: "Tipo de Ação / Divulgação", type: "tipo_select", required: true, width: "half" },
+      { name: "titulo", label: "Título do Trabalho / Material / Ação", type: "textarea", required: true, placeholder: "Ex: Inteligência Artificial na Agricultura para Estudantes", width: "full" },
+      { name: "instituicao", label: "Veículo / Instituição / Canal de Divulgação", type: "text", required: false, placeholder: "Ex: Revista Ciência Hoje ou Canal YouTube NEPEM", width: "full" },
+      { name: "descricao", label: "Descrição / Detalhes / Público-Alvo", type: "textarea", required: false, placeholder: "Detalhes da ação de divulgação, alcance ou público atendido...", width: "full" },
     ],
   },
 
@@ -583,17 +700,36 @@ export function displayGroupLabel(rawGroup) {
 
 applyCategoryOverrides();
 
-export const DEFAULT_CATEGORY_ORDER = Object.keys(CATEGORY_SCHEMAS);
+export const DEFAULT_CATEGORY_ORDER = [
+  "dadosgerais",
+  "formacao",
+  "atuacao",
+  "projetos",
+  "producoes",
+  "patentes",
+  "inovacao",
+  "educacao_popularizacao",
+  "eventos",
+  "orientacoes",
+  "bancas",
+];
 const CATEGORY_ORDER_STORAGE_KEY = "lattes_category_order_v1";
 
 export function readSavedCategoryOrder() {
   try {
     const raw = localStorage.getItem(CATEGORY_ORDER_STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) return DEFAULT_CATEGORY_ORDER;
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((k) => typeof k === "string" && k) : null;
+    if (!Array.isArray(parsed)) return DEFAULT_CATEGORY_ORDER;
+    const mapped = parsed
+      .map((k) => (k === "x_atuacao" ? "atuacao" : k))
+      .filter((k) => typeof k === "string" && CATEGORY_SCHEMAS[k] && !CATEGORY_SCHEMAS[k]?.legacy);
+    for (const def of DEFAULT_CATEGORY_ORDER) {
+      if (!mapped.includes(def) && CATEGORY_SCHEMAS[def]) mapped.push(def);
+    }
+    return mapped;
   } catch {
-    return null;
+    return DEFAULT_CATEGORY_ORDER;
   }
 }
 
@@ -619,14 +755,17 @@ export function applyCategoryOrder(orderKeys = null) {
     }
   }
   for (const k of existing) {
-    if (!seen.has(k)) {
+    if (!seen.has(k) && !CATEGORY_SCHEMAS[k]?.legacy) {
       seen.add(k);
       finalOrder.push(k);
     }
   }
   const snapshot = {};
   for (const k of finalOrder) snapshot[k] = CATEGORY_SCHEMAS[k];
-  for (const k of existing) delete CATEGORY_SCHEMAS[k];
+  for (const k of existing) {
+    if (!snapshot[k]) snapshot[k] = CATEGORY_SCHEMAS[k];
+    delete CATEGORY_SCHEMAS[k];
+  }
   Object.assign(CATEGORY_SCHEMAS, snapshot);
   return finalOrder;
 }
@@ -642,10 +781,13 @@ export function categoryColor(cat, palette = {}) {
 const ACTIVITY_ORDER = {
   producoes: [/artigos? (completos?|publicados?)/, /artigos? aceitos?/, /^livros?\b|livros? (publicados?|organizados?)/, /capitulos?/, /textos? em jornais|jornais|revistas/, /trabalhos? completos?/, /resumos? completos?/, /resumos? expandidos?/, /resumos?/, /apresenta|trabalhos?\s*\/\s*palestras?|palestras?/, /cursos?/, /material didatico|didatico/, /midias?|blog/, /radio|tv|televis/, /artigo/],
   formacao: [/formacao academica|titulacao/, /pos-?doutorado/, /doutorado/, /mestrado/, /especializa|mba/, /graduacao/, /aperfeicoamento/, /extensao/, /curta duracao/],
+  atuacao: [/atuacao profissional|vinculo/, /ensino|disciplina/, /direcao|diretor/, /chefia|chefe/, /coordenacao|coordenador/, /supervisao/, /comissao|comite/, /corpo editorial|editorial/, /linha de pesquisa/, /revisor/],
   encargos: [/direcao|diretor/, /chefia|chefe/, /coordenacao|coordenador/, /supervisao/, /comissao|comite|colegiado/, /pesquisa/, /extensao/, /diversos/],
   disciplinas: [/^(?!.*pos).*graduacao/, /pos/],
   projetos: [/pesquisa/, /extensao/, /ensino/, /desenvolvimento/],
   patentes: [/patente/, /programas? de computador|software/, /cultivar protegida/, /cultivar registrada|cultivar/],
+  inovacao: [/projeto|inovacao/, /produto/, /processo|tecnica/, /transferencia/, /spin-off|startup/],
+  educacao_popularizacao: [/artigo|divulgacao/, /livro|capitulo/, /material didatico|instrucional/, /midia|website|blog|rede social/, /curso|extensao/, /evento|feira/],
   eventos: [/participacao/, /organizacao/],
   orientacoes: [/pos-?doutorado/, /tese|doutorado/, /dissertacao|mestrado/, /especializa/, /conclusao de curso|tcc|graduacao/, /iniciacao cientifica|\bic\b/, /outra natureza/, /monitoria/, /estagio/],
   bancas: [/qualificacao de doutorado/, /doutorado/, /qualificacao de mestrado/, /mestrado/, /especializa/, /graduacao|conclusao de curso|tcc/, /estagio/, /concurso/],

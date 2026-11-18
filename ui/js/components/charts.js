@@ -6,14 +6,17 @@ import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 export const PALETTE = {
   dadosgerais: "#94a3b8",
   formacao: "#8b5cf6",
-  encargos: "#f59e0b",
-  disciplinas: "#06b6d4",
+  atuacao: "#0284c7",
   projetos: "#10b981",
   producoes: "#6366f1",
   patentes: "#ec4899",
+  inovacao: "#f59e0b",
+  educacao_popularizacao: "#06b6d4",
   eventos: "#f97316",
   orientacoes: "#22c55e",
   bancas: "#3b82f6",
+  encargos: "#d97706",
+  disciplinas: "#0891b2",
 };
 const SERIES = ["#6366f1", "#06b6d4", "#f59e0b", "#ec4899", "#10b981", "#8b5cf6", "#f97316", "#3b82f6", "#ef4444", "#14b8a6", "#a855f7", "#84cc16"];
 const QUALIS_ORDER = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"];

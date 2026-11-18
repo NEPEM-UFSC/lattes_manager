@@ -636,9 +636,15 @@
   transition: all var(--transition-fast);
 }
 
-.file-dropzone:hover {
-  border-color: var(--primary);
-  background-color: var(--primary-light);
+.file-dropzone:hover,
+.file-dropzone.drag-over {
+  border-color: var(--primary) !important;
+  background-color: var(--primary-light, rgba(99, 102, 241, 0.12)) !important;
+}
+
+.file-dropzone.drag-over {
+  transform: scale(1.008);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
 }
 
 .file-unselected {

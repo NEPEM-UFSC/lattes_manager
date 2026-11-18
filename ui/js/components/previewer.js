@@ -34,6 +34,7 @@ export class Previewer {
   bindEvents() {
     document.getElementById("btn-close-drawer").addEventListener("click", () => this.close());
     this.backdrop.addEventListener("click", () => this.close());
+    document.getElementById("btn-drawer-save")?.addEventListener("click", () => this.saveCurrentFile());
     document.getElementById("btn-drawer-open-system").addEventListener("click", () => this.openInSystem());
     document.getElementById("btn-drawer-reveal").addEventListener("click", () => this.revealInExplorer());
     document.getElementById("btn-drawer-expand").addEventListener("click", () => this.toggleExpanded());
@@ -152,13 +153,23 @@ export class Previewer {
     if (fill && pct != null) fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
   }
 
-  /** Mostra um PDF a partir dos bytes (blob: URL em memória — nenhum arquivo é gravado). */
+  /** Mostra um PDF a partir dos bytes (usa blob URL para download limpo e armazena os bytes para salvar direto). */
   openPdfBytes(bytes, title, subtitle = "", options = null) {
     this.releaseBlob();
     this.pendingToken = null;
     this.previewModeOptions = options;
+    this.currentBytes = bytes;
+    // Usamos Blob URL para que o visualizador interno do WebView2
+    // NÃO receba a URL "http://asset.localhost/C:/Users/..." que faz o navegador sugerir o nome
+    // com caminho completo C_Users_tiago_AppData_...
     this.blobUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    this.list = [{ id: "__blob", blobUrl: this.blobUrl, file: title, subtitle }];
+    this.list = [{
+      id: "__blob",
+      blobUrl: this.blobUrl,
+      absPath: options?.absPath || null,
+      file: title,
+      subtitle,
+    }];
     this.index = 0;
     this.show();
   }
@@ -168,12 +179,14 @@ export class Previewer {
     this.blobUrl = null;
   }
 
-  /** 📂 e ↗ só fazem sentido para arquivos em disco. */
+  /** 📂 e ↗ só fazem sentido para arquivos em disco. 💾 funciona com bytes em memória ou arquivo. */
   setFileActions(on) {
     for (const id of ["btn-drawer-reveal", "btn-drawer-open-system"]) {
       const b = document.getElementById(id);
       if (b) b.disabled = !on;
     }
+    const bSave = document.getElementById("btn-drawer-save");
+    if (bSave) bSave.disabled = !on;
   }
 
   step(d) {
@@ -287,13 +300,53 @@ export class Previewer {
   }
 
   showBlob(rec) {
-    this.current = null;
+    this.current = { absPath: rec.absPath || null, name: rec.file };
     this.filenameEl.textContent = rec.file;
     this.filepathEl.textContent = rec.subtitle || "";
-    this.filepathEl.title = "";
+    this.filepathEl.title = rec.absPath || "";
     this.counterEl.textContent = "1 / 1";
     this.btnPrev.disabled = this.btnNext.disabled = true;
-    this.setFileActions(false);
+    this.setFileActions(true);
+
+    if (this.attTabsEl) {
+      if (this.previewModeOptions) {
+        const firstOnly = Boolean(this.previewModeOptions.firstPageOnly);
+        const compress = Boolean(this.previewModeOptions.compress);
+        this.attTabsEl.style.display = "flex";
+        this.attTabsEl.innerHTML = `
+          <span style="font-size:11px; font-weight:600; color:var(--text-muted); margin-right:4px;">Páginas:</span>
+          <button type="button" class="btn btn-xs ${!firstOnly ? "btn-primary" : "btn-secondary"}" data-preview-mode="full" style="font-size:11px; padding:3px 9px; border-radius:12px;">📚 Inteiro</button>
+          <button type="button" class="btn btn-xs ${firstOnly ? "btn-primary" : "btn-secondary"}" data-preview-mode="first" style="font-size:11px; padding:3px 9px; border-radius:12px;">📄 1ª pág.</button>
+          <span style="width:1px; height:16px; background:var(--border-color); margin:0 4px;"></span>
+          <span style="font-size:11px; font-weight:600; color:var(--text-muted); margin-right:4px;">Qualidade:</span>
+          <button type="button" class="btn btn-xs ${!compress ? "btn-primary" : "btn-secondary"}" data-preview-qual="high" style="font-size:11px; padding:3px 9px; border-radius:12px;">💎 Máxima</button>
+          <button type="button" class="btn btn-xs ${compress ? "btn-primary" : "btn-secondary"}" data-preview-qual="compact" style="font-size:11px; padding:3px 9px; border-radius:12px;">🗜️ Compactado</button>
+        `;
+        this.attTabsEl.querySelectorAll("[data-preview-mode]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const wantFirst = btn.dataset.previewMode === "first";
+            if (wantFirst !== firstOnly && this.previewModeOptions?.onToggle) {
+              this.previewModeOptions.onToggle({ firstPageOnly: wantFirst, compress });
+            }
+          });
+        });
+        this.attTabsEl.querySelectorAll("[data-preview-qual]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const wantCompress = btn.dataset.previewQual === "compact";
+            if (wantCompress !== compress && this.previewModeOptions?.onToggle) {
+              this.previewModeOptions.onToggle({ firstPageOnly: firstOnly, compress: wantCompress });
+            }
+          });
+        });
+      } else {
+        this.attTabsEl.style.display = "none";
+        this.attTabsEl.innerHTML = "";
+      }
+    }
+
+    if (this._origTitle == null) this._origTitle = document.title;
+    document.title = rec.file.replace(/\.pdf$/i, "");
+
     this.drawer.classList.add("open");
     this.backdrop.classList.toggle("on", this.drawer.classList.contains("expanded"));
     this.syncDock();
@@ -406,6 +459,11 @@ export class Previewer {
   close() {
     this.drawer.classList.remove("open", "expanded");
     this.backdrop.classList.remove("on");
+    if (this._origTitle != null) {
+      document.title = this._origTitle;
+      this._origTitle = null;
+    }
+    this.currentBytes = null;
     if (this.attTabsEl) {
       this.attTabsEl.style.display = "none";
       this.attTabsEl.innerHTML = "";
@@ -416,6 +474,26 @@ export class Previewer {
     this.pendingToken = null;
     this.releaseBlob();
     this.setFileActions(true);
+  }
+
+  async saveCurrentFile() {
+    try {
+      const suggestedName = (this.current?.name || this.filenameEl?.textContent || "preview_comprovantes.pdf").trim();
+      const chosenPath = await api.selectSavePath(suggestedName, "pdf");
+      if (!chosenPath) return;
+
+      if (this.currentBytes) {
+        await api.writeReport(this.currentBytes);
+      } else if (this.current?.absPath) {
+        const bytes = await api.readFileBytes(this.current.absPath);
+        await api.writeReport(bytes);
+      } else {
+        throw new Error("Conteúdo do arquivo não disponível");
+      }
+      showToast(`PDF salvo com sucesso!`, "success", 4000);
+    } catch (e) {
+      showToast(`Erro ao salvar PDF: ${e?.message || e}`, "error", 5000);
+    }
   }
 
   async openInSystem() {

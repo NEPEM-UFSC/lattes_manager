@@ -21,14 +21,17 @@ const CATEGORY_ORDER = [
 const CATEGORY_FALLBACK = {
   dadosgerais: "Dados gerais",
   formacao: "Formação",
-  encargos: "Encargos",
-  disciplinas: "Disciplinas",
+  atuacao: "Atuação",
   projetos: "Projetos",
   producoes: "Produções",
   patentes: "Patentes",
+  inovacao: "Inovação",
+  educacao_popularizacao: "Educação e Popularização de C&T",
   eventos: "Eventos",
   orientacoes: "Orientações",
   bancas: "Bancas",
+  encargos: "Encargos",
+  disciplinas: "Disciplinas",
 };
 
 function categoryLabel(cat) {

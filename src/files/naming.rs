@@ -173,7 +173,7 @@ pub fn record_base_name(category: &str, rec: &serde_json::Value) -> Option<Strin
                 None => d,
             }
         }
-        _ => g("titulo").or_else(|| g("descricao")).or_else(|| g("tipo"))?,
+        _ => g("instituicao").or_else(|| g("titulo")).or_else(|| g("descricao")).or_else(|| g("tipo"))?,
     };
     let s = slugify(&text, 60);
     (s.len() >= 3).then_some(s)

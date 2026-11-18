@@ -7,7 +7,21 @@ import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 import { PALETTE } from "./charts.js";
 
 const IMG = /\.(png|jpe?g|webp|bmp|gif|tiff?)$/i;
-const ICONS = { dadosgerais: "👤", formacao: "🎓", encargos: "🏛️", disciplinas: "📚", projetos: "🔬", producoes: "📄", patentes: "💡", eventos: "🎙️", orientacoes: "👥", bancas: "⚖️" };
+const ICONS = {
+  dadosgerais: "👤",
+  formacao: "🎓",
+  atuacao: "💼",
+  projetos: "🔬",
+  producoes: "📄",
+  patentes: "💡",
+  inovacao: "🚀",
+  educacao_popularizacao: "📢",
+  eventos: "🎙️",
+  orientacoes: "👥",
+  bancas: "⚖️",
+  encargos: "🏛️",
+  disciplinas: "📚",
+};
 
 // ---------- OCR (tesseract.js empacotado, offline) ----------
 let ocrWorker = null;

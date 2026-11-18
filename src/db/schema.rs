@@ -43,6 +43,28 @@ CREATE TABLE IF NOT EXISTS formacao (
     path TEXT
 );
 
+-- 2.1 atuacao (Atuação Profissional)
+CREATE TABLE IF NOT EXISTS atuacao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ano INTEGER,
+    ano_fim INTEGER,
+    tipo TEXT,
+    instituicao TEXT,
+    titulo TEXT,
+    vinculo TEXT,
+    enquadramento TEXT,
+    horas INTEGER,
+    dedicacao_exclusiva TEXT,
+    vinculo_empregaticio TEXT,
+    descricao TEXT,
+    identifier TEXT,
+    file TEXT,
+    folder TEXT,
+    log TEXT,
+    path TEXT,
+    url TEXT
+);
+
 -- 3. encargos
 CREATE TABLE IF NOT EXISTS encargos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,6 +181,7 @@ CREATE TABLE IF NOT EXISTS bancas (
 CREATE INDEX IF NOT EXISTS idx_subfolder_group ON subfolder_mappings(category_group);
 CREATE INDEX IF NOT EXISTS idx_dadosgerais_ano ON dadosgerais(ano);
 CREATE INDEX IF NOT EXISTS idx_formacao_ano ON formacao(ano);
+CREATE INDEX IF NOT EXISTS idx_atuacao_ano ON atuacao(ano);
 CREATE INDEX IF NOT EXISTS idx_encargos_ano ON encargos(ano);
 CREATE INDEX IF NOT EXISTS idx_disciplinas_ano ON disciplinas(ano);
 CREATE INDEX IF NOT EXISTS idx_projetos_ano ON projetos(ano);
@@ -174,14 +197,53 @@ pub const CREATE_TABLES_SQL: &str = SCHEMA_SQL;
 pub const ENTITY_TABLES: &[&str] = &[
     "dadosgerais",
     "formacao",
-    "encargos",
-    "disciplinas",
+    "atuacao",
     "projetos",
     "producoes",
     "patentes",
+    "inovacao",
+    "educacao_popularizacao",
     "eventos",
     "orientacoes",
     "bancas",
+    "encargos",
+    "disciplinas",
+];
+
+pub const DEFAULT_ATUACAO_MAPPINGS: &[(&str, &str)] = &[
+    ("Atuação profissional", r"3_atuacao\atuacao_profissional\"),
+    ("Linhas de pesquisa", r"3_atuacao\linhas_de_pesquisa\"),
+    ("Membro de corpo editorial", r"3_atuacao\membro_de_corpo_editorial\"),
+    ("Membro de comitê de assessoramento", r"3_atuacao\membro_de_comite_de_assessoramento\"),
+    ("Revisor de periódico", r"3_atuacao\revisor_de_periodico\"),
+    ("Revisor de projeto de agência de fomento", r"3_atuacao\revisor_de_projeto_de_agencia_de_fomento\"),
+    ("Áreas de atuação", r"3_atuacao\areas_de_atuacao\"),
+    ("Comissão", r"3_atuacao\atuacao_profissional\comissão\"),
+    ("Supervisão", r"3_atuacao\atuacao_profissional\supervisão\"),
+    ("Coordenação", r"3_atuacao\atuacao_profissional\coordenação\"),
+    ("Chefia", r"3_atuacao\atuacao_profissional\chefia\"),
+    ("Direção", r"3_atuacao\atuacao_profissional\direção\"),
+    ("Encargos Graduação", r"3_atuacao\atuacao_profissional\encargos_graduação\"),
+    ("Encargos Pós-Graduação", r"3_atuacao\atuacao_profissional\encargos_pós\"),
+];
+
+pub const DEFAULT_INOVACAO_MAPPINGS: &[(&str, &str)] = &[
+    ("Projetos de inovação", r"7_inovacao\projetos_de_inovacao\"),
+    ("Produtos tecnológicos", r"7_inovacao\produtos_tecnologicos\"),
+    ("Processos ou técnicas", r"7_inovacao\processos_ou_tecnicas\"),
+    ("Transferência de tecnologia", r"7_inovacao\transferencia_de_tecnologia\"),
+    ("Spin-offs e startups", r"7_inovacao\spin_offs_e_startups\"),
+    ("Outras produções de inovação", r"7_inovacao\outras_inovacoes\"),
+];
+
+pub const DEFAULT_EDUCACAO_MAPPINGS: &[(&str, &str)] = &[
+    ("Artigos de divulgação científica", r"8_educacao\divulgacao_cientifica\"),
+    ("Livros e capítulos de divulgação", r"8_educacao\livros_divulgacao\"),
+    ("Material didático ou instrucional", r"8_educacao\material_didatico\"),
+    ("Mídias sociais, websites e blogs", r"8_educacao\midias_sociais_e_websites\"),
+    ("Cursos de curta duração ministrados", r"8_educacao\cursos_de_extensao\"),
+    ("Eventos de popularização de C&T", r"8_educacao\eventos_de_popularizacao\"),
+    ("Outras produções de divulgação", r"8_educacao\outras_producoes\"),
 ];
 
 pub fn normalize_category(category: &str) -> Option<&'static str> {
@@ -189,14 +251,17 @@ pub fn normalize_category(category: &str) -> Option<&'static str> {
     match lower.as_str() {
         "dadosgerais" | "dados_gerais" | "dados gerais" => Some("dadosgerais"),
         "formacao" | "formação" => Some("formacao"),
-        "encargos" => Some("encargos"),
-        "disciplinas" => Some("disciplinas"),
+        "atuacao" | "atuação" | "x_atuacao" => Some("atuacao"),
         "projetos" => Some("projetos"),
         "producoes" | "produções" => Some("producoes"),
         "patentes" => Some("patentes"),
+        "inovacao" | "inovação" => Some("inovacao"),
+        "educacao_popularizacao" | "educacao" | "educação" | "educação e popularização de c&t" | "educação e popularização" | "popularizacao" => Some("educacao_popularizacao"),
         "eventos" => Some("eventos"),
         "orientacoes" | "orientações" => Some("orientacoes"),
         "bancas" => Some("bancas"),
+        "encargos" => Some("encargos"),
+        "disciplinas" => Some("disciplinas"),
         _ => None,
     }
 }
@@ -252,6 +317,67 @@ CREATE TABLE IF NOT EXISTS record_attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_record_attachments_lookup ON record_attachments(category, record_id, ord);
 "#,
+    // 6: tabela nativa atuacao
+    r#"
+CREATE TABLE IF NOT EXISTS atuacao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ano INTEGER,
+    ano_fim INTEGER,
+    tipo TEXT,
+    instituicao TEXT,
+    titulo TEXT,
+    vinculo TEXT,
+    enquadramento TEXT,
+    horas INTEGER,
+    dedicacao_exclusiva TEXT,
+    vinculo_empregaticio TEXT,
+    descricao TEXT,
+    identifier TEXT,
+    file TEXT,
+    folder TEXT,
+    log TEXT,
+    path TEXT,
+    url TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_atuacao_ano ON atuacao(ano);
+CREATE INDEX IF NOT EXISTS idx_atuacao_ano_tipo ON atuacao(ano, tipo);
+"#,
+    // 7: tabelas nativas de Inovação e Educação e Popularização de C&T
+    r#"
+CREATE TABLE IF NOT EXISTS inovacao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ano INTEGER,
+    tipo TEXT,
+    titulo TEXT,
+    instituicao TEXT,
+    descricao TEXT,
+    identifier TEXT,
+    file TEXT,
+    folder TEXT,
+    log TEXT,
+    path TEXT,
+    url TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_inovacao_ano ON inovacao(ano);
+CREATE INDEX IF NOT EXISTS idx_inovacao_ano_tipo ON inovacao(ano, tipo);
+
+CREATE TABLE IF NOT EXISTS educacao_popularizacao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ano INTEGER,
+    tipo TEXT,
+    titulo TEXT,
+    instituicao TEXT,
+    descricao TEXT,
+    identifier TEXT,
+    file TEXT,
+    folder TEXT,
+    log TEXT,
+    path TEXT,
+    url TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_educacao_ano ON educacao_popularizacao(ano);
+CREATE INDEX IF NOT EXISTS idx_educacao_ano_tipo ON educacao_popularizacao(ano, tipo);
+"#,
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {
@@ -264,7 +390,172 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
     conn.execute_batch(SCHEMA_SQL)?;
     conn.execute_batch(crate::custom::SCHEMA_SQL)?;
     conn.execute_batch(crate::classify::SCHEMA_SQL)?;
-    migrate(conn, existing > 0)
+    migrate(conn, existing > 0)?;
+
+    // Migra registros legados de x_atuacao para a tabela nativa atuacao
+    let _ = conn.execute(
+        r#"
+INSERT INTO atuacao (ano, tipo, instituicao, titulo, identifier, file, folder, descricao, log, path, url)
+SELECT ano, tipo, COALESCE(titulo, descricao, 'Sem nome'), titulo, identifier, file, folder, descricao, log, path, url
+FROM custom_records WHERE category = 'x_atuacao'
+"#,
+        [],
+    );
+    let _ = conn.execute("UPDATE record_attachments SET category = 'atuacao' WHERE category = 'x_atuacao'", []);
+    let _ = conn.execute("DELETE FROM custom_records WHERE category = 'x_atuacao'", []);
+    let _ = conn.execute("DELETE FROM custom_categories WHERE key = 'x_atuacao'", []);
+
+    // Reorganiza registros legados de encargos para atuacao sem perda nem duplicidade (tabela encargos é preservada)
+    if let Ok(mut stmt) = conn.prepare("SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM encargos") {
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<i64>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+            ))
+        });
+        if let Ok(rows) = rows {
+            for r in rows.flatten() {
+                let (old_id, ano, tipo, ident, file, folder, desc, horas, log, path, url) = r;
+                let exists: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM atuacao WHERE ano IS ?1 AND titulo IS ?2",
+                    rusqlite::params![ano, desc],
+                    |r| r.get(0),
+                ).unwrap_or(0);
+                if exists == 0 {
+                    let _ = conn.execute(
+                        "INSERT INTO atuacao (ano, tipo, instituicao, titulo, horas, identifier, file, folder, log, path, url) VALUES (?1, ?2, 'UFSC', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                        rusqlite::params![ano, tipo, desc, horas, ident, file, folder, log, path, url],
+                    );
+                    let new_id = conn.last_insert_rowid();
+                    let _ = conn.execute(
+                        "UPDATE record_attachments SET category = 'atuacao', record_id = ?1 WHERE category = 'encargos' AND record_id = ?2",
+                        rusqlite::params![new_id, old_id],
+                    );
+                }
+            }
+        }
+    }
+
+    // Reorganiza registros legados de disciplinas para atuacao sem perda nem duplicidade (tabela disciplinas é preservada)
+    if let Ok(mut stmt) = conn.prepare("SELECT id, ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path, url FROM disciplinas") {
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<i64>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+                row.get::<_, Option<i64>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<String>>(12)?,
+            ))
+        });
+        if let Ok(rows) = rows {
+            for r in rows.flatten() {
+                let (old_id, ano, tipo, curso, ident, file, folder, disc, horas, alunos, log, path, url) = r;
+                let tipo_str = tipo.map(|t| if t.starts_with("Ensino") { t } else { format!("Ensino: {}", t) });
+                let desc = alunos.map(|a| format!("{} alunos", a));
+                let exists: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM atuacao WHERE ano IS ?1 AND titulo IS ?2",
+                    rusqlite::params![ano, disc],
+                    |r| r.get(0),
+                ).unwrap_or(0);
+                if exists == 0 {
+                    let _ = conn.execute(
+                        "INSERT INTO atuacao (ano, tipo, instituicao, titulo, enquadramento, horas, descricao, identifier, file, folder, log, path, url) VALUES (?1, ?2, ?3, ?4, 'Docente', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        rusqlite::params![ano, tipo_str, curso, disc, horas, desc, ident, file, folder, log, path, url],
+                    );
+                    let new_id = conn.last_insert_rowid();
+                    let _ = conn.execute(
+                        "UPDATE record_attachments SET category = 'atuacao', record_id = ?1 WHERE category = 'disciplinas' AND record_id = ?2",
+                        rusqlite::params![new_id, old_id],
+                    );
+                }
+            }
+        }
+    }
+
+    // Copia subpastas legadas de Encargos e Disciplinas para Atuação
+    let _ = conn.execute(
+        "INSERT OR IGNORE INTO subfolder_mappings (category_group, description, folder)
+         SELECT 'Atuação', description, folder FROM subfolder_mappings
+         WHERE lower(category_group) IN ('disciplinas', 'encargos')",
+        [],
+    );
+
+    // Garante subfolder_mappings padrão para Atuação
+    for (desc, folder) in DEFAULT_ATUACAO_MAPPINGS {
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM subfolder_mappings WHERE lower(category_group) = 'atuação' AND lower(description) = lower(?1)",
+                [desc],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if exists == 0 {
+            let _ = conn.execute(
+                "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES ('Atuação', ?1, ?2)",
+                [desc, folder],
+            );
+        }
+    }
+
+    // Garante subfolder_mappings padrão para Inovação
+    for (desc, folder) in DEFAULT_INOVACAO_MAPPINGS {
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM subfolder_mappings WHERE lower(category_group) = 'inovação' AND lower(description) = lower(?1)",
+                [desc],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if exists == 0 {
+            let _ = conn.execute(
+                "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES ('Inovação', ?1, ?2)",
+                [desc, folder],
+            );
+        }
+    }
+
+    // Garante subfolder_mappings padrão para Educação e Popularização de C&T
+    for (desc, folder) in DEFAULT_EDUCACAO_MAPPINGS {
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM subfolder_mappings WHERE lower(category_group) IN ('educação e popularização de c&t', 'educação e popularização', 'educação') AND lower(description) = lower(?1)",
+                [desc],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if exists == 0 {
+            let _ = conn.execute(
+                "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES ('Educação e Popularização de C&T', ?1, ?2)",
+                [desc, folder],
+            );
+        }
+    }
+
+    // Atualiza options.category_order para o padrão oficial do Lattes
+    let _ = conn.execute(
+        "UPDATE app_metadata SET value = '[\"dadosgerais\",\"formacao\",\"atuacao\",\"projetos\",\"producoes\",\"patentes\",\"inovacao\",\"educacao_popularizacao\",\"eventos\",\"orientacoes\",\"bancas\"]' WHERE key = 'options.category_order'",
+        [],
+    );
+
+    let _ = crate::db::queries::cleanup_external_attachments(conn);
+    Ok(())
 }
 
 pub fn schema_version(conn: &Connection) -> Result<usize> {

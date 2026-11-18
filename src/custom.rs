@@ -135,7 +135,12 @@ pub fn save_category(conn: &Connection, root: &Path, mut c: CustomCategory) -> s
     if name.chars().filter(|ch| ch.is_alphanumeric()).count() < 2 {
         return Err("Informe um nome para a categoria".into());
     }
-    let builtin = ["dados gerais", "formação", "formacao", "encargos", "disciplinas", "projetos", "produções", "producoes", "patentes", "eventos", "orientações", "orientacoes", "bancas"];
+    let builtin = [
+        "dados gerais", "dadosgerais", "formação", "formacao", "atuação", "atuacao",
+        "projetos", "produções", "producoes", "patentes", "inovação", "inovacao",
+        "educação e popularização de c&t", "educação e popularização", "educação", "educacao", "educacao_popularizacao",
+        "eventos", "orientações", "orientacoes", "bancas", "encargos", "disciplinas",
+    ];
     if builtin.contains(&name.to_lowercase().as_str()) {
         return Err("Já existe uma categoria padrão com esse nome".into());
     }
@@ -260,6 +265,7 @@ fn row_to_dto(r: &rusqlite::Row) -> Result<RecordDto> {
         url: r.get::<_, Option<String>>(11).ok().flatten().filter(|s| !s.trim().is_empty()),
         citations: None,
         attachments: Vec::new(),
+        ..Default::default()
     })
 }
 

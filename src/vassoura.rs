@@ -51,6 +51,8 @@ fn category_label(cat: &str) -> String {
         "projetos" => "Projetos de Pesquisa/Extensão",
         "producoes" => "Produções Intelectuais",
         "patentes" => "Patentes e Registros",
+        "inovacao" => "Inovação",
+        "educacao_popularizacao" => "Educação e Popularização de C&T",
         "eventos" => "Participação em Eventos",
         "orientacoes" => "Orientações e Supervisões",
         "bancas" => "Bancas Examinadoras",

@@ -1815,8 +1815,8 @@ mod tests {
         let inserted = import_items(&mut conn, &root_dir, &to_import).unwrap();
         assert_eq!(inserted, to_import.len());
 
-        // Verificar inserção em todas as 10 tabelas
-        for tbl in crate::db::schema::ENTITY_TABLES {
+        // Verificar inserção nas 10 tabelas de produções do XML
+        for tbl in ["dadosgerais", "formacao", "encargos", "disciplinas", "projetos", "producoes", "patentes", "eventos", "orientacoes", "bancas"] {
             let cnt: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", tbl), [], |r| r.get(0)).unwrap();
             assert!(cnt >= 1, "tabela {} deveria ter >= 1 registro", tbl);
         }

@@ -203,7 +203,7 @@ export class ReportBuilder {
 
   /** Categorias na ordem escolhida (arrastando); as que não estão na lista seguem a ordem padrão. */
   orderedCats() {
-    const keys = Object.keys(CATEGORY_SCHEMAS);
+    const keys = Object.keys(CATEGORY_SCHEMAS).filter((k) => !CATEGORY_SCHEMAS[k]?.legacy);
     const rank = (k) => {
       const i = this.catOrder.indexOf(k);
       return i < 0 ? 1000 + keys.indexOf(k) : i;
@@ -236,7 +236,9 @@ export class ReportBuilder {
     this.sel = {};
     const prod = this.tiposOf("producoes").map(([t]) => t);
     if (kind === "tudo") {
-      for (const c of Object.keys(CATEGORY_SCHEMAS)) this.sel[c] = new Set(this.tiposOf(c).map(([t]) => t));
+      for (const [c, s] of Object.entries(CATEGORY_SCHEMAS)) {
+        if (!s.legacy) this.sel[c] = new Set(this.tiposOf(c).map(([t]) => t));
+      }
     } else if (kind === "artigos") {
       this.sel.producoes = new Set(prod.filter((t) => /artigo/i.test(t)));
     } else if (kind === "artres") {

@@ -28,9 +28,20 @@ pub fn get_records_impl(
 
 /// Pasta de comprovantes válida: `5_producoes\artigos_completos\` (não o marcador "folder").
 pub fn valid_folder(f: &str) -> bool {
-    let t = f.trim().trim_matches('\\');
-    let first = t.split('\\').next().unwrap_or("");
+    let t = f.trim().trim_matches(|c| c == '\\' || c == '/');
+    let first = t.split(|c| c == '\\' || c == '/').next().unwrap_or("");
     !t.is_empty() && first.split_once('_').map(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).unwrap_or(false)
+}
+
+/// Pasta de comprovantes válida que aponta para um subdiretório folha (pelo menos 2 níveis),
+/// evitando que arquivos sejam salvos diretamente na pasta raiz da categoria (ex: `11_bancas\`).
+pub fn valid_subfolder(f: &str) -> bool {
+    let t = f.trim().trim_matches(|c| c == '\\' || c == '/');
+    let parts: Vec<&str> = t.split(|c| c == '\\' || c == '/').filter(|s| !s.is_empty()).collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    parts[0].split_once('_').map(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).unwrap_or(false)
 }
 
 /// Nome do grupo (subfolder_mappings.category_group) de uma categoria.
@@ -42,36 +53,69 @@ fn group_of(conn: &Connection, category: &str) -> Option<String> {
         match crate::db::schema::normalize_category(category)? {
             "dadosgerais" => "Dados gerais",
             "formacao" => "Formação",
-            "encargos" => "Encargos",
-            "disciplinas" => "Disciplinas",
+            "atuacao" => "Atuação",
             "projetos" => "Projetos",
             "producoes" => "Produções",
             "patentes" => "Patentes",
+            "inovacao" => "Inovação",
+            "educacao_popularizacao" => "Educação e Popularização de C&T",
             "eventos" => "Eventos",
             "orientacoes" => "Orientações",
-            _ => "Bancas",
+            "bancas" => "Bancas",
+            "encargos" => "Encargos",
+            "disciplinas" => "Disciplinas",
+            _ => "Outros",
         }
         .to_string(),
     )
 }
 
 /// Garante uma pasta de destino real: a informada, a do registro, a do caminho atual
-/// ou a da subcategoria (tipo). Corrige registros com o marcador "folder" da planilha.
+/// ou a da subcategoria (tipo). Corrige registros com o marcador "folder" da planilha
+/// ou salvos equivocadamente na raiz da categoria.
 fn with_valid_folder(db: &Mutex<Connection>, category: &str, data: &Value, existing: Option<&RecordDto>) -> Result<Value, String> {
     let mut out = data.clone();
-    if queries::json_str(data, "folder").is_some_and(|f| valid_folder(&f)) {
-        return Ok(out);
+    let tipo = queries::json_str(data, "tipo").or_else(|| existing.and_then(|e| e.tipo.clone()));
+
+    // 1. Se temos o tipo da categoria, a subpasta mapeada para ele em subfolder_mappings é prioritária
+    if let Ok(conn) = db.lock() {
+        if let Some(group) = group_of(&conn, category) {
+            if let Some(ref t) = tipo {
+                if let Ok(mapped_folder) = conn.query_row(
+                    "SELECT folder FROM subfolder_mappings WHERE lower(category_group) = lower(?1) AND lower(description) = lower(?2) LIMIT 1",
+                    rusqlite::params![group, t],
+                    |r| r.get::<_, String>(0),
+                ) {
+                    if let Some(obj) = out.as_object_mut() {
+                        obj.insert("folder".into(), Value::String(mapped_folder));
+                    }
+                    return Ok(out);
+                }
+            }
+        }
     }
-    if let Some(e) = existing {
-        if data.get("folder").is_none() && e.folder.as_deref().is_some_and(valid_folder) {
+
+    // 2. Se a pasta informada já for uma subpasta válida (com subnível real), mantém
+    if let Some(f) = queries::json_str(data, "folder") {
+        if valid_subfolder(&f) {
             return Ok(out);
         }
     }
+
+    // 3. Se o registro existente já tiver uma subpasta válida com subnível, mantém
+    if let Some(e) = existing {
+        if data.get("folder").is_none() && e.folder.as_deref().is_some_and(valid_subfolder) {
+            return Ok(out);
+        }
+    }
+
+    // 4. Tenta inferir pelo diretório do path existente
     let from_path = existing
         .and_then(|e| e.path.as_deref())
         .and_then(|p| p.replace('/', "\\").rsplit_once('\\').map(|(d, _)| format!("{}\\", d)))
-        .filter(|d| valid_folder(d));
-    let tipo = queries::json_str(data, "tipo").or_else(|| existing.and_then(|e| e.tipo.clone()));
+        .filter(|d| valid_subfolder(d));
+
+    // 5. Fallback para subfolder_mappings daquele grupo (primeira subpasta conhecida)
     let found = from_path.or_else(|| {
         let conn = db.lock().ok()?;
         let group = group_of(&conn, category)?;
@@ -82,9 +126,17 @@ fn with_valid_folder(db: &Mutex<Connection>, category: &str, data: &Value, exist
         )
         .ok()
     });
+
     if let (Some(f), Some(obj)) = (found, out.as_object_mut()) {
         obj.insert("folder".into(), Value::String(f));
+        return Ok(out);
     }
+
+    // 6. Último recurso: pasta de 1 nível se a categoria não possuir subpastas (ex: categoria customizada simples)
+    if queries::json_str(data, "folder").is_some_and(|f| valid_folder(&f)) {
+        return Ok(out);
+    }
+
     Ok(out)
 }
 
@@ -200,6 +252,27 @@ pub fn create_record_impl(
             .get("attachments")
             .and_then(|a| serde_json::from_value(a.clone()).ok())
             .unwrap_or_default();
+
+        // Remove quaisquer anexos temporários que apontem para arquivos externos brutos
+        // ou que correspondam aos arquivos de origem que acabaram de ser copiados para a pasta de destino.
+        existing_atts.retain(|att| {
+            let p = Path::new(&att.path);
+            if p.is_absolute() {
+                return false;
+            }
+            let att_norm = att.path.replace('/', "\\").to_lowercase();
+            for src in &files_to_attach {
+                let src_name = src.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                if att.file.to_lowercase() == src_name {
+                    return false;
+                }
+                if src.to_string_lossy().to_lowercase().replace('/', "\\") == att_norm {
+                    return false;
+                }
+            }
+            true
+        });
+
         let base_ord = existing_atts.len() as i64;
         for (i, mut a) in new_attachments.into_iter().enumerate() {
             a.ord = Some(base_ord + i as i64);
@@ -319,6 +392,27 @@ pub fn update_record_impl(
             .get("attachments")
             .and_then(|a| serde_json::from_value(a.clone()).ok())
             .unwrap_or_default();
+
+        // Remove quaisquer anexos temporários que apontem para arquivos externos brutos
+        // ou que correspondam aos arquivos de origem que acabaram de ser copiados para a pasta de destino.
+        existing_atts.retain(|att| {
+            let p = Path::new(&att.path);
+            if p.is_absolute() {
+                return false;
+            }
+            let att_norm = att.path.replace('/', "\\").to_lowercase();
+            for src in &files_to_attach {
+                let src_name = src.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                if att.file.to_lowercase() == src_name {
+                    return false;
+                }
+                if src.to_string_lossy().to_lowercase().replace('/', "\\") == att_norm {
+                    return false;
+                }
+            }
+            true
+        });
+
         let base_ord = existing_atts.len() as i64;
         for (i, mut a) in new_attachments.into_iter().enumerate() {
             a.ord = Some(base_ord + i as i64);
@@ -1244,6 +1338,42 @@ pub async fn write_report(
     Ok(target.to_string_lossy().to_string())
 }
 
+/// Salva um PDF de pré-visualização temporário com nome legível e devolve o caminho absoluto.
+#[tauri::command]
+pub async fn write_preview_temp(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Conteúdo do PDF não recebido".into());
+    };
+    let raw_name = request
+        .headers()
+        .get("x-filename")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("preview_comprovantes.pdf");
+    let safe_name: String = raw_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') { c } else { '_' })
+        .collect();
+    let final_name = if safe_name.to_lowercase().ends_with(".pdf") {
+        safe_name
+    } else {
+        format!("{}.pdf", safe_name)
+    };
+    let dir = std::env::temp_dir().join("LattesManager");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let target = dir.join(final_name);
+    std::fs::write(&target, bytes).map_err(|e| format!("Falha ao gravar preview: {}", e))?;
+    state.remember_saved(&target);
+    {
+        use tauri::Manager;
+        let _ = app.asset_protocol_scope().allow_file(&target);
+    }
+    Ok(target.to_string_lossy().to_string())
+}
+
 /// Comprime um PDF binário (imagens embutidas + streams/objetos) e devolve os bytes comprimidos.
 #[tauri::command]
 pub async fn compress_pdf(request: tauri::ipc::Request<'_>) -> Result<tauri::ipc::Response, String> {
@@ -2062,5 +2192,113 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_file(&outside);
+    }
+
+    #[test]
+    fn test_valid_subfolder_and_with_valid_folder() {
+        assert!(valid_subfolder(r"11_bancas\doutorado\"));
+        assert!(valid_subfolder(r"5_producoes\artigos_completos\"));
+        assert!(!valid_subfolder("11_bancas"));
+        assert!(!valid_subfolder(r"11_bancas\"));
+        assert!(!valid_subfolder("folder"));
+        assert!(!valid_subfolder(""));
+
+        let db = Mutex::new(crate::db::open_in_memory().unwrap());
+        {
+            let conn = db.lock().unwrap();
+            conn.execute(
+                "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES (?1, ?2, ?3)",
+                rusqlite::params!["Bancas", "Doutorado", r"11_bancas\doutorado\"],
+            )
+            .unwrap();
+        }
+
+        // When data has root folder "11_bancas\", with_valid_folder must resolve to the mapped subfolder "11_bancas\doutorado\"
+        let raw = json!({
+            "ano": 2021,
+            "tipo": "Doutorado",
+            "folder": r"11_bancas\"
+        });
+        let fixed = with_valid_folder(&db, "bancas", &raw, None).unwrap();
+        assert_eq!(fixed.get("folder").unwrap().as_str().unwrap(), r"11_bancas\doutorado\");
+    }
+
+    #[test]
+    fn test_atuacao_record_crud() {
+        let db = Mutex::new(crate::db::open_in_memory().unwrap());
+        crate::db::schema::create_tables(&db.lock().unwrap()).unwrap();
+        let root = std::env::temp_dir().join("test_atuacao_root");
+        let _ = std::fs::create_dir_all(&root);
+
+        let data = json!({
+            "tipo": "Atuação profissional",
+            "instituicao": "Universidade Federal de Santa Catarina",
+            "ano": 2021,
+            "ano_fim": 2025,
+            "vinculo": "Servidor Público",
+            "enquadramento": "Professor Adjunto",
+            "horas": 40,
+            "dedicacao_exclusiva": "Sim",
+            "vinculo_empregaticio": "Sim"
+        });
+
+        let rec = create_record_impl(&db, &root, "atuacao", &data, None, None).unwrap();
+        assert_eq!(rec.instituicao.as_deref(), Some("Universidade Federal de Santa Catarina"));
+        assert_eq!(rec.titulo.as_deref(), Some("Universidade Federal de Santa Catarina"));
+        assert_eq!(rec.ano, Some(2021));
+        assert_eq!(rec.ano_fim, Some(2025));
+        assert_eq!(rec.vinculo.as_deref(), Some("Servidor Público"));
+        assert_eq!(rec.folder.as_deref(), Some(r"3_atuacao\atuacao_profissional\"));
+
+        let recs = queries::get_records(&db.lock().unwrap(), "atuacao", None, None, None).unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].instituicao.as_deref(), Some("Universidade Federal de Santa Catarina"));
+
+        let update_data = json!({
+            "enquadramento": "Professor Associado"
+        });
+        let updated = update_record_impl(&db, &root, "atuacao", rec.id, &update_data, None, None).unwrap();
+        assert_eq!(updated.enquadramento.as_deref(), Some("Professor Associado"));
+        assert_eq!(updated.instituicao.as_deref(), Some("Universidade Federal de Santa Catarina"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_inovacao_and_educacao_crud() {
+        let db = Mutex::new(crate::db::open_in_memory().unwrap());
+        crate::db::schema::create_tables(&db.lock().unwrap()).unwrap();
+        let root = std::env::temp_dir().join("test_inovacao_and_educacao_crud");
+        let _ = std::fs::create_dir_all(&root);
+
+        let in_data = json!({
+            "ano": 2025,
+            "tipo": "Projetos de inovação",
+            "titulo": "Plataforma IA para Fenotipagem Vegetal",
+            "instituicao": "FAPESC / UFSC",
+            "descricao": "Sistema de inteligência artificial embarcada para melhoramento genético"
+        });
+        let in_rec = create_record_impl(&db, &root, "inovacao", &in_data, None, None).unwrap();
+        assert_eq!(in_rec.titulo.as_deref(), Some("Plataforma IA para Fenotipagem Vegetal"));
+        assert_eq!(in_rec.ano, Some(2025));
+
+        let ed_data = json!({
+            "ano": 2024,
+            "tipo": "Artigos de divulgação científica",
+            "titulo": "Como a visão computacional revoluciona a agricultura",
+            "instituicao": "Revista Ciência Hoje",
+            "descricao": "Artigo para popularização da fenotipagem digital"
+        });
+        let ed_rec = create_record_impl(&db, &root, "educacao_popularizacao", &ed_data, None, None).unwrap();
+        assert_eq!(ed_rec.titulo.as_deref(), Some("Como a visão computacional revoluciona a agricultura"));
+        assert_eq!(ed_rec.ano, Some(2024));
+
+        let list_in = queries::get_records(&db.lock().unwrap(), "inovacao", None, None, None).unwrap();
+        assert_eq!(list_in.len(), 1);
+
+        let list_ed = queries::get_records(&db.lock().unwrap(), "educacao_popularizacao", None, None, None).unwrap();
+        assert_eq!(list_ed.len(), 1);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

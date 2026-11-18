@@ -26,6 +26,7 @@ export class ProofPickerModal {
   }
 
   async open() {
+    window._activeProofPicker = this;
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `
       <div class="modal-dialog proof-picker-dialog">
@@ -48,8 +49,68 @@ export class ProofPickerModal {
   }
 
   close() {
+    if (window._activeProofPicker === this) {
+      window._activeProofPicker = null;
+    }
     this.overlay.style.display = "none";
     this.overlay.remove();
+  }
+
+  isOpen() {
+    return this.overlay && this.overlay.style.display === "flex";
+  }
+
+  setDragOver(isOver) {
+    const dz = this.overlay?.querySelector("#pp-file-dropzone");
+    if (dz) {
+      dz.classList.toggle("drag-over", isOver);
+      if (isOver) {
+        dz.style.borderColor = "var(--primary)";
+        dz.style.backgroundColor = "var(--primary-light, rgba(99, 102, 241, 0.08))";
+      } else {
+        dz.style.borderColor = "";
+        dz.style.backgroundColor = "";
+      }
+    }
+  }
+
+  getDestinationFolder() {
+    for (const r of this.targetRecords || []) {
+      if (r.path && String(r.path).trim()) {
+        const f = String(r.path).trim().replace(/[^\\/]+$/, "");
+        if (f) return f;
+      }
+      if (r.folder && String(r.folder).trim()) {
+        return String(r.folder).trim();
+      }
+    }
+    if (this.currentCategory) {
+      const sc = CATEGORY_SCHEMAS[this.currentCategory];
+      if (sc) return sc.defaultFolder || sc.folder || `${sc.name || sc.group || this.currentCategory}\\`;
+    }
+    return "";
+  }
+
+  async handleDroppedFiles(paths) {
+    if (!paths || !paths.length) return;
+    const okFiles = paths.filter((p) => /\.(pdf|png|jpe?g|docx?|xlsx?)$/i.test(p));
+    if (!okFiles.length) {
+      showToast("Por favor, solte um arquivo PDF, imagem ou documento válido.", "info", 3000);
+      return;
+    }
+    await this.handlePickedPath(okFiles[0]);
+  }
+
+  async handlePickedPath(filePath) {
+    const file = filePath.split(/[\\/]/).pop() || "comprovante";
+    const destFolder = this.getDestinationFolder();
+    const chosen = {
+      path: filePath,
+      file,
+      folder: destFolder,
+      isExternal: true,
+    };
+    await this.handleChoose(chosen);
   }
 
   processData(allData) {
@@ -130,6 +191,8 @@ export class ProofPickerModal {
     }
 
     const items = this.getFilteredItems();
+    const destFolder = this.getDestinationFolder();
+    const destLabel = destFolder ? `Destino: ${destFolder}` : "Destino: selecionado automaticamente pelo Tipo";
 
     this.overlay.innerHTML = `
       <div class="modal-dialog proof-picker-dialog">
@@ -143,17 +206,48 @@ export class ProofPickerModal {
           <button type="button" class="btn-close" id="pp-close" aria-label="Fechar">&times;</button>
         </header>
 
+        <!-- Campo Drag/Drop e Seleção de Arquivo (semelhante ao Novo Registro) -->
+        <div class="attachment-section" style="padding: 14px 20px 12px; border-bottom: 1px solid var(--border-light); background: var(--surface-1);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <label class="form-label" style="margin:0; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted);">
+              Comprovantes / Documentos Anexos
+            </label>
+          </div>
+
+          <div id="pp-file-dropzone" class="file-dropzone" style="border: 2px dashed var(--border-subtle); border-radius: var(--radius-md); padding: 14px 18px; background-color: var(--surface-bg); transition: all 0.2s ease;">
+            <div id="pp-file-unselected" class="file-unselected" style="display:flex; flex-direction:column; align-items:center; text-align:center; gap:8px;">
+              <span class="file-icon" style="font-size:24px;">📎</span>
+              <div class="file-prompt">
+                <span class="file-prompt-main" style="font-size:13px; font-weight:600; color:var(--text-primary);">
+                  Adicione comprovantes — ou arraste arquivos para cá
+                </span>
+                <span class="file-prompt-sub" id="pp-target-subfolder-path" style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                  ${escapeHtml(destLabel)}
+                </span>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 4px;">
+                <button type="button" id="pp-btn-select-file" class="btn btn-secondary btn-sm" style="display:inline-flex; align-items:center; gap:6px; font-weight:600;">
+                  <span>+</span> Selecionar Arquivos...
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Seção de Busca e Vínculo a Comprovantes Existentes -->
         <div style="padding: 12px 20px 0; border-bottom: 1px solid var(--border-light); background: var(--surface-1);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <label class="form-label" style="margin:0; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted);">
+              Ou vincular a um comprovante já existente (${totalCount})
+            </label>
+          </div>
+
           <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 220px; position: relative;">
               <input type="text" id="pp-search-input" class="form-input" style="width: 100%; padding-left: 32px;"
-                     placeholder="Buscar por arquivo, disciplina, título, ano..." value="${escapeHtml(this.searchTerm)}" />
+                     placeholder="Buscar comprovante existente por arquivo, disciplina, título, ano..." value="${escapeHtml(this.searchTerm)}" />
               <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.5;">🔍</span>
             </div>
-            <button type="button" id="pp-btn-external-file" class="btn btn-secondary btn-sm"
-                    title="Selecionar outro arquivo PDF/imagem do computador sem criar cópia">
-              📁 Escolher outro arquivo...
-            </button>
           </div>
 
           <div style="display: flex; gap: 6px; margin-top: 10px; padding-bottom: 8px;">
@@ -253,20 +347,37 @@ export class ProofPickerModal {
       this.render();
     });
 
-    // Escolher outro arquivo do disco sem copiar
-    d.querySelector("#pp-btn-external-file")?.addEventListener("click", async () => {
+    // Dropzone HTML5 drag & drop
+    const dropzone = d.querySelector("#pp-file-dropzone");
+    if (dropzone) {
+      dropzone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.setDragOver(true);
+      });
+      dropzone.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.setDragOver(false);
+      });
+      dropzone.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.setDragOver(false);
+        const files = Array.from(e.dataTransfer?.files || []);
+        const paths = files.map((f) => f.path || f.name).filter(Boolean);
+        if (paths.length) {
+          await this.handleDroppedFiles(paths);
+        }
+      });
+    }
+
+    // Botão + Selecionar Arquivos...
+    d.querySelector("#pp-btn-select-file")?.addEventListener("click", async () => {
       try {
         const picked = await api.selectSourceFile();
         if (!picked) return;
-
-        const file = picked.split(/[\\/]/).pop();
-        const chosen = {
-          path: picked,
-          file,
-          folder: "",
-          isExternal: true,
-        };
-        await this.handleChoose(chosen);
+        await this.handlePickedPath(picked);
       } catch (e) {
         showToast(`Erro ao selecionar arquivo: ${e}`, "error");
       }

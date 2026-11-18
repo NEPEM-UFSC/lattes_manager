@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import {
   CATEGORY_SCHEMAS,
   DEFAULT_DADOS_GERAIS_MAPPINGS,
+  DEFAULT_ATUACAO_MAPPINGS,
   showToast,
   escapeHtml,
   registerCustomCategory,
@@ -38,6 +39,7 @@ import { applyTheme, easyClose } from "./theme.js";
 const GROUP_BY_CATEGORY = {
   dadosgerais: "Dados gerais",
   formacao: "Formação",
+  atuacao: "Atuação",
   encargos: "Encargos",
   disciplinas: "Disciplinas",
   projetos: "Projetos",
@@ -101,6 +103,7 @@ class App {
     this.previewer = new Previewer();
     window._previewer = this.previewer;
     window._app = this;
+    window.app = this;
 
     this.tableView = new TableView({
       onEdit: (rec) => this.recordModal.openEdit(this.currentCategory, rec, this.mappings),
@@ -127,6 +130,7 @@ class App {
     });
 
     this.recordModal = new RecordModal({
+      previewer: this.previewer,
       onSaved: () => {
         this.loadRecords();
         this.loadStats();
@@ -345,8 +349,8 @@ class App {
 
   askPreviewMode(groupName, count, filtered) {
     return new Promise((resolve) => {
+      // Padrão sempre alta resolução (compress = false)
       let compress = false;
-      try { compress = localStorage.getItem("lattes_preview_compress") === "1"; } catch {}
 
       const overlay = document.createElement("div");
       overlay.className = "modal-overlay";
@@ -390,7 +394,6 @@ class App {
       overlay.querySelectorAll("[data-qual]").forEach((btn) => {
         btn.addEventListener("click", () => {
           compress = btn.dataset.qual === "compact";
-          try { localStorage.setItem("lattes_preview_compress", compress ? "1" : "0"); } catch {}
           overlay.querySelectorAll("[data-qual]").forEach((b) => b.classList.toggle("on", b === btn));
         });
       });
@@ -425,15 +428,14 @@ class App {
     }
     const filtered = recs.length < this.allRecords.filter((r) => r.path && String(r.path).trim()).length;
 
-    let firstPageOnly;
+    let firstPageOnly = false;
     let compress = false;
     if (forceOpts !== null && typeof forceOpts === "object") {
       firstPageOnly = Boolean(forceOpts.firstPageOnly);
       compress = Boolean(forceOpts.compress);
-      try { localStorage.setItem("lattes_preview_compress", compress ? "1" : "0"); } catch {}
     } else if (forceOpts !== null) {
       firstPageOnly = Boolean(forceOpts);
-      try { compress = localStorage.getItem("lattes_preview_compress") === "1"; } catch {}
+      compress = false;
     } else {
       const chosen = await this.askPreviewMode(schema.group, recs.length, filtered);
       if (chosen === null) return;
@@ -458,13 +460,35 @@ class App {
         this.previewer.close();
         return;
       }
+      const slug = (s) =>
+        String(s || "")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^A-Za-z0-9]+/g, "_")
+          .replace(/^_+|_+$/g, "");
+      let authorName = this.profilePanel?.p?.values?.nome || "";
+      if (!authorName) {
+        try {
+          const prof = await api.getSetting("profile");
+          authorName = prof?.values?.nome || "";
+        } catch {}
+      }
+      const catSlug = slug(schema.group || cat).toLowerCase() || "comprovantes";
+      const authorSlug = slug(authorName) || "lattes";
+      const previewFilename = `preview_${catSlug}_${authorSlug}.pdf`;
+      let absPath = null;
+      try {
+        absPath = await api.writePreviewTemp(previewFilename, res.bytes);
+      } catch {}
+
       const mb = (res.bytes.length / 1048576).toFixed(1);
       const extra = res.failed.length ? ` · ⚠️ ${res.failed.length} não incorporado(s)` : "";
       this.previewer.openPdfBytes(
         res.bytes,
-        title,
+        previewFilename,
         `Pré-visualização (${modeTxt}) · ${res.pages} páginas · ${mb} MB · ${res.attached} comprovante(s)${extra}`,
         {
+          absPath,
           firstPageOnly,
           compress,
           onToggle: (next) => this.previewCategoryProofs(next),
@@ -541,12 +565,20 @@ class App {
         const valid = ok(e.payload?.paths);
         draggingValidFiles = valid.length > 0;
         draggingSingleFile = valid.length === 1;
+        if (window._activeProofPicker?.isOpen?.()) {
+          window._activeProofPicker.setDragOver(draggingValidFiles);
+          return;
+        }
         const rowId = draggingSingleFile ? findHoveredRowId(e.payload?.position) : null;
         this.tableView.setDropTarget(rowId);
         overlay.classList.toggle("on", draggingValidFiles && !rowId);
       });
       await ev.listen("tauri://drag-over", (e) => {
         if (!draggingValidFiles) return;
+        if (window._activeProofPicker?.isOpen?.()) {
+          window._activeProofPicker.setDragOver(true);
+          return;
+        }
         const rowId = draggingSingleFile ? findHoveredRowId(e.payload?.position) : null;
         this.tableView.setDropTarget(rowId);
         overlay.classList.toggle("on", !rowId);
@@ -554,10 +586,26 @@ class App {
       await ev.listen("tauri://drag-leave", () => {
         draggingValidFiles = false;
         draggingSingleFile = false;
+        if (window._activeProofPicker?.isOpen?.()) {
+          window._activeProofPicker.setDragOver(false);
+          return;
+        }
         overlay.classList.remove("on");
         this.tableView.setDropTarget(null);
       });
       await ev.listen("tauri://drag-drop", async (e) => {
+        if (window._activeProofPicker?.isOpen?.()) {
+          window._activeProofPicker.setDragOver(false);
+          draggingValidFiles = false;
+          draggingSingleFile = false;
+          overlay.classList.remove("on");
+          const files = ok(e.payload?.paths);
+          if (files.length > 0) {
+            await window._activeProofPicker.handleDroppedFiles(files);
+          }
+          return;
+        }
+
         const droppedRowId =
           findHoveredRowId(e.payload?.position) ??
           (window._hoveredRecordId != null ? String(window._hoveredRecordId) : null);
@@ -689,8 +737,14 @@ class App {
     try {
       const remoteOrder = await api.getDropdownOptions("category_order");
       if (Array.isArray(remoteOrder) && remoteOrder.length) {
-        savedOrder = remoteOrder;
-        writeSavedCategoryOrder(remoteOrder);
+        const mapped = remoteOrder
+          .map((k) => (k === "x_atuacao" ? "atuacao" : k))
+          .filter((k) => typeof k === "string" && CATEGORY_SCHEMAS[k] && !CATEGORY_SCHEMAS[k]?.legacy);
+        for (const def of DEFAULT_CATEGORY_ORDER) {
+          if (!mapped.includes(def) && CATEGORY_SCHEMAS[def]) mapped.push(def);
+        }
+        savedOrder = mapped;
+        writeSavedCategoryOrder(mapped);
       }
     } catch {}
     const orderedKeys = applyCategoryOrder(savedOrder);
@@ -717,6 +771,11 @@ class App {
     for (const key of orderedKeys) {
       const li = itemsByCat.get(key);
       if (li) ul.appendChild(li);
+    }
+    for (const [key, li] of itemsByCat) {
+      if (CATEGORY_SCHEMAS[key]?.legacy || !orderedKeys.includes(key)) {
+        li.remove();
+      }
     }
     const sel = document.getElementById("subfolder-group-select");
     if (sel) {
@@ -971,6 +1030,7 @@ class App {
           .filter((m) => m.category_group?.toLowerCase() === groupName)
           .map((m) => m.description),
         ...(cat === "dadosgerais" ? DEFAULT_DADOS_GERAIS_MAPPINGS.map((d) => d.description) : []),
+        ...(cat === "atuacao" ? DEFAULT_ATUACAO_MAPPINGS.map((d) => d.description) : []),
       ];
       this.filterBar.setRecords(cat, this.allRecords, defaultTipos);
       if (cat === "dadosgerais") {
@@ -1074,13 +1134,13 @@ class App {
   }
 
   async seedDadosGeraisMappings() {
-    const SEED_KEY = "lattes_seeded_dadosgerais_v1";
+    const SEED_KEY = "lattes_seeded_default_mappings_v2";
     try {
-      if (localStorage.getItem(SEED_KEY) === "1" || this._seedingDadosGerais) return;
+      if (localStorage.getItem(SEED_KEY) === "1" || this._seedingDefaultMappings) return;
     } catch {
-      if (this._seedingDadosGerais) return;
+      if (this._seedingDefaultMappings) return;
     }
-    this._seedingDadosGerais = true;
+    this._seedingDefaultMappings = true;
     try {
       const fold = (s) =>
         String(s || "")
@@ -1088,19 +1148,36 @@ class App {
           .replace(/[\u0300-\u036f]/g, "")
           .trim()
           .toLowerCase();
-      const existing = new Set(
+      let added = false;
+
+      // Seed Dados gerais
+      const existingDG = new Set(
         this.mappings
           .filter((m) => fold(m.category_group) === "dados gerais")
           .map((m) => fold(m.description))
       );
-      let added = false;
       for (const item of DEFAULT_DADOS_GERAIS_MAPPINGS) {
-        if (!existing.has(fold(item.description))) {
+        if (!existingDG.has(fold(item.description))) {
           await api.addSubfolderMapping("Dados gerais", item.description, item.folder);
-          existing.add(fold(item.description));
+          existingDG.add(fold(item.description));
           added = true;
         }
       }
+
+      // Seed Atuação
+      const existingAtu = new Set(
+        this.mappings
+          .filter((m) => fold(m.category_group) === "atuacao")
+          .map((m) => fold(m.description))
+      );
+      for (const item of DEFAULT_ATUACAO_MAPPINGS) {
+        if (!existingAtu.has(fold(item.description))) {
+          await api.addSubfolderMapping("Atuação", item.description, item.folder);
+          existingAtu.add(fold(item.description));
+          added = true;
+        }
+      }
+
       if (added) {
         this.mappings = await api.getSubfolderMappings();
       }
@@ -1108,9 +1185,9 @@ class App {
         localStorage.setItem(SEED_KEY, "1");
       } catch {}
     } catch (err) {
-      console.warn("Falha no seed das subcategorias de Dados gerais:", err);
+      console.warn("Falha no seed de subcategorias padrão:", err);
     } finally {
-      this._seedingDadosGerais = false;
+      this._seedingDefaultMappings = false;
     }
   }
 

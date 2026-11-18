@@ -1,6 +1,6 @@
 // Record Create / Edit Modal Component
 
-import { CATEGORY_SCHEMAS, DEFAULT_DADOS_GERAIS_MAPPINGS, escapeHtml, showToast } from "../utils.js";
+import { CATEGORY_SCHEMAS, DEFAULT_DADOS_GERAIS_MAPPINGS, DEFAULT_ATUACAO_MAPPINGS, escapeHtml, showToast } from "../utils.js";
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 import { FieldHistory } from "./fieldHistory.js";
@@ -24,7 +24,8 @@ const DADOS_GERAIS_PLACEHOLDERS = {
 };
 
 export class RecordModal {
-  constructor({ onSaved }) {
+  constructor({ onSaved, previewer = null }) {
+    this.previewer = previewer || window._previewer || window._app?.previewer || window.app?.previewer;
     this.overlay = document.getElementById("record-modal-overlay");
     this.form = document.getElementById("record-form");
     this.titleEl = document.getElementById("record-modal-title");
@@ -132,10 +133,28 @@ export class RecordModal {
       });
 
       card.querySelector(".att-preview-btn")?.addEventListener("click", () => {
+        const prev = this.previewer || window._previewer || window._app?.previewer || window.app?.previewer;
+        if (!prev) {
+          showToast("Visualizador de arquivos não disponível", "warning");
+          return;
+        }
         if (att.sourcePath) {
-          window.app?.previewer?.openAbsolute(att.sourcePath, att.file);
+          prev.openAbsolute(att.sourcePath, att.file || att.sourcePath.split(/[\\/]/).pop());
         } else if (att.path) {
-          window.app?.previewer?.open({ path: att.path, file: att.file, id: -1 });
+          const isAbs = /^[a-zA-Z]:[\\/]/.test(att.path);
+          if (isAbs) {
+            prev.openAbsolute(att.path, att.file || att.path.split(/[\\/]/).pop());
+          } else {
+            prev.open({
+              id: att.id || -1,
+              path: att.path,
+              file: att.file || att.path.split(/[\\/]/).pop(),
+              titulo: this.currentRecord?.titulo || this.currentRecord?.descricao || this.currentRecord?.disciplina || att.file,
+              ano: this.currentRecord?.ano,
+            });
+          }
+        } else {
+          showToast("Nenhum arquivo associado a este comprovante", "info");
         }
       });
 
@@ -235,7 +254,13 @@ export class RecordModal {
     if (mappings.length) this.mappings = mappings;
 
     if (record.attachments && record.attachments.length > 0) {
-      this.attachments = record.attachments.map((a, i) => ({
+      // Filtra caminhos externos absolutos (ex: Downloads) se já existir o comprovante relativo gerenciado na pasta
+      let atts = record.attachments;
+      const hasRelativeManaged = atts.some((a) => a.path && !/^[a-zA-Z]:[\\/]/.test(a.path));
+      if (hasRelativeManaged) {
+        atts = atts.filter((a) => a.path && !/^[a-zA-Z]:[\\/]/.test(a.path));
+      }
+      this.attachments = atts.map((a, i) => ({
         ...a,
         isNew: false,
         ord: a.ord ?? i,
@@ -320,6 +345,22 @@ export class RecordModal {
     this.selectedSourceFile = null;
   }
 
+  /** Retorna a subpasta de destino atualmente resolvida para a categoria e tipo selecionados. */
+  currentResolvedFolder() {
+    const tipoSelect = document.getElementById("field-tipo");
+    const optFolder = tipoSelect?.selectedOptions[0]?.dataset?.folder;
+    if (optFolder) return optFolder;
+    const inpFolder = document.getElementById("field-folder")?.value;
+    if (inpFolder && inpFolder.replace(/[\\/]+$/, "").includes("\\")) return inpFolder;
+    const schema = CATEGORY_SCHEMAS[this.category];
+    const groupName = (schema?.dbGroup || schema?.group || "").toLowerCase();
+    const tipoVal = (tipoSelect?.value || "").toLowerCase();
+    const m = this.mappings.find(
+      (x) => x.category_group.toLowerCase() === groupName && (tipoVal ? x.description.toLowerCase() === tipoVal : true)
+    );
+    return m?.folder || inpFolder || "";
+  }
+
   renderFormFields(schema, record = null) {
     if (!schema) return;
     let html = "";
@@ -333,6 +374,16 @@ export class RecordModal {
       for (const def of DEFAULT_DADOS_GERAIS_MAPPINGS) {
         if (!seen.has(foldKey(def.description))) {
           merged.push({ category_group: "Dados gerais", ...def });
+          seen.add(foldKey(def.description));
+        }
+      }
+      groupMappings = merged;
+    } else if (this.category === "atuacao") {
+      const merged = [...groupMappings];
+      const seen = new Set(merged.map((m) => foldKey(m.description)));
+      for (const def of DEFAULT_ATUACAO_MAPPINGS) {
+        if (!seen.has(foldKey(def.description))) {
+          merged.push({ category_group: "Atuação", ...def });
           seen.add(foldKey(def.description));
         }
       }
@@ -427,8 +478,15 @@ export class RecordModal {
         const selectedOption = tipoSelect.selectedOptions[0];
         const folder = selectedOption?.dataset?.folder;
         if (folder) {
-          document.getElementById("field-folder").value = folder;
+          const folderInput = document.getElementById("field-folder");
+          if (folderInput) folderInput.value = folder;
           this.targetSubfolderPath.textContent = `Destino: ${folder.replace(/[\\/]+$/, "")}\\`;
+          // Atualiza anexos não consolidados para a nova pasta do tipo selecionado
+          for (const att of this.attachments) {
+            if (att.isNew || !att.folder || !att.folder.replace(/[\\/]+$/, "").includes("\\")) {
+              att.folder = folder;
+            }
+          }
         }
         syncDadosGeraisPlaceholder();
       });
@@ -450,7 +508,7 @@ export class RecordModal {
         extensions: ["pdf", "png", "jpg", "jpeg", "docx", "xlsx"],
       });
       if (!pickedFiles || !pickedFiles.length) return;
-      const folder = document.getElementById("field-folder")?.value || "";
+      const folder = this.currentResolvedFolder();
       for (const p of pickedFiles) {
         const fileName = p.split(/[\\/]/).pop() || "documento.pdf";
         this.attachments.push({
@@ -479,8 +537,9 @@ export class RecordModal {
   /** Anexa um arquivo do disco; se for PDF de produção, extrai os metadados. */
   setSourceFile(picked, extract = true) {
     const fileName = picked.split(/[\\/]/).pop() || "documento.pdf";
-    const folder = document.getElementById("field-folder")?.value || "";
-    this.attachments.push({
+    const folder = this.currentResolvedFolder();
+    // Ao arrastar um arquivo, mantém apenas este arquivo para ser copiado para a pasta de destino
+    this.attachments = [{
       id: null,
       file: fileName,
       path: picked,
@@ -488,8 +547,8 @@ export class RecordModal {
       isNew: true,
       folder,
       description: "",
-      ord: this.attachments.length,
-    });
+      ord: 0,
+    }];
     this.renderAttachmentsList();
     const ext = fileName.split(".").pop()?.toUpperCase() || "DOC";
     if (extract && this.category === "producoes" && ext === "PDF") this.extractMetadata(picked);
@@ -789,7 +848,7 @@ export class RecordModal {
       const trimmed = value.trim();
       if (trimmed === "") {
         data[key] = null;
-      } else if (key === "ano" || key === "horas" || key === "alunos") {
+      } else if (key === "ano" || key === "horas" || key === "alunos" || key === "ano_fim") {
         data[key] = Number(trimmed);
       } else {
         data[key] = trimmed;
@@ -800,22 +859,42 @@ export class RecordModal {
     if (idEl && !data.identifier && idEl.dataset.legacy) delete data.identifier;
     if (data.identifier) data.identifier = data.identifier.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "").replace(/^doi:\s*/i, "");
 
+    // Garante que a subpasta de destino corresponda ao tipo selecionado
+    const resolvedFolder = this.currentResolvedFolder();
+    if (resolvedFolder) {
+      data.folder = resolvedFolder;
+      const folderInput = document.getElementById("field-folder");
+      if (folderInput) folderInput.value = resolvedFolder;
+    }
+
+    for (const a of this.attachments) {
+      if (a.isNew || !a.folder || !a.folder.replace(/[\\/]+$/, "").includes("\\")) {
+        a.folder = data.folder || resolvedFolder;
+      }
+    }
+
     // Prepara os múltiplos comprovantes
+    // Apenas comprovantes já gerenciados no disco são serializados em data.attachments.
+    // Comprovantes novos (isNew) são enviados em newSourceFiles para o backend copiar para a pasta de destino!
     const newSourceFiles = this.attachments.filter((a) => a.isNew && a.sourcePath).map((a) => a.sourcePath);
-    const serializedAttachments = this.attachments.map((a, idx) => ({
-      id: a.id || null,
-      file: a.file,
-      path: a.path,
-      folder: a.folder || data.folder,
-      description: a.description || null,
-      ord: idx,
-    }));
+    const serializedAttachments = this.attachments
+      .filter((a) => !a.isNew)
+      .map((a, idx) => ({
+        id: a.id || null,
+        file: a.file,
+        path: a.path,
+        folder: a.folder || data.folder,
+        description: a.description || null,
+        ord: idx,
+      }));
 
     data.attachments = serializedAttachments;
     if (this.attachments.length > 0) {
       data.file = this.attachments[0].file;
       data.path = this.attachments[0].path;
-      data.folder = this.attachments[0].folder || data.folder;
+      if (!data.folder || !data.folder.replace(/[\\/]+$/, "").includes("\\")) {
+        data.folder = this.attachments[0].folder || data.folder;
+      }
     } else {
       data.file = null;
       data.path = null;

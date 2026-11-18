@@ -312,9 +312,9 @@ export async function invokeCommand(cmd, args = {}) {
   }
 }
 
-async function rawInvoke(cmd, args) {
+async function rawInvoke(cmd, args, options = undefined) {
   if (window.__TAURI__?.core?.invoke) {
-    return await window.__TAURI__.core.invoke(cmd, args);
+    return await window.__TAURI__.core.invoke(cmd, args, options);
   } else if (window.__TAURI__?.invoke) {
     return await window.__TAURI__.invoke(cmd, args);
   } else if (window.__TAURI_INTERNALS__?.invoke) {
@@ -464,6 +464,8 @@ export const api = {
   selectSavePath: (suggestedName, kind = "pdf") => invokeCommand("select_save_path", { suggestedName, kind }),
   /** Envia o PDF como corpo binário (sem JSON). */
   writeReport: (bytes) => invokeCommand("write_report", bytes),
+  writePreviewTemp: (filename, bytes) =>
+    hasTauri() ? rawInvoke("write_preview_temp", bytes, { headers: { "x-filename": filename } }) : Promise.resolve(null),
   compressPdf: async (bytes) => new Uint8Array(await invokeCommand("compress_pdf", bytes)),
   extractPdfMetadata: (path, online = true) => invokeCommand("extract_pdf_metadata", { path, online }),
   selectPdfFile: () => invokeCommand("select_source_file"),

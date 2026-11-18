@@ -464,7 +464,7 @@ export class SettingsView {
     if (!panel) return;
     const { list, edit } = this.cc || { list: [], edit: null };
     const customByKey = new Map(list.map((c) => [c.key, c]));
-    const allCats = Object.entries(CATEGORY_SCHEMAS);
+    const allCats = Object.entries(CATEGORY_SCHEMAS).filter(([, s]) => !s.legacy);
     const allKeys = allCats.map(([k]) => k);
     const defaultKeys = [
       ...DEFAULT_CATEGORY_ORDER.filter((k) => CATEGORY_SCHEMAS[k]),

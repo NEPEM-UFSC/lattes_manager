@@ -44,6 +44,41 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const pad2 = (n) => String(n).padStart(2, "0");
 
+export const CATEGORY_EMOJIS = {
+  producoes: "📄",
+  "produções": "📄",
+  "produção": "📄",
+  "produções intelectuais": "📄",
+  ensino: "👨‍🏫",
+  orientacoes: "🧑‍🎓",
+  "orientações": "🧑‍🎓",
+  bancas: "⚖️",
+  projetos: "🔬",
+  patentes: "💡",
+  "patentes e registros": "💡",
+  inovacao: "🚀",
+  "inovação": "🚀",
+  eventos: "🎙️",
+  "participação em eventos": "🎙️",
+  atuacao: "💼",
+  "atuação": "💼",
+  "atuação profissional": "💼",
+  formacao: "🎓",
+  "formação": "🎓",
+  "formação acadêmica": "🎓",
+  gerais: "👤",
+  "dados gerais": "👤",
+};
+
+export function getCategoryEmoji(nameOrKey) {
+  const k = String(nameOrKey || "").trim().toLowerCase();
+  if (CATEGORY_EMOJIS[k]) return CATEGORY_EMOJIS[k];
+  for (const [cat, emoji] of Object.entries(CATEGORY_EMOJIS)) {
+    if (k.includes(cat)) return emoji;
+  }
+  return "📑";
+}
+
 /**
  * @param {object} cfg
  *  - profile: { nome, resumo, rows: [[rótulo, valor]], photo: bytes PNG/JPG ou null }
@@ -125,6 +160,32 @@ export async function buildReport(cfg) {
     } catch { }
   }
 
+  // Pre-renderização e embutimento de emojis em alta resolução via Canvas
+  const emojiCache = new Map();
+  async function embedEmoji(emoji, size = 128) {
+    if (!emoji) return null;
+    if (emojiCache.has(emoji)) return emojiCache.get(emoji);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, size, size);
+      ctx.font = `${Math.round(size * 0.72)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(emoji, size / 2, size / 2 + size * 0.05);
+      const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+      const arrayBuf = await blob.arrayBuffer();
+      const embedded = await doc.embedPng(new Uint8Array(arrayBuf));
+      emojiCache.set(emoji, embedded);
+      return embedded;
+    } catch (e) {
+      console.warn("Falha ao gerar emoji canvas:", emoji, e);
+      return null;
+    }
+  }
+
   const sections = cfg.sections.filter((s) => s.items.length);
   for (const s of sections) {
     const t = {};
@@ -146,47 +207,101 @@ export async function buildReport(cfg) {
   {
     const p = doc.addPage(A4);
     const [W, H] = A4;
-    const bandH = 400;
+    const bandH = 430;
     gradient(p, 0, H - bandH, W, bandH, C.indigo, C.cyan);
-    // formas decorativas
-    p.drawCircle({ x: W - 40, y: H - 60, size: 170, color: hex(C.white), opacity: 0.07 });
-    p.drawCircle({ x: W - 120, y: H - 300, size: 90, color: hex(C.white), opacity: 0.06 });
-    p.drawCircle({ x: 40, y: H - bandH + 140, size: 125, color: hex(C.violet), opacity: 0.22 });
-    for (let i = 0; i < 9; i++) p.drawLine({ start: { x: W - 260 + i * 26, y: H - bandH }, end: { x: W + i * 26, y: H - bandH + 260 }, thickness: 0.6, color: hex(C.white), opacity: 0.08 });
+
+    // Formas decorativas modernas e suaves
+    p.drawCircle({ x: W - 30, y: H - 50, size: 190, color: hex(C.white), opacity: 0.06 });
+    p.drawCircle({ x: W - 140, y: H - 320, size: 100, color: hex(C.white), opacity: 0.05 });
+    p.drawCircle({ x: 30, y: H - bandH + 160, size: 140, color: hex(C.violet), opacity: 0.20 });
+    for (let i = 0; i < 11; i++) {
+      p.drawLine({
+        start: { x: W - 280 + i * 26, y: H - bandH },
+        end: { x: W + i * 26, y: H - bandH + 280 },
+        thickness: 0.6,
+        color: hex(C.white),
+        opacity: 0.07,
+      });
+    }
+
+    // Header com Logo ampliado e identidade visual moderna (sem caixa ao redor)
+    const logoSize = 92;
+    const logoTop = H - 42;
 
     if (logo) {
-      // logo com fundo transparente direto sobre a faixa da capa
-      const d = logo.scaleToFit(64, 64);
-      p.drawImage(logo, { x: M + (64 - d.width) / 2, y: H - 70 - 64 + (64 - d.height) / 2, width: d.width, height: d.height });
+      const d = logo.scaleToFit(logoSize, logoSize);
+      p.drawImage(logo, {
+        x: M,
+        y: logoTop - d.height,
+        width: d.width,
+        height: d.height,
+      });
     }
-    text(p, "LATTES MANAGER", M + 78, H - 98, { font: F.bold, size: 9, color: C.white, opacity: 0.85 });
-    text(p, `Relatório de comprovantes · ${today}`, M + 78, H - 112, { size: 9, color: C.white, opacity: 0.75 });
 
-    // foto 3×4 em moldura branca, à direita da faixa; o texto ocupa o espaço que sobra
-    const PH_W = 132, PH_H = PH_W / PHOTO_ASPECT, PH_PAD = 5;
+    // Branding ao lado do logo
+    const brandX = M + logoSize + 18;
+    rrect(p, brandX, logoTop - 6, 120, 18, 9, { color: hex(C.white), opacity: 0.20 });
+    text(p, "LATTES MANAGER", brandX + 11, logoTop - 18.5, { font: F.bold, size: 8.5, color: C.white });
+    text(p, "Dossiê Consolidado de Comprovantes", brandX, logoTop - 44, { font: F.semi, size: 11.5, color: C.white, opacity: 0.95 });
+    text(p, `Emitido em ${today}`, brandX, logoTop - 62, { font: F.reg, size: 9, color: C.white, opacity: 0.82 });
+
+    // Foto 3×4 em moldura com sombra suave à direita
+    const PH_W = 126, PH_H = PH_W / PHOTO_ASPECT, PH_PAD = 4;
     let textW = W - 2 * M;
     if (photo) {
-      const fx = W - M - PH_W, fTop = H - 150;
-      rrect(p, fx + 3, fTop - 5, PH_W, PH_H, 12, { color: hex(C.ink), opacity: 0.22 });
+      const fx = W - M - PH_W, fTop = H - 155;
+      rrect(p, fx + 3, fTop - 4, PH_W, PH_H, 12, { color: hex(C.ink), opacity: 0.25 });
       rrect(p, fx, fTop, PH_W, PH_H, 12, { color: hex(C.white) });
       p.drawImage(photo, { x: fx + PH_PAD, y: fTop - PH_H + PH_PAD, width: PH_W - 2 * PH_PAD, height: PH_H - 2 * PH_PAD });
       textW -= PH_W + 28;
     }
 
-    let y = H - 210;
-    text(p, "COMPROVANTES", M, y + 34, { font: F.bold, size: 11, color: C.white, opacity: 0.8 });
-    const titleSize = photo ? 26 : 30;
-    for (const line of wrap(cfg.title || "Comprovantes do Currículo Lattes", F.bold, titleSize, textW).slice(0, 3)) {
-      text(p, line, M, y, { font: F.bold, size: titleSize, color: C.white });
+    // Badge de identificação superior (espaçamento corrigido sem sobreposição)
+    const badgeTop = H - 152;
+    rrect(p, M, badgeTop, 185, 20, 10, { color: hex(C.white), opacity: 0.18 });
+    text(p, "DOCUMENTAÇÃO COMPROBATÓRIA", M + 12, badgeTop - 14, { font: F.bold, size: 8.5, color: C.white, opacity: 0.95 });
+
+    // Título e dados principais com emoji da classe em tamanho grande
+    let y = H - 212;
+    const mainCatEmoji = sections.length === 1 ? getCategoryEmoji(sections[0].key || sections[0].name) : getCategoryEmoji(cfg.title || "producoes");
+    const mainEmImg = await embedEmoji(mainCatEmoji, 128);
+
+    const titleSize = photo ? 24 : 28;
+    let titleX = M;
+    let availTitleW = textW;
+    if (mainEmImg) {
+      const emSize = 42;
+      p.drawImage(mainEmImg, { x: M, y: y - 10, width: emSize, height: emSize });
+      titleX = M + emSize + 12;
+      availTitleW -= emSize + 12;
+    }
+
+    for (const line of wrap(cfg.title || "Comprovantes do Currículo Lattes", F.bold, titleSize, availTitleW).slice(0, 3)) {
+      text(p, line, titleX, y, { font: F.bold, size: titleSize, color: C.white });
       y -= titleSize + 6;
     }
-    y -= 10;
-    const nameLines = wrap(cfg.profile.nome || "", F.semi, 18, textW).slice(0, 2);
-    nameLines.forEach((line, i) => text(p, line, M, y - i * 22, { font: F.semi, size: 18, color: C.white }));
-    y -= Math.max(0, nameLines.length - 1) * 22;
-    if (cfg.subtitle) text(p, ellipsize(cfg.subtitle, F.reg, 11, textW), M, y - 22, { size: 11, color: C.white, opacity: 0.85 });
+    y -= 14;
 
-    // cartão de identificação
+    const authorName = cfg.profile.nome || "";
+    if (authorName) {
+      const nameLines = wrap(authorName, F.bold, 20, textW).slice(0, 2);
+      nameLines.forEach((line, i) => text(p, line, M, y - i * 24, { font: F.bold, size: 20, color: C.white }));
+      y -= Math.max(0, nameLines.length - 1) * 24 + 18;
+    }
+
+    if (cfg.subtitle) {
+      const isPreview = /pré-visualização|preview/i.test(cfg.subtitle);
+      if (isPreview) {
+        const subW = width("Pré-visualização", F.semi, 10) + 36;
+        rrect(p, M, y + 2, subW, 20, 10, { color: hex(C.white), opacity: 0.22 });
+        p.drawCircle({ x: M + 11, y: y - 8, size: 3.5, color: hex(C.warn) });
+        text(p, "Pré-visualização", M + 20, y - 11.5, { font: F.semi, size: 10, color: C.white });
+      } else {
+        text(p, ellipsize(cfg.subtitle, F.reg, 11, textW), M, y - 10, { size: 11, color: C.white, opacity: 0.88 });
+      }
+    }
+
+    // Cartão de identificação executivo
     const totalWithoutFile = totalItems - totalFiles;
     const contentLabel = totalWithoutFile > 0
       ? `${plural(totalItems, "documento", "documentos")} · ${totalWithoutFile} sem comprovante`
@@ -196,11 +311,11 @@ export async function buildReport(cfg) {
       ["Período", cfg.periodLabel],
       ["Conteúdo", contentLabel],
     ].filter((r) => r[1]);
-    // muitos campos: duas colunas (valores longos ocupam a linha toda)
+
     const fullW = W - 2 * M - 44;
     const colW = (fullW - 18) / 2;
-    const twoCol = rows.length > 6;
-    const fs = twoCol ? 10.5 : 11;
+    const twoCol = rows.length > 5;
+    const fs = twoCol ? 10 : 10.5;
     const cells = [];
     let col = 0, line = 0;
     for (const [k, v] of rows) {
@@ -210,32 +325,52 @@ export async function buildReport(cfg) {
       if (wide || col === 1) { col = 0; line++; } else col = 1;
     }
     const nLines = col === 1 ? line + 1 : line;
-    const rowH = twoCol ? 27 : 30;
-    const cardTop = H - bandH - 36;
-    const cardH = 26 + nLines * rowH;
+    const rowH = twoCol ? 28 : 31;
+    const cardTop = H - bandH - 28;
+    const cardH = 34 + nLines * rowH;
+
+    // Sombra suave do cartão
+    rrect(p, M + 1, cardTop - 2, W - 2 * M, cardH, 14, { color: hex(C.ink), opacity: 0.05 });
     rrect(p, M, cardTop, W - 2 * M, cardH, 14, { color: hex(C.white), borderColor: hex(C.line), borderWidth: 1 });
-    p.drawRectangle({ x: M, y: cardTop - cardH + 14, width: 4, height: cardH - 28, color: hex(C.indigo) });
+    // Faixa vertical de destaque
+    p.drawRectangle({ x: M, y: cardTop - cardH + 14, width: 4.5, height: cardH - 28, color: hex(C.indigo) });
+
+    text(p, "RESUMO DE IDENTIFICAÇÃO E ESCOPO", M + 22, cardTop - 18, { font: F.bold, size: 8, color: C.faint });
+    p.drawLine({ start: { x: M + 20, y: cardTop - 24 }, end: { x: W - M - 20, y: cardTop - 24 }, thickness: 0.6, color: hex(C.line), opacity: 0.8 });
+
     for (const c of cells) {
-      const ry = cardTop - 32 - c.line * rowH;
+      const ry = cardTop - 42 - c.line * rowH;
       text(p, c.k.toUpperCase(), c.x, ry + 10, { font: F.semi, size: 7.5, color: C.faint });
       text(p, ellipsize(c.v, F.reg, fs, c.w), c.x, ry - 3, { size: fs, color: C.ink });
     }
 
-    // chips das seções
-    let cx = M, cy = cardTop - cardH - 30;
-    text(p, "SEÇÕES INCLUÍDAS", M, cy + 8, { font: F.semi, size: 7.5, color: C.faint });
+    // Chips das seções incluídas com emojis das classes
+    let cx = M, cy = cardTop - cardH - 26;
+    text(p, "SEÇÕES INCLUÍDAS NESTE RELATÓRIO", M, cy + 8, { font: F.bold, size: 7.5, color: C.faint });
     cy -= 12;
     for (const s of sections) {
+      const secEmoji = getCategoryEmoji(s.key || s.name);
+      const chipEmImg = await embedEmoji(secEmoji, 64);
       const label = `${s.name}  ${s.items.length}`;
-      const w = width(label, F.semi, 9) + 22;
+      const w = width(label, F.semi, 9) + (chipEmImg ? 34 : 24);
       if (cx + w > W - M) { cx = M; cy -= 26; }
-      if (cy < FOOT_H + 30) break;
-      rrect(p, cx, cy, w, 20, 10, { color: hex(s.color), opacity: 0.12 });
-      p.drawCircle({ x: cx + 9, y: cy - 10, size: 3, color: hex(s.color) });
-      text(p, label, cx + 16, cy - 13.5, { font: F.semi, size: 9, color: C.ink });
-      chipLinks.push({ page: p, rect: [cx, cy - 20, cx + w, cy], s });
+      if (cy < FOOT_H + 34) break;
+      rrect(p, cx, cy, w, 21, 10.5, { color: hex(s.color), opacity: 0.12 });
+      if (chipEmImg) {
+        p.drawImage(chipEmImg, { x: cx + 7, y: cy - 16, width: 12, height: 12 });
+        text(p, label, cx + 22, cy - 14, { font: F.semi, size: 9, color: C.ink });
+      } else {
+        p.drawCircle({ x: cx + 10, y: cy - 10.5, size: 3.5, color: hex(s.color) });
+        text(p, label, cx + 18, cy - 14, { font: F.semi, size: 9, color: C.ink });
+      }
+      chipLinks.push({ page: p, rect: [cx, cy - 21, cx + w, cy], s });
       cx += w + 8;
     }
+
+    // Rodapé institucional da capa
+    p.drawLine({ start: { x: M, y: FOOT_H + 22 }, end: { x: W - M, y: FOOT_H + 22 }, thickness: 0.6, color: hex(C.line), opacity: 0.6 });
+    text(p, "Lattes Manager · Sistema de Gestão e Comprovação do Currículo Lattes", M, FOOT_H + 10, { font: F.reg, size: 8, color: C.faint });
+    text(p, "Documento gerado eletronicamente", W - M - 142, FOOT_H + 10, { font: F.reg, size: 8, color: C.faint });
   }
 
   // =====================================================================
@@ -283,13 +418,23 @@ export async function buildReport(cfg) {
     text(p, pad2(num), M, H - 92, { font: F.bold, size: 54, color: C.white, opacity: 0.9 });
     const nx = M + width(pad2(num), F.bold, 54) + 18;
     text(p, `SEÇÃO ${num}`, nx, H - 62, { font: F.semi, size: 9, color: C.white, opacity: 0.8 });
-    text(p, ellipsize(s.name, F.bold, 24, W - nx - M), nx, H - 90, { font: F.bold, size: 24, color: C.white });
+    text(p, ellipsize(s.name, F.bold, 24, W - nx - M - 90), nx, H - 90, { font: F.bold, size: 24, color: C.white });
     const withFile = s.items.filter((i) => i.path).length;
     const withoutFile = s.items.length - withFile;
     const countSummary = withoutFile > 0
       ? `${plural(s.items.length, "documento", "documentos")} · ${withoutFile} sem comprovante`
       : plural(s.items.length, "documento", "documentos");
     text(p, countSummary, nx, H - 110, { size: 10, color: C.white, opacity: 0.85 });
+
+    // Emoji relativamente grande da classe no banner da seção (sem caixa ao redor)
+    const secEmoji = getCategoryEmoji(s.key || s.name);
+    const secEmImg = await embedEmoji(secEmoji, 128);
+    if (secEmImg) {
+      const emSize = 58;
+      const emX = W - M - emSize - 12;
+      const emY = H - 105;
+      p.drawImage(secEmImg, { x: emX, y: emY, width: emSize, height: emSize });
+    }
 
     let y = H - 180;
     const colX = M + 46;
@@ -662,14 +807,21 @@ export async function buildReport(cfg) {
       if (y < FOOT_H + 40) { p = tocPages[++ti] || p; y = A4[1] - 70; }
       fn(p, y);
     };
-    sections.forEach((s, si) => {
+    for (const [si, s] of sections.entries()) {
+      const secEmoji = getCategoryEmoji(s.key || s.name);
+      const tocEmImg = await embedEmoji(secEmoji, 64);
       line((pg, yy) => {
         rrect(pg, M, yy + 13, 26, 18, 6, { color: hex(s.color) });
         text(pg, pad2(si + 1), M + 13 - width(pad2(si + 1), F.bold, 9) / 2, yy - 0.5, { font: F.bold, size: 9, color: C.white });
-        text(pg, s.name, M + 38, yy, { font: F.bold, size: 12, color: C.ink });
+        let titleOffset = M + 38;
+        if (tocEmImg) {
+          pg.drawImage(tocEmImg, { x: M + 36, y: yy - 3, width: 14, height: 14 });
+          titleOffset = M + 54;
+        }
+        text(pg, s.name, titleOffset, yy, { font: F.bold, size: 12, color: C.ink });
         const right = `${plural(s.items.length, "documento", "documentos")}    p. ${s.startPage}`;
         const rw = width(right, F.semi, 10);
-        const lx = M + 38 + width(s.name, F.bold, 12) + 8;
+        const lx = titleOffset + width(s.name, F.bold, 12) + 8;
         pg.drawLine({ start: { x: lx, y: yy + 3 }, end: { x: W - M - rw - 8, y: yy + 3 }, thickness: 0.7, color: hex(C.line), dashArray: [1.5, 3] });
         text(pg, right, W - M - rw, yy, { font: F.semi, size: 10, color: C.text });
         addLink(pg, [M, yy - 6, W - M, yy + 14], s.startPage);
@@ -686,7 +838,7 @@ export async function buildReport(cfg) {
         y -= 16;
       }
       y -= 10;
-    });
+    }
     if (qrStart) {
       line((pg, yy) => {
         rrect(pg, M, yy + 13, 26, 18, 6, { color: hex(C.ink) });
@@ -821,8 +973,8 @@ function shortUrl(url) {
   return url.replace(/^https?:\/\//i, "").replace(/^(dx\.)?doi\.org\//i, "doi:").replace(/\/$/, "");
 }
 
-/** Reduz imagens (PNG/JPG) para até 1500 px no lado maior e comprime em JPEG 72% quando o modo leve está ativo. */
-async function compressImageBytes(bytes, maxDim = 1500, quality = 0.72) {
+/** Reduz imagens (PNG/JPG) para até 1100 px no lado maior e comprime em JPEG 58% quando o modo leve está ativo. */
+async function compressImageBytes(bytes, maxDim = 1100, quality = 0.58) {
   const bmp = await createImageBitmap(new Blob([bytes]));
   const ratio = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
   const outW = Math.max(1, Math.round(bmp.width * ratio));

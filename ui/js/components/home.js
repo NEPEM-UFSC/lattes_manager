@@ -7,14 +7,17 @@ import { PALETTE } from "./charts.js";
 const CAT_ICONS = {
   dadosgerais: "👤",
   formacao: "🎓",
-  encargos: "🏛️",
-  disciplinas: "📚",
+  atuacao: "💼",
   projetos: "🔬",
   producoes: "📄",
   patentes: "💡",
+  inovacao: "🚀",
+  educacao_popularizacao: "📢",
   eventos: "🎙️",
   orientacoes: "👥",
   bancas: "⚖️",
+  encargos: "🏛️",
+  disciplinas: "📚",
 };
 
 const EXTERNAL_LINKS = [

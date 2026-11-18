@@ -1561,7 +1561,14 @@ export class ToolsView {
 
           new ProofPickerModal({
             currentCategory: item.category,
-            records: [{ id: item.id, category: item.category, title: item.titulo, ano: item.ano }],
+            records: [{
+              id: item.id,
+              category: item.category,
+              title: item.titulo,
+              ano: item.ano,
+              path: item.path,
+              tipo: item.nivel,
+            }],
             onSelect: (chosen) => {
               showToast(`✓ Comprovante "${chosen.file}" vinculado com sucesso ao registro #${item.id}!`, "success", 4000);
               // Remove este item da lista de ausentes
