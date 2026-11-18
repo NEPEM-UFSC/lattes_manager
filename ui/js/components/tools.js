@@ -403,6 +403,7 @@ const TOOLS = [
   ["padronizar", "✨", "Padronizar textos dos registros", "Corrige MAIÚSCULAS, espaços duplos e capitalização de nomes de alunos, títulos e periódicos — com prévia antes de aplicar."],
   ["renomear", "🏷️", "Renomear comprovantes", "Renomeia os arquivos pelo título do registro: 001_titulo_do_trabalho.pdf (sem acentos, com _), atualizando os vínculos."],
   ["verificar", "🩺", "Verificar arquivos", "Encontra registros cujo arquivo sumiu da pasta e arquivos nas pastas que não estão ligados a nenhum registro."],
+  ["folders_audit", "🗂️", "Auditoria e Limpeza de Pastas", "Varre a pasta raiz recursivamente para identificar pastas em branco, pastas sem vínculo com subpastas e arquivos soltos, com opções para remover, criar ou vincular."],
   ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista."],
   ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref."],
   ["duplicatas", "👯", "Duplicatas e vínculos", "Abre o assistente que liga arquivos soltos aos registros e mostra possíveis registros duplicados."],
@@ -434,7 +435,7 @@ export class ToolsView {
 
   isRunning(k) {
     const s = this.states[k];
-    return Boolean(s && (s.running || s.scholarSyncing || s.scanning));
+    return Boolean(s && (s.running || s.scholarSyncing || s.scanning || s.batchFindingDois));
   }
 
   syncBackgroundBadge() {
@@ -528,6 +529,7 @@ export class ToolsView {
       padronizar: () => this.toolTidy(),
       renomear: () => this.toolRename(),
       verificar: () => this.toolCheck(),
+      folders_audit: () => this.toolFoldersAudit(),
       qualis: () => this.toolQualis(),
       pdfs: () => this.toolPdfs(),
       dois: () => this.toolDois(),
@@ -728,6 +730,12 @@ export class ToolsView {
           const rep = await api.syncScholarCitations(authorId, apiKey);
           st.scholarReport = rep;
           st.scholarConfig = await api.getScholarConfig();
+          const unState = this.getState("scholar_unmatched");
+          if (unState) {
+            unState.data = null;
+            unState.ignoredIds?.clear();
+            unState.selectedScholarIds?.clear();
+          }
           showToast(`Sincronização concluída! ${rep.matched_count} artigos atualizados.`, "success", 4000);
           this.onChanged && this.onChanged();
         } catch (e) {
@@ -752,6 +760,8 @@ export class ToolsView {
     const st = this.state;
     st.filterQuery ??= "";
     st.registeredIds ??= new Set();
+    st.ignoredIds ??= new Set();
+    st.selectedScholarIds ??= new Set();
 
     if (!st.data && !st.loading) {
       st.loading = true;
@@ -798,7 +808,10 @@ export class ToolsView {
 
     const rep = st.data || { author_name: "", total_scholar: 0, total_matched: 0, unmatched: [] };
     const allUnmatched = rep.unmatched || [];
-    const remainingUnmatched = allUnmatched.filter((it, idx) => !st.registeredIds.has(it.scholar_id || String(idx)));
+    const remainingUnmatched = allUnmatched.filter((it, idx) => {
+      const sId = it.scholar_id || String(idx);
+      return !st.registeredIds.has(sId) && !st.ignoredIds.has(sId);
+    });
     const q = (st.filterQuery || "").trim().toLowerCase();
     const visibleList = remainingUnmatched.filter((it) => {
       if (!q) return true;
@@ -809,6 +822,32 @@ export class ToolsView {
       const d = (it.doi || "").toLowerCase();
       return t.includes(q) || j.includes(q) || y.includes(q) || a.includes(q) || d.includes(q);
     });
+
+    const missingDoiCount = remainingUnmatched.filter((it) => !it.doi || !String(it.doi).trim()).length;
+    const isBatchRunning = Boolean(st.batchFindingDois);
+    const batchProg = st.batchProgress || { current: 0, total: 0, found: 0, currentTitle: "" };
+
+    const renderDoiCell = (doi, sId) => {
+      const hasDoi = Boolean(doi && String(doi).trim());
+      const doiClean = hasDoi ? String(doi).trim() : "";
+      if (hasDoi) {
+        return `
+          <div style="display:inline-flex; align-items:center; gap:5px;">
+            <button type="button" class="btn-doi-link" data-open-doi="${escapeHtml(doiClean)}" style="background:none;border:none;padding:0;display:inline-flex;align-items:center;gap:4px;font-family:monospace;font-size:11.5px;color:var(--primary);text-decoration:underline;text-underline-offset:2px;cursor:pointer;" title="Abrir DOI ${escapeHtml(doiClean)} no navegador">
+              <span>🌐</span><span style="max-width:115px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(doiClean)}</span>
+            </button>
+            <button type="button" class="btn-copy-doi ibtn" data-copy-doi="${escapeHtml(doiClean)}" style="padding:2px 5px; font-size:11px; line-height:1; border-radius:4px; opacity:0.85;" title="Copiar DOI (${escapeHtml(doiClean)})">
+              📋
+            </button>
+          </div>
+        `;
+      }
+      return `
+        <button type="button" class="btn btn-secondary btn-xs" data-find-doi="${escapeHtml(sId)}" style="font-size:11px; padding:3px 8px;">
+          🔍 Buscar DOI
+        </button>
+      `;
+    };
 
     this.shell(
       "Artigos do Scholar ausentes no Lattes",
@@ -841,8 +880,22 @@ export class ToolsView {
           <div style="flex:1; min-width:260px; max-width:480px;">
             <input type="search" id="scholar-unmatched-search" class="form-input" placeholder="Filtrar por título, periódico, ano ou DOI..." value="${escapeHtml(st.filterQuery || "")}" style="width:100%;" />
           </div>
-          <div style="display:flex; gap:8px;">
-            <button type="button" class="btn btn-secondary btn-sm" id="btn-scholar-force-refresh" title="Recarrega os artigos diretamente da API do Google Scholar">
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            ${st.selectedScholarIds.size > 0 ? `
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-scholar-ignore-selected" style="color:var(--danger, #ef4444); border-color:var(--danger-border, rgba(239,68,68,0.35)); font-weight:600;" title="Ocultar os artigos selecionados até a próxima sincronização com o Lattes">
+                🚫 Ignorar selecionados (${st.selectedScholarIds.size})
+              </button>
+            ` : ""}
+            ${isBatchRunning ? `
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-scholar-stop-batch-doi" style="color:var(--danger); border-color:var(--danger-border, rgba(239,68,68,0.35)); font-weight:600;" title="Interromper busca de DOIs">
+                ■ Parar busca (${batchProg.current}/${batchProg.total})
+              </button>
+            ` : `
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-scholar-find-all-dois" ${missingDoiCount === 0 ? "disabled" : ""} title="Busca automaticamente o DOI de todos os artigos pendentes pela Crossref">
+                ⚡ Buscar todos os DOIs ${missingDoiCount > 0 ? `(${missingDoiCount})` : ""}
+              </button>
+            `}
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-scholar-force-refresh" title="Recarrega os artigos diretamente da API do Google Scholar" ${isBatchRunning ? "disabled" : ""}>
               🔄 Atualizar do Scholar
             </button>
             <button type="button" class="btn btn-secondary btn-sm" id="btn-scholar-view-metrics" title="Ver métricas completas do Google Scholar">
@@ -850,6 +903,28 @@ export class ToolsView {
             </button>
           </div>
         </div>
+
+        ${st.ignoredIds.size > 0 ? `
+          <div style="margin-top:14px; padding:10px 16px; background:var(--surface-2); border-radius:10px; border:1px solid var(--border-light); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div style="font-size:12.5px; color:var(--text-secondary); display:flex; align-items:center; gap:8px;">
+              <span style="font-size:16px;">🚫</span>
+              <span><b>${st.ignoredIds.size}</b> artigo(s) ignorado(s) (ocultos até a próxima sincronização com o Lattes).</span>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-restore-ignored-scholar" style="font-size:11.5px; padding:4px 10px; white-space:nowrap;" title="Restaurar artigos ignorados nesta listagem">
+              ↺ Restaurar ignorados (${st.ignoredIds.size})
+            </button>
+          </div>
+        ` : ""}
+
+        ${isBatchRunning ? `
+          <div style="margin-top:12px; padding:10px 14px; background:var(--surface-2); border-radius:10px; border:1px solid var(--border-light);">
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; margin-bottom:6px;">
+              <span id="scholar-batch-progress-label"><b>Buscando DOIs…</b> ${batchProg.current} de ${batchProg.total} analisado(s) · <b style="color:var(--success);">${batchProg.found} encontrado(s)</b></span>
+              <span style="color:var(--text-muted); font-size:11px; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" id="scholar-batch-cur-title">${escapeHtml(batchProg.currentTitle || "")}</span>
+            </div>
+            <div class="tl-progress" style="margin:0;"><i style="width:${batchProg.total ? Math.round((batchProg.current / batchProg.total) * 100) : 0}%"></i></div>
+          </div>
+        ` : ""}
 
         ${remainingUnmatched.length === 0 ? `
           <div class="tl-empty" style="margin-top:24px;">
@@ -862,25 +937,30 @@ export class ToolsView {
             <table class="data-table">
               <thead>
                 <tr>
-                  <th style="width:45px; text-align:center;">#</th>
+                  <th style="width:38px; text-align:center;">
+                    <input type="checkbox" id="scholar-select-all" title="Selecionar todos os artigos visíveis" />
+                  </th>
+                  <th style="width:40px; text-align:center;">#</th>
                   <th style="width:65px; text-align:center;">Ano</th>
                   <th>Título da Obra</th>
                   <th style="width:230px;">Revista / Periódico</th>
                   <th style="width:75px; text-align:center;">Citações</th>
-                  <th style="width:170px;">DOI</th>
+                  <th style="width:185px;">DOI</th>
                   <th style="width:145px; text-align:center;">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 ${visibleList.length === 0 ? `
-                  <tr><td colspan="7" style="text-align:center; padding:24px; color:var(--text-muted);">Nenhum artigo corresponde à busca informada.</td></tr>
+                  <tr><td colspan="8" style="text-align:center; padding:24px; color:var(--text-muted);">Nenhum artigo corresponde à busca informada.</td></tr>
                 ` : visibleList.map((it, idx) => {
-                  const sId = it.scholar_id || String(allUnmatched.indexOf(it));
-                  const isRegistered = st.registeredIds.has(sId);
-                  const hasDoi = Boolean(it.doi && String(it.doi).trim());
-                  const doiClean = hasDoi ? String(it.doi).trim() : "";
-                  return `
-                    <tr data-row-id="${escapeHtml(sId)}">
+        const sId = it.scholar_id || String(allUnmatched.indexOf(it));
+        const isRegistered = st.registeredIds.has(sId);
+        const isSelected = st.selectedScholarIds.has(sId);
+        return `
+                    <tr data-row-id="${escapeHtml(sId)}" class="${isSelected ? "row-selected" : ""}">
+                      <td style="text-align:center;">
+                        <input type="checkbox" class="scholar-row-chk" data-scholar-id="${escapeHtml(sId)}" ${isSelected ? "checked" : ""} />
+                      </td>
                       <td style="text-align:center; color:var(--text-muted); font-size:11px;">${idx + 1}</td>
                       <td style="text-align:center; font-weight:600;">${it.year || "—"}</td>
                       <td>
@@ -898,15 +978,7 @@ export class ToolsView {
                         </span>
                       </td>
                       <td data-cell-doi="${escapeHtml(sId)}">
-                        ${hasDoi ? `
-                          <a href="https://doi.org/${escapeHtml(doiClean)}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:4px; font-family:monospace; font-size:11.5px; color:var(--primary); text-decoration:none;" title="Abrir DOI">
-                            <span>🌐</span><span style="max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(doiClean)}</span>
-                          </a>
-                        ` : `
-                          <button type="button" class="btn btn-secondary btn-xs" data-find-doi="${escapeHtml(sId)}" style="font-size:11px; padding:3px 8px;">
-                            🔍 Buscar DOI
-                          </button>
-                        `}
+                        ${renderDoiCell(it.doi, sId)}
                       </td>
                       <td style="text-align:center;">
                         ${isRegistered ? `
@@ -914,14 +986,19 @@ export class ToolsView {
                             ✓ Cadastrado
                           </span>
                         ` : `
-                          <button type="button" class="btn btn-primary btn-xs" data-create-art="${escapeHtml(sId)}" style="white-space:nowrap; padding:4px 10px; font-size:11.5px; font-weight:600; border-radius:6px;">
-                            ✨ Cadastrar
-                          </button>
+                          <div style="display:flex; gap:6px; justify-content:center; align-items:center;">
+                            <button type="button" class="btn btn-primary btn-xs" data-create-art="${escapeHtml(sId)}" style="white-space:nowrap; padding:4px 10px; font-size:11.5px; font-weight:600; border-radius:6px;" title="Cadastrar em Produções">
+                              ✨ Cadastrar
+                            </button>
+                            <button type="button" class="btn btn-secondary btn-xs" data-ignore-art="${escapeHtml(sId)}" style="padding:4px 8px; font-size:11.5px; border-radius:6px;" title="Ignorar este artigo até a próxima sincronização com o Lattes">
+                              🚫
+                            </button>
+                          </div>
                         `}
                       </td>
                     </tr>
                   `;
-                }).join("")}
+      }).join("")}
               </tbody>
             </table>
           </div>
@@ -944,8 +1021,42 @@ export class ToolsView {
     this.el.querySelector("#btn-scholar-force-refresh")?.addEventListener("click", () => {
       st.forceRefresh = true;
       st.data = null;
+      st.ignoredIds?.clear();
+      st.selectedScholarIds?.clear();
       this.toolScholarUnmatched();
     });
+
+    this.el.querySelector("#btn-scholar-ignore-selected")?.addEventListener("click", () => {
+      const count = st.selectedScholarIds.size;
+      if (count === 0) return;
+      st.selectedScholarIds.forEach((id) => st.ignoredIds.add(id));
+      st.selectedScholarIds.clear();
+      showToast(`${count} artigo(s) ignorado(s) até a próxima sincronização com o Lattes.`, "info", 3500);
+      this.toolScholarUnmatched();
+    });
+
+    this.el.querySelector("#btn-restore-ignored-scholar")?.addEventListener("click", () => {
+      const count = st.ignoredIds.size;
+      st.ignoredIds.clear();
+      showToast(`${count} artigo(s) ignorado(s) restaurado(s) na listagem.`, "success", 3000);
+      this.toolScholarUnmatched();
+    });
+
+    const selectAllChk = this.el.querySelector("#scholar-select-all");
+    if (selectAllChk && visibleList.length > 0) {
+      const visibleIds = visibleList.map((it) => it.scholar_id || String(allUnmatched.indexOf(it)));
+      const selectedCount = visibleIds.filter((id) => st.selectedScholarIds.has(id)).length;
+      selectAllChk.checked = selectedCount === visibleIds.length;
+      selectAllChk.indeterminate = selectedCount > 0 && selectedCount < visibleIds.length;
+      selectAllChk.addEventListener("change", (e) => {
+        const checked = e.target.checked;
+        visibleIds.forEach((id) => {
+          if (checked) st.selectedScholarIds.add(id);
+          else st.selectedScholarIds.delete(id);
+        });
+        this.toolScholarUnmatched();
+      });
+    }
 
     this.el.querySelector("#btn-scholar-view-metrics")?.addEventListener("click", () => {
       this.open("scholar");
@@ -953,7 +1064,86 @@ export class ToolsView {
 
     const tabela = this.el.querySelector(".tl-table");
     if (tabela) {
+      tabela.addEventListener("change", (e) => {
+        const chk = e.target.closest(".scholar-row-chk");
+        if (chk) {
+          const sId = chk.dataset.scholarId;
+          if (chk.checked) st.selectedScholarIds.add(sId);
+          else st.selectedScholarIds.delete(sId);
+          this.toolScholarUnmatched();
+        }
+      });
+
       tabela.addEventListener("click", async (e) => {
+        const ignoreBtn = e.target.closest("[data-ignore-art]");
+        if (ignoreBtn) {
+          const sId = ignoreBtn.dataset.ignoreArt;
+          st.ignoredIds.add(sId);
+          st.selectedScholarIds.delete(sId);
+          showToast("Artigo ignorado (oculto até a próxima sincronização).", "info", 3000);
+          this.toolScholarUnmatched();
+          return;
+        }
+        const openDoiBtn = e.target.closest("[data-open-doi]");
+        if (openDoiBtn) {
+          e.preventDefault();
+          const d = openDoiBtn.dataset.openDoi;
+          if (d) api.openDoi(d).catch((err) => showToast(`Erro ao abrir DOI: ${err}`, "error"));
+          return;
+        }
+
+        const copyDoiBtn = e.target.closest("[data-copy-doi]");
+        if (copyDoiBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const d = copyDoiBtn.dataset.copyDoi;
+          if (d) {
+            let copied = false;
+            try {
+              if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(d);
+                copied = true;
+              }
+            } catch {}
+            if (!copied) {
+              try {
+                const ta = document.createElement("textarea");
+                ta.value = d;
+                ta.style.position = "fixed";
+                ta.style.opacity = "0";
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                document.body.removeChild(ta);
+                copied = true;
+              } catch {}
+            }
+            if (copied) {
+              const prevHtml = copyDoiBtn.innerHTML;
+              copyDoiBtn.innerHTML = "✓";
+              copyDoiBtn.style.color = "var(--success)";
+              setTimeout(() => {
+                if (copyDoiBtn) {
+                  copyDoiBtn.innerHTML = prevHtml;
+                  copyDoiBtn.style.color = "";
+                }
+              }, 1800);
+              showToast(`DOI copiado: ${d}`, "success", 2500);
+            } else {
+              showToast("Não foi possível copiar para a área de transferência", "error");
+            }
+          }
+          return;
+        }
+
+        const openUrlBtn = e.target.closest("[data-open-url]");
+        if (openUrlBtn) {
+          e.preventDefault();
+          const u = openUrlBtn.dataset.openUrl;
+          if (u) api.openUrl(u).catch((err) => showToast(`Erro ao abrir link: ${err}`, "error"));
+          return;
+        }
+
         const findBtn = e.target.closest("[data-find-doi]");
         if (findBtn) {
           const sId = findBtn.dataset.findDoi;
@@ -967,11 +1157,7 @@ export class ToolsView {
               item.doi = doi;
               const cell = this.el.querySelector(`[data-cell-doi="${sId}"]`);
               if (cell) {
-                cell.innerHTML = `
-                  <a href="https://doi.org/${escapeHtml(doi)}" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:4px; font-family:monospace; font-size:11.5px; color:var(--primary); text-decoration:none;" title="Abrir DOI">
-                    <span>🌐</span><span style="max-width:130px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(doi)}</span>
-                  </a>
-                `;
+                cell.innerHTML = renderDoiCell(doi, sId);
               }
               showToast(`DOI encontrado: ${doi}`, "success", 3000);
             } else {
@@ -1004,6 +1190,7 @@ export class ToolsView {
 
           const onSavedCallback = () => {
             st.registeredIds.add(sId);
+            st.selectedScholarIds.delete(sId);
             showToast("Artigo cadastrado em Produções com sucesso!", "success", 3500);
             this.toolScholarUnmatched();
             this.onChanged && this.onChanged();
@@ -1017,6 +1204,72 @@ export class ToolsView {
         }
       });
     }
+
+    this.el.querySelector("#btn-scholar-find-all-dois")?.addEventListener("click", async () => {
+      const candidates = remainingUnmatched.filter((it) => !it.doi || !String(it.doi).trim());
+      if (!candidates.length) {
+        showToast("Todas as publicações visíveis já possuem DOI.", "info");
+        return;
+      }
+      st.batchFindingDois = true;
+      st.batchStop = false;
+      st.batchProgress = { current: 0, total: candidates.length, found: 0, currentTitle: "" };
+      this.syncBackgroundBadge();
+      this.toolScholarUnmatched();
+
+      const CONCURRENCY = 3;
+      let cursor = 0;
+
+      const worker = async () => {
+        while (cursor < candidates.length && !st.batchStop) {
+          const item = candidates[cursor++];
+          const sId = item.scholar_id || String(allUnmatched.indexOf(item));
+          st.batchProgress.currentTitle = item.title ? (item.title.length > 45 ? item.title.slice(0, 45) + "…" : item.title) : "";
+
+          const cell = this.el.querySelector(`[data-cell-doi="${sId}"]`);
+          if (cell) cell.innerHTML = `<span style="font-size:11px; color:var(--text-muted);">⏳ buscando…</span>`;
+
+          try {
+            const doi = await api.findDoiByTitle(item.title);
+            if (doi) {
+              item.doi = doi;
+              st.batchProgress.found++;
+              if (cell) cell.innerHTML = renderDoiCell(doi, sId);
+            } else {
+              if (cell) cell.innerHTML = renderDoiCell(null, sId);
+            }
+          } catch {
+            if (cell) cell.innerHTML = renderDoiCell(null, sId);
+          }
+
+          st.batchProgress.current++;
+
+          const bar = this.el.querySelector(".tl-progress i");
+          if (bar) bar.style.width = `${Math.round((st.batchProgress.current / candidates.length) * 100)}%`;
+          const lbl = this.el.querySelector("#scholar-batch-progress-label");
+          if (lbl) {
+            lbl.innerHTML = `<b>Buscando DOIs…</b> ${st.batchProgress.current} de ${candidates.length} analisado(s) · <b style="color:var(--success);">${st.batchProgress.found} encontrado(s)</b>`;
+          }
+          const curEl = this.el.querySelector("#scholar-batch-cur-title");
+          if (curEl) curEl.textContent = st.batchProgress.currentTitle;
+        }
+      };
+
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, candidates.length) }, () => worker()));
+
+      const foundTotal = st.batchProgress ? st.batchProgress.found : 0;
+      st.batchFindingDois = false;
+      st.batchProgress = null;
+      this.syncBackgroundBadge();
+      showToast(`Busca de DOIs concluída! ${foundTotal} DOI(s) encontrado(s).`, foundTotal > 0 ? "success" : "info", 4000);
+      this.toolScholarUnmatched();
+    });
+
+    this.el.querySelector("#btn-scholar-stop-batch-doi")?.addEventListener("click", () => {
+      st.batchStop = true;
+      const btn = this.el.querySelector("#btn-scholar-stop-batch-doi");
+      if (btn) btn.textContent = "Parando…";
+    });
   }
 
   // ===== VASSOURA DE COMPROVANTES =====
@@ -1360,17 +1613,17 @@ export class ToolsView {
               Todas as categorias <span class="badge" style="margin-left:4px; font-size:10px;">${totalInvalid}</span>
             </button>
             ${Object.keys(catCounts).map((catKey) => {
-              const sc = CATEGORY_SCHEMAS[catKey];
-              const name = sc?.name || sc?.group || catKey;
-              const icon = sc?.icon || "📁";
-              const count = catCounts[catKey];
-              const isActive = activeCat === catKey;
-              return `
+        const sc = CATEGORY_SCHEMAS[catKey];
+        const name = sc?.name || sc?.group || catKey;
+        const icon = sc?.icon || "📁";
+        const count = catCounts[catKey];
+        const isActive = activeCat === catKey;
+        return `
                 <button type="button" class="filter-pill ${isActive ? "active" : ""}" data-cat-filter="${escapeHtml(catKey)}" style="font-size:12px; padding:4px 10px; border-radius:20px; cursor:pointer;">
                   <span>${icon}</span> ${escapeHtml(name)} <span class="badge" style="margin-left:4px; font-size:10px;">${count}</span>
                 </button>
               `;
-            }).join("")}
+      }).join("")}
           </div>
         ` : ""}
 
@@ -1404,12 +1657,12 @@ export class ToolsView {
               </thead>
               <tbody>
                 ${filtered.map((item, idx) => {
-                  const sc = CATEGORY_SCHEMAS[item.category];
-                  const catName = sc?.name || sc?.group || item.category;
-                  const icon = sc?.icon || "📁";
-                  const k = itemKey(item);
-                  const isChecked = st.selectedKeys.has(k);
-                  return `
+        const sc = CATEGORY_SCHEMAS[item.category];
+        const catName = sc?.name || sc?.group || item.category;
+        const icon = sc?.icon || "📁";
+        const k = itemKey(item);
+        const isChecked = st.selectedKeys.has(k);
+        return `
                     <tr data-idx="${idx}">
                       <td style="text-align: center; vertical-align: middle;">
                         <input type="checkbox" class="inv-row-chk" data-key="${escapeHtml(k)}" ${isChecked ? "checked" : ""} />
@@ -1453,7 +1706,7 @@ export class ToolsView {
                       </td>
                     </tr>
                   `;
-                }).join("")}
+      }).join("")}
               </tbody>
             </table>
           </div>
@@ -2133,6 +2386,11 @@ export class ToolsView {
         <div class="${fc.orfaos.length ? "warn" : "good"}"><b>${fc.orfaos.length}</b><span>arquivos sem registro (${mb(fc.orfaos_bytes)})</span></div>
         <div class="good"><b>${fc.total_vinculados - fc.ausentes.length}</b><span>vínculos OK</span></div>
       </div>
+      <div class="tl-bar" style="margin-bottom:14px;">
+        <span class="muted">Deseja inspecionar pastas em branco ou pastas no disco sem vínculo em Subpastas?</span>
+        <div style="flex:1"></div>
+        <button type="button" class="btn btn-secondary btn-sm" data-open-folders>🗂️ Auditar pastas em branco / sem vínculo</button>
+      </div>
       ${fc.ausentes.length ? `<h3 class="tl-h3">Arquivo ausente
         <button type="button" class="btn btn-secondary btn-sm" data-clear>Remover esses vínculos quebrados</button>
         <button type="button" class="btn btn-primary btn-sm" data-open-invalid style="margin-left:8px;">⚠️ Corrigir na Tabela de Inválidos</button>
@@ -2142,6 +2400,7 @@ export class ToolsView {
         <div class="tl-table sm"><table class="data-table"><tbody>${fc.orfaos.slice(0, 500).map((f) => `<tr><td class="mono">${escapeHtml(f)}</td><td style="width:90px;text-align:right"><button type="button" class="ibtn" data-reveal="${escapeHtml(f)}" title="Mostrar na pasta">📂</button></td></tr>`).join("")}</tbody></table></div>` : ""}
       ${!fc.ausentes.length && !fc.orfaos.length ? '<div class="tl-empty">✅ Tudo em ordem: todos os vínculos apontam para arquivos existentes e não há arquivos soltos.</div>' : ""}`
     );
+    this.el.querySelector("[data-open-folders]")?.addEventListener("click", () => this.open("folders_audit"));
     this.el.querySelector("[data-link]")?.addEventListener("click", () => this.openLinker && this.openLinker());
     this.el.querySelector("[data-open-invalid]")?.addEventListener("click", () => this.open("invalid_proofs"));
     this.el.querySelectorAll("[data-reveal]").forEach((b) => b.addEventListener("click", () => api.revealInExplorer(b.dataset.reveal).catch(() => { })));
@@ -2153,6 +2412,546 @@ export class ToolsView {
       this.onChanged && this.onChanged();
       this.toolCheck();
     });
+  }
+
+  // ===== 4b. auditoria e limpeza de pastas =====
+  async toolFoldersAudit() {
+    const st = this.state;
+    st.tab ??= "empty";
+    st.emptyFilter ??= "all";
+    st.removeMappingsWithEmpty ??= false;
+
+    if (!st.audit) {
+      this.shell(
+        "Auditoria e Limpeza de Pastas",
+        "Varrendo a pasta raiz recursivamente e cruzando com Subpastas e Registros…",
+        `<div class="loading-state" style="display:flex; flex-direction:column; gap:14px;"><div class="spinner"></div><div>Analisando diretórios e vínculos…</div></div>`
+      );
+      try {
+        st.audit = await api.scanRootFolders();
+        st.selEmpty = new Set(
+          (st.audit.empty_folders || [])
+            .filter((f) => !f.is_mapped && !f.is_parent_of_mapped)
+            .map((f) => f.rel_path)
+        );
+        st.selOrphanFiles = new Set();
+        st.selMissing = new Set();
+      } catch (e) {
+        showToast(`Erro ao auditar pastas: ${e}`, "error");
+        st.audit = {
+          root_path: "",
+          total_disk_folders: 0,
+          empty_folders: [],
+          unmapped_folders: [],
+          folders_with_unlinked_files: [],
+          missing_disk_folders: [],
+        };
+      }
+    }
+
+    const audit = st.audit;
+    const emptyAll = audit.empty_folders || [];
+    const unmappedAll = audit.unmapped_folders || [];
+    const orphanFolders = audit.folders_with_unlinked_files || [];
+    const missingDisk = audit.missing_disk_folders || [];
+
+    const emptyFiltered = emptyAll.filter((f) => {
+      if (st.emptyFilter === "unmapped") return !f.is_mapped && !f.is_parent_of_mapped;
+      if (st.emptyFilter === "mapped") return f.is_mapped;
+      return true;
+    });
+
+    const fmtSize = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+    const joinAbs = (root, rel) => {
+      const r = String(root || "").replace(/[\\/]+$/, "");
+      const p = String(rel || "").replace(/^[\\/]+/, "").replace(/\//g, "\\");
+      return `${r}\\${p}`;
+    };
+
+    const groupOptions = Array.from(
+      new Set(
+        Object.values(CATEGORY_SCHEMAS)
+          .filter((s) => !s.legacy)
+          .map((s) => s.dbGroup || s.group)
+      )
+    );
+
+    const statusBadge = (f) => {
+      if (f.is_mapped) {
+        return `<span class="badge badge-tipo">${escapeHtml(f.category_group || "")}</span> <small class="muted">${escapeHtml(f.description)}</small>`;
+      }
+      if (f.is_parent_of_mapped) {
+        return `<span class="badge" style="background:var(--surface-3);color:var(--text-secondary);">Pasta-pai de subpastas mapeadas</span>`;
+      }
+      return `<span class="badge" style="background:rgba(245,158,11,0.14);color:var(--warning);font-weight:600;">Sem vínculo com Subpastas</span>`;
+    };
+
+    let tabBody = "";
+
+    if (st.tab === "empty") {
+      const selCount = emptyFiltered.filter((f) => st.selEmpty.has(f.rel_path)).length;
+      const allEmptyChecked = emptyFiltered.length > 0 && emptyFiltered.every((f) => st.selEmpty.has(f.rel_path));
+      tabBody = `
+        <div class="tl-bar" style="flex-wrap:wrap; gap:10px;">
+          <div class="seg tl-seg-sm">
+            <button type="button" data-eflt="all" class="${st.emptyFilter === "all" ? "on" : ""}">Todas vazias (${emptyAll.length})</button>
+            <button type="button" data-eflt="unmapped" class="${st.emptyFilter === "unmapped" ? "on" : ""}">Órfãs / não mapeadas (${emptyAll.filter((f) => !f.is_mapped && !f.is_parent_of_mapped).length})</button>
+            <button type="button" data-eflt="mapped" class="${st.emptyFilter === "mapped" ? "on" : ""}">Subpastas mapeadas (${emptyAll.filter((f) => f.is_mapped).length})</button>
+          </div>
+          <label class="tl-chk" style="margin-left:8px;">
+            <input type="checkbox" data-rm-map ${st.removeMappingsWithEmpty ? "checked" : ""}/>
+            Remover também o vínculo em Subpastas (se mapeada)
+          </label>
+          <div style="flex:1"></div>
+          <button type="button" class="btn btn-primary btn-sm" data-del-empty-sel ${selCount ? "" : "disabled"}>
+            🗑️ Remover ${selCount} pasta(s) em branco
+          </button>
+        </div>
+        ${emptyFiltered.length ? `
+          <div class="tl-table"><table class="data-table">
+            <thead><tr>
+              <th style="width:36px"><input type="checkbox" data-empty-all ${allEmptyChecked ? "checked" : ""}/></th>
+              <th>Caminho relativo</th>
+              <th style="width:320px">Vínculo em Subpastas</th>
+              <th style="width:220px; text-align:right;">Ações</th>
+            </tr></thead>
+            <tbody>
+              ${emptyFiltered.map((f, i) => `
+                <tr>
+                  <td><input type="checkbox" data-empty-chk="${escapeHtml(f.rel_path)}" ${st.selEmpty.has(f.rel_path) ? "checked" : ""}/></td>
+                  <td class="mono">${escapeHtml(f.rel_path)}${f.subdirs_count ? ` <small class="muted">(${f.subdirs_count} subpasta(s) também vazia(s))</small>` : ""}</td>
+                  <td>${statusBadge(f)}</td>
+                  <td style="text-align:right; white-space:nowrap;">
+                    ${!f.is_mapped && !f.is_parent_of_mapped ? `<button type="button" class="btn btn-secondary btn-sm" data-quick-link-empty="${i}" title="Vincular esta pasta como subpasta de uma categoria">🔗 Vincular</button>` : ""}
+                    <button type="button" class="ibtn" data-open-rel="${escapeHtml(f.rel_path)}" title="Abrir pasta no Explorer">📂</button>
+                    <button type="button" class="ibtn" data-del-empty-one="${escapeHtml(f.rel_path)}" title="Remover pasta do disco">🗑️</button>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table></div>
+        ` : `<div class="tl-empty">✅ Nenhuma pasta em branco encontrada neste filtro.</div>`}
+      `;
+    } else if (st.tab === "unmapped") {
+      tabBody = unmappedAll.length ? `
+        <p class="dd-note" style="margin-bottom:10px;">Pastas encontradas no disco que não correspondem a nenhuma entrada em <b>Subpastas</b>. Vincule-as a uma categoria, importe seus arquivos em lote ou remova pastas residuais.</p>
+        <div class="tl-table"><table class="data-table">
+          <thead><tr>
+            <th>Caminho no disco</th>
+            <th style="width:120px">Arquivos</th>
+            <th style="width:200px">Categoria / Grupo</th>
+            <th style="width:210px">Tipo / Descrição</th>
+            <th style="width:210px; text-align:right;">Ações</th>
+          </tr></thead>
+          <tbody>
+            ${unmappedAll.map((f, i) => `
+              <tr data-unmapped-row="${i}">
+                <td>
+                  <div class="mono" style="font-weight:600;">${escapeHtml(f.rel_path)}</div>
+                  ${f.linked_files_count ? `<small style="color:var(--success)">${f.linked_files_count} vinculado(s) · </small>` : ""}
+                  ${f.unlinked_files_count ? `<small style="color:var(--warning)">${f.unlinked_files_count} arquivo(s) sem vínculo</small>` : `<small class="muted">Pasta vazia</small>`}
+                </td>
+                <td><b>${f.total_tree_files}</b><small class="muted"> arq.</small></td>
+                <td>
+                  <select class="form-select" data-link-group="${i}" style="font-size:12px;">
+                    ${groupOptions.map((g) => `<option value="${escapeHtml(g)}" ${g.toLowerCase() === String(f.suggested_group || "").toLowerCase() ? "selected" : ""}>${escapeHtml(g)}</option>`).join("")}
+                  </select>
+                </td>
+                <td>
+                  <input type="text" class="form-input" data-link-desc="${i}" value="${escapeHtml(f.description)}" style="font-size:12px; width:100%;"/>
+                </td>
+                <td style="text-align:right; white-space:nowrap;">
+                  <button type="button" class="btn btn-primary btn-sm" data-bind-unmapped="${i}" title="Cadastrar em Subpastas">🔗 Vincular</button>
+                  ${f.unlinked_files_count ? `<button type="button" class="ibtn" data-import-unmapped="${i}" title="Importar ${f.unlinked_files_count} arquivo(s) em lote">📥</button>` : ""}
+                  <button type="button" class="ibtn" data-open-rel="${escapeHtml(f.rel_path)}" title="Abrir no Explorer">📂</button>
+                  <button type="button" class="ibtn" data-del-unmapped="${i}" title="${f.linked_files_count ? "Contém arquivos vinculados a registros (protegida)" : "Excluir pasta"}">🗑️</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table></div>
+      ` : `<div class="tl-empty">✅ Todas as pastas de comprovantes no disco estão devidamente vinculadas em Subpastas.</div>`;
+    } else if (st.tab === "orphan_files") {
+      const totalOrphanFiles = orphanFolders.reduce((acc, f) => acc + f.unlinked_files_count, 0);
+      tabBody = orphanFolders.length ? `
+        <div class="tl-bar" style="flex-wrap:wrap; gap:10px;">
+          <span><b>${orphanFolders.length}</b> pasta(s) com <b>${totalOrphanFiles}</b> arquivo(s) não vinculados a nenhum registro</span>
+          <div style="flex:1"></div>
+          <button type="button" class="btn btn-secondary btn-sm" data-open-linker>🔗 Vincular automaticamente a registros</button>
+          <button type="button" class="btn btn-primary btn-sm" data-del-orphan-sel ${st.selOrphanFiles.size ? "" : "disabled"}>
+            🗑️ Excluir ${st.selOrphanFiles.size} arquivo(s) selecionado(s)
+          </button>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          ${orphanFolders.map((f, fi) => `
+            <div style="border:1px solid var(--border-light); border-radius:10px; background:var(--surface-2); overflow:hidden;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; background:var(--surface-3); flex-wrap:wrap;">
+                <div>
+                  <span class="mono" style="font-weight:700;">${escapeHtml(f.rel_path)}</span>
+                  ${f.is_mapped ? ` · <span class="badge badge-tipo">${escapeHtml(f.category_group || "")}: ${escapeHtml(f.description)}</span>` : ` · <span class="badge" style="background:rgba(245,158,11,0.14);color:var(--warning);">Pasta não mapeada</span>`}
+                  <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">
+                    <b>${f.unlinked_files_count}</b> arquivo(s) sem registro (${fmtSize(f.unlinked_bytes)}) · ${f.linked_files_count} arquivo(s) vinculado(s)
+                  </div>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <button type="button" class="btn btn-primary btn-sm" data-import-folder="${fi}">📥 Importar ${f.unlinked_files_count} em lote</button>
+                  <button type="button" class="btn btn-secondary btn-sm" data-open-rel="${escapeHtml(f.rel_path)}">📂 Abrir pasta</button>
+                </div>
+              </div>
+              <div class="tl-table sm" style="border:0; border-radius:0; max-height:220px;">
+                <table class="data-table"><tbody>
+                  ${f.unlinked_files.map((rf) => {
+        const fname = rf.split(/[\\/]/).pop();
+        return `<tr>
+                      <td style="width:36px"><input type="checkbox" data-orphan-chk="${escapeHtml(rf)}" ${st.selOrphanFiles.has(rf) ? "checked" : ""}/></td>
+                      <td class="mono">${escapeHtml(fname)}</td>
+                      <td style="width:120px; text-align:right; white-space:nowrap;">
+                        <button type="button" class="ibtn" data-open-file-rel="${escapeHtml(rf)}" title="Abrir arquivo">👁️</button>
+                        <button type="button" class="ibtn" data-reveal-rel="${escapeHtml(rf)}" title="Mostrar na pasta">📂</button>
+                        <button type="button" class="ibtn" data-del-orphan-one="${escapeHtml(rf)}" title="Excluir arquivo órfão do disco">🗑️</button>
+                      </td>
+                    </tr>`;
+      }).join("")}
+                </tbody></table>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<div class="tl-empty">✅ Nenhum arquivo solto sem vínculo foi encontrado nas pastas do currículo.</div>`;
+    } else if (st.tab === "missing_disk") {
+      const allMissingChecked = missingDisk.length > 0 && missingDisk.every((f) => st.selMissing.has(f.rel_path));
+      const selIds = missingDisk.filter((f) => st.selMissing.has(f.rel_path) && f.mapping_id != null).map((f) => f.mapping_id);
+      tabBody = missingDisk.length ? `
+        <div class="tl-bar" style="flex-wrap:wrap; gap:10px;">
+          <span><b>${missingDisk.length}</b> subpasta(s) cadastrada(s) sem diretório físico no disco</span>
+          <div style="flex:1"></div>
+          <button type="button" class="btn btn-primary btn-sm" data-create-missing-sel ${st.selMissing.size ? "" : "disabled"}>📁 Criar ${st.selMissing.size} pasta(s) no disco</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-del-missing-sel ${selIds.length ? "" : "disabled"}>🗑️ Remover ${selIds.length} vínculo(s)</button>
+        </div>
+        <div class="tl-table"><table class="data-table">
+          <thead><tr>
+            <th style="width:36px"><input type="checkbox" data-missing-all ${allMissingChecked ? "checked" : ""}/></th>
+            <th style="width:200px">Categoria</th>
+            <th style="width:220px">Subcategoria / Tipo</th>
+            <th>Caminho relativo</th>
+            <th style="width:110px">Registros</th>
+            <th style="width:150px; text-align:right;">Ações</th>
+          </tr></thead>
+          <tbody>
+            ${missingDisk.map((f) => `
+              <tr>
+                <td><input type="checkbox" data-missing-chk="${escapeHtml(f.rel_path)}" ${st.selMissing.has(f.rel_path) ? "checked" : ""}/></td>
+                <td><span class="badge badge-tipo">${escapeHtml(f.category_group || "")}</span></td>
+                <td><b>${escapeHtml(f.description)}</b></td>
+                <td class="mono">${escapeHtml(f.rel_path)}</td>
+                <td>${f.records_using_folder ? `<span class="badge" style="background:rgba(245,158,11,0.14);color:var(--warning);">${f.records_using_folder} reg.</span>` : `<span class="muted">0 reg.</span>`}</td>
+                <td style="text-align:right; white-space:nowrap;">
+                  <button type="button" class="btn btn-secondary btn-sm" data-create-one="${escapeHtml(f.rel_path)}" title="Criar diretório no disco">📁 Criar</button>
+                  <button type="button" class="ibtn" data-del-map-one="${f.mapping_id}" data-rec-cnt="${f.records_using_folder}" title="Remover mapeamento de Subpasta">🗑️</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table></div>
+      ` : `<div class="tl-empty">✅ Todas as subpastas mapeadas possuem diretório criado no disco.</div>`;
+    }
+
+    this.shell(
+      "Auditoria e Limpeza de Pastas",
+      `Pasta raiz: <code>${escapeHtml(audit.root_path)}</code> · <b>${audit.total_disk_folders}</b> pasta(s) analisada(s) recursivamente.`,
+      `
+        <div class="tl-stats" style="grid-template-columns: repeat(4, 1fr); margin-bottom:14px;">
+          <div class="${emptyAll.length ? "warn" : "good"}"><b>${emptyAll.length}</b><span>pastas em branco</span></div>
+          <div class="${unmappedAll.length ? "bad" : "good"}"><b>${unmappedAll.length}</b><span>sem vínculo de Subpasta</span></div>
+          <div class="${orphanFolders.length ? "warn" : "good"}"><b>${orphanFolders.length}</b><span>com arquivos sem registro</span></div>
+          <div class="${missingDisk.length ? "warn" : "good"}"><b>${missingDisk.length}</b><span>subpastas sem pasta no disco</span></div>
+        </div>
+
+        <div class="tl-bar" style="flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+          <div class="seg tl-seg-sm">
+            <button type="button" data-ftab="empty" class="${st.tab === "empty" ? "on" : ""}">📭 Pastas em branco (${emptyAll.length})</button>
+            <button type="button" data-ftab="unmapped" class="${st.tab === "unmapped" ? "on" : ""}">🧩 Sem vínculo (${unmappedAll.length})</button>
+            <button type="button" data-ftab="orphan_files" class="${st.tab === "orphan_files" ? "on" : ""}">📄 Arquivos soltos (${orphanFolders.length})</button>
+            <button type="button" data-ftab="missing_disk" class="${st.tab === "missing_disk" ? "on" : ""}">📁 Faltando no disco (${missingDisk.length})</button>
+          </div>
+          <div style="flex:1"></div>
+          <button type="button" class="btn btn-secondary btn-sm" data-rescan>🔄 Revarrer pasta raiz</button>
+        </div>
+
+        ${tabBody}
+      `
+    );
+
+    const rescan = async () => {
+      st.audit = null;
+      this.onChanged && (await this.onChanged());
+      this.toolFoldersAudit();
+    };
+
+    this.el.querySelectorAll("[data-ftab]").forEach((b) =>
+      b.addEventListener("click", () => {
+        st.tab = b.dataset.ftab;
+        this.toolFoldersAudit();
+      })
+    );
+    this.el.querySelector("[data-rescan]")?.addEventListener("click", () => {
+      st.audit = null;
+      this.toolFoldersAudit();
+    });
+    this.el.querySelectorAll("[data-open-rel]").forEach((b) =>
+      b.addEventListener("click", () => api.openFolder(b.dataset.openRel).catch((e) => showToast(String(e), "error")))
+    );
+    this.el.querySelectorAll("[data-reveal-rel]").forEach((b) =>
+      b.addEventListener("click", () => api.revealInExplorer(b.dataset.revealRel).catch((e) => showToast(String(e), "error")))
+    );
+    this.el.querySelectorAll("[data-open-file-rel]").forEach((b) =>
+      b.addEventListener("click", () => api.openFile(b.dataset.openFileRel).catch((e) => showToast(String(e), "error")))
+    );
+
+    // Tab 1 events (Pastas em branco)
+    this.el.querySelectorAll("[data-eflt]").forEach((b) =>
+      b.addEventListener("click", () => {
+        st.emptyFilter = b.dataset.eflt;
+        this.toolFoldersAudit();
+      })
+    );
+    this.el.querySelector("[data-rm-map]")?.addEventListener("change", (e) => {
+      st.removeMappingsWithEmpty = e.target.checked;
+    });
+    this.el.querySelector("[data-empty-all]")?.addEventListener("change", (e) => {
+      for (const f of emptyFiltered) {
+        e.target.checked ? st.selEmpty.add(f.rel_path) : st.selEmpty.delete(f.rel_path);
+      }
+      this.toolFoldersAudit();
+    });
+    this.el.querySelectorAll("[data-empty-chk]").forEach((c) =>
+      c.addEventListener("change", () => {
+        c.checked ? st.selEmpty.add(c.dataset.emptyChk) : st.selEmpty.delete(c.dataset.emptyChk);
+        const btn = this.el.querySelector("[data-del-empty-sel]");
+        const n = emptyFiltered.filter((f) => st.selEmpty.has(f.rel_path)).length;
+        if (btn) {
+          btn.disabled = n === 0;
+          btn.textContent = `🗑️ Remover ${n} pasta(s) em branco`;
+        }
+      })
+    );
+    this.el.querySelector("[data-del-empty-sel]")?.addEventListener("click", async () => {
+      const list = emptyFiltered.filter((f) => st.selEmpty.has(f.rel_path)).map((f) => f.rel_path);
+      if (!list.length) return;
+      const msg = st.removeMappingsWithEmpty
+        ? `Remover ${list.length} pasta(s) em branco do disco e apagar seus vínculos na aba Subpastas?`
+        : `Remover ${list.length} pasta(s) em branco do disco?\n(Os mapeamentos de Subpastas continuarão salvos, salvo os já desmarcados.)`;
+      if (!window.confirm(msg)) return;
+      try {
+        const res = await api.removeAuditedFolders(list, st.removeMappingsWithEmpty, false);
+        showToast(`${res.ok} pasta(s) removida(s)${res.erros.length ? ` · ${res.erros.length} aviso(s)` : ""}`, res.erros.length ? "warning" : "success", 4000);
+        if (res.erros.length) console.warn(res.erros);
+      } catch (e) {
+        showToast(`Erro ao remover pastas: ${e}`, "error");
+      }
+      await rescan();
+    });
+    this.el.querySelectorAll("[data-del-empty-one]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const p = b.dataset.delEmptyOne;
+        if (!window.confirm(`Remover a pasta em branco "${p}" do disco?`)) return;
+        try {
+          const res = await api.removeAuditedFolders([p], st.removeMappingsWithEmpty, false);
+          if (res.ok) showToast(`Pasta "${p}" removida!`, "success");
+          else showToast(res.erros.join("; ") || "Não foi possível remover", "error");
+        } catch (e) {
+          showToast(String(e), "error");
+        }
+        await rescan();
+      })
+    );
+    this.el.querySelectorAll("[data-quick-link-empty]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const f = emptyFiltered[Number(b.dataset.quickLinkEmpty)];
+        if (!f) return;
+        try {
+          const folderRel = `${f.rel_path.replace(/[\\/]+$/, "")}\\`;
+          await api.addSubfolderMapping(f.suggested_group, f.description, folderRel);
+          showToast(`Pasta "${f.rel_path}" vinculada em ${f.suggested_group} › ${f.description}`, "success", 3500);
+        } catch (e) {
+          showToast(`Erro ao vincular pasta: ${e}`, "error");
+        }
+        await rescan();
+      })
+    );
+
+    // Tab 2 events (Pastas sem vínculo)
+    this.el.querySelectorAll("[data-bind-unmapped]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const idx = Number(b.dataset.bindUnmapped);
+        const f = unmappedAll[idx];
+        const grp = this.el.querySelector(`[data-link-group="${idx}"]`)?.value?.trim();
+        const desc = this.el.querySelector(`[data-link-desc="${idx}"]`)?.value?.trim();
+        if (!f || !grp || !desc) return showToast("Informe categoria e descrição para vincular", "warning");
+        try {
+          const folderRel = `${f.rel_path.replace(/[\\/]+$/, "")}\\`;
+          await api.addSubfolderMapping(grp, desc, folderRel);
+          showToast(`Vinculada: ${grp} › ${desc}`, "success", 3500);
+        } catch (e) {
+          showToast(`Erro ao vincular: ${e}`, "error");
+        }
+        await rescan();
+      })
+    );
+    this.el.querySelectorAll("[data-import-unmapped]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const f = unmappedAll[Number(b.dataset.importUnmapped)];
+        if (!f || !window._app?.batchImport) return;
+        const files = (f.unlinked_files || []).map((rf) => ({ path: joinAbs(audit.root_path, rf), name: rf.split(/[\\/]/).pop(), size: 0 }));
+        if (files.length) window._app.batchImport.open(files);
+      })
+    );
+    this.el.querySelectorAll("[data-del-unmapped]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const f = unmappedAll[Number(b.dataset.delUnmapped)];
+        if (!f) return;
+        if (f.linked_files_count > 0) {
+          return showToast("Esta pasta contém comprovantes vinculados a registros e não pode ser excluída.", "warning", 4500);
+        }
+        const delFiles = f.total_tree_files > 0;
+        const msg = delFiles
+          ? `A pasta "${f.rel_path}" contém ${f.total_tree_files} arquivo(s) NÃO vinculados.\nDeseja excluir permanentemente a pasta e todos esses arquivos soltos?`
+          : `Excluir permanentemente a pasta "${f.rel_path}" do disco?`;
+        if (!window.confirm(msg)) return;
+        try {
+          const res = await api.removeAuditedFolders([f.rel_path], false, delFiles);
+          if (res.ok) showToast(`Pasta "${f.rel_path}" excluída!`, "success");
+          else showToast(res.erros.join("; ") || "Erro ao excluir pasta", "error");
+        } catch (e) {
+          showToast(String(e), "error");
+        }
+        await rescan();
+      })
+    );
+
+    // Tab 3 events (Arquivos soltos)
+    this.el.querySelector("[data-open-linker]")?.addEventListener("click", () => this.openLinker && this.openLinker());
+    this.el.querySelectorAll("[data-import-folder]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const f = orphanFolders[Number(b.dataset.importFolder)];
+        if (!f || !window._app?.batchImport) return;
+        const files = (f.unlinked_files || []).map((rf) => ({ path: joinAbs(audit.root_path, rf), name: rf.split(/[\\/]/).pop(), size: 0 }));
+        if (files.length) window._app.batchImport.open(files);
+      })
+    );
+    this.el.querySelectorAll("[data-orphan-chk]").forEach((c) =>
+      c.addEventListener("change", () => {
+        c.checked ? st.selOrphanFiles.add(c.dataset.orphanChk) : st.selOrphanFiles.delete(c.dataset.orphanChk);
+        const btn = this.el.querySelector("[data-del-orphan-sel]");
+        if (btn) {
+          btn.disabled = st.selOrphanFiles.size === 0;
+          btn.textContent = `🗑️ Excluir ${st.selOrphanFiles.size} arquivo(s) selecionado(s)`;
+        }
+      })
+    );
+    this.el.querySelector("[data-del-orphan-sel]")?.addEventListener("click", async () => {
+      const files = [...st.selOrphanFiles];
+      if (!files.length) return;
+      if (!window.confirm(`Excluir permanentemente ${files.length} arquivo(s) sem registro do disco?`)) return;
+      try {
+        const res = await api.deleteOrphanFiles(files);
+        showToast(`${res.ok} arquivo(s) excluído(s)${res.erros.length ? ` · ${res.erros.length} erro(s)` : ""}`, res.erros.length ? "warning" : "success");
+      } catch (e) {
+        showToast(String(e), "error");
+      }
+      await rescan();
+    });
+    this.el.querySelectorAll("[data-del-orphan-one]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const rf = b.dataset.delOrphanOne;
+        if (!window.confirm(`Excluir o arquivo solto "${rf}" do disco?`)) return;
+        try {
+          const res = await api.deleteOrphanFiles([rf]);
+          if (res.ok) showToast("Arquivo excluído do disco", "success");
+          else showToast(res.erros.join("; ") || "Erro ao excluir", "error");
+        } catch (e) {
+          showToast(String(e), "error");
+        }
+        await rescan();
+      })
+    );
+
+    // Tab 4 events (Subpastas faltando no disco)
+    this.el.querySelector("[data-missing-all]")?.addEventListener("change", (e) => {
+      for (const f of missingDisk) {
+        e.target.checked ? st.selMissing.add(f.rel_path) : st.selMissing.delete(f.rel_path);
+      }
+      this.toolFoldersAudit();
+    });
+    this.el.querySelectorAll("[data-missing-chk]").forEach((c) =>
+      c.addEventListener("change", () => {
+        c.checked ? st.selMissing.add(c.dataset.missingChk) : st.selMissing.delete(c.dataset.missingChk);
+        const btnC = this.el.querySelector("[data-create-missing-sel]");
+        const btnD = this.el.querySelector("[data-del-missing-sel]");
+        const selIds2 = missingDisk.filter((f) => st.selMissing.has(f.rel_path) && f.mapping_id != null).map((f) => f.mapping_id);
+        if (btnC) {
+          btnC.disabled = st.selMissing.size === 0;
+          btnC.textContent = `📁 Criar ${st.selMissing.size} pasta(s) no disco`;
+        }
+        if (btnD) {
+          btnD.disabled = selIds2.length === 0;
+          btnD.textContent = `🗑️ Remover ${selIds2.length} vínculo(s)`;
+        }
+      })
+    );
+    this.el.querySelector("[data-create-missing-sel]")?.addEventListener("click", async () => {
+      const paths = [...st.selMissing];
+      if (!paths.length) return;
+      try {
+        const res = await api.createMissingMappedFolders(paths);
+        showToast(`${res.ok} pasta(s) criada(s) no disco!`, res.erros.length ? "warning" : "success");
+      } catch (e) {
+        showToast(String(e), "error");
+      }
+      await rescan();
+    });
+    this.el.querySelector("[data-del-missing-sel]")?.addEventListener("click", async () => {
+      const ids = missingDisk.filter((f) => st.selMissing.has(f.rel_path) && f.mapping_id != null).map((f) => f.mapping_id);
+      if (!ids.length) return;
+      if (!window.confirm(`Remover ${ids.length} mapeamento(s) da lista de Subpastas?`)) return;
+      try {
+        const res = await api.removeUnlinkedMappings(ids);
+        showToast(`${res.ok} mapeamento(s) removido(s)`, res.erros.length ? "warning" : "success");
+      } catch (e) {
+        showToast(String(e), "error");
+      }
+      await rescan();
+    });
+    this.el.querySelectorAll("[data-create-one]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        try {
+          const res = await api.createMissingMappedFolders([b.dataset.createOne]);
+          if (res.ok) showToast("Pasta criada no disco!", "success");
+          else showToast(res.erros.join("; ") || "Erro", "error");
+        } catch (e) {
+          showToast(String(e), "error");
+        }
+        await rescan();
+      })
+    );
+    this.el.querySelectorAll("[data-del-map-one]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const id = Number(b.dataset.delMapOne);
+        const recCnt = Number(b.dataset.recCnt || 0);
+        const msg = recCnt > 0
+          ? `Atenção: há ${recCnt} registro(s) apontando para esta pasta. Deseja remover o mapeamento de Subpastas?`
+          : "Remover este mapeamento da lista de Subpastas?";
+        if (!window.confirm(msg)) return;
+        try {
+          const res = await api.removeUnlinkedMappings([id]);
+          if (res.ok) showToast("Mapeamento removido", "success");
+          else showToast(res.erros.join("; ") || "Erro", "error");
+        } catch (e) {
+          showToast(String(e), "error");
+        }
+        await rescan();
+      })
+    );
   }
 
   // ===== 5. qualis =====
@@ -2259,8 +3058,8 @@ export class ToolsView {
                 ${running ? `Processando ${st.i} de ${cands.length}…` : `${done} PDF(s) encontrado(s)`}
               </span>
               ${running
-                ? '<button type="button" class="btn btn-secondary btn-sm" data-stop>■ Parar</button>'
-                : `<button type="button" class="btn btn-primary btn-sm" data-run ${!cands.length ? "disabled" : ""}>⚡ Baixar PDFs (${cands.length})</button>`}
+          ? '<button type="button" class="btn btn-secondary btn-sm" data-stop>■ Parar</button>'
+          : `<button type="button" class="btn btn-primary btn-sm" data-run ${!cands.length ? "disabled" : ""}>⚡ Baixar PDFs (${cands.length})</button>`}
             </div>
           </div>
 
@@ -2635,134 +3434,134 @@ export class ToolsView {
       <p class="dd-note">💡 Dica: guarde o cofre completo fora do computador (Google Drive, OneDrive, pen drive ou HD externo). Pastas incluídas: ${e.folders.map((f) => `<code>${escapeHtml(f)}</code>`).join(" ") || "—"}</p>`
     );
 
-        const o = this.el;
-        o.querySelectorAll('input[name="bk-inc"]').forEach((r) => r.addEventListener("change", () => { st.include = r.value === "1"; this.toolBackup(); }));
-        o.querySelectorAll("[data-bko]").forEach((c) => c.addEventListener("change", () => { st[c.dataset.bko] = c.checked; this.toolBackup(); }));
-        const on = (k, fn) => o.querySelector(`[data-bk="${k}"]`)?.addEventListener("click", fn);
+    const o = this.el;
+    o.querySelectorAll('input[name="bk-inc"]').forEach((r) => r.addEventListener("change", () => { st.include = r.value === "1"; this.toolBackup(); }));
+    o.querySelectorAll("[data-bko]").forEach((c) => c.addEventListener("change", () => { st[c.dataset.bko] = c.checked; this.toolBackup(); }));
+    const on = (k, fn) => o.querySelector(`[data-bk="${k}"]`)?.addEventListener("click", fn);
 
-        on("quick", async () => {
-          try {
-            const b = await api.backupDatabase();
-            st.result = { ok: true, html: `✓ Cópia do banco criada (${mb(b.bytes)}) — ${b.total} cópia(s) na pasta backups.` };
-            api.revealInExplorer(b.path).catch(() => { });
-          } catch (err) {
-            st.result = { ok: false, html: `Falha: ${escapeHtml(String(err))}` };
-          }
-          this.toolBackup();
-        });
+    on("quick", async () => {
+      try {
+        const b = await api.backupDatabase();
+        st.result = { ok: true, html: `✓ Cópia do banco criada (${mb(b.bytes)}) — ${b.total} cópia(s) na pasta backups.` };
+        api.revealInExplorer(b.path).catch(() => { });
+      } catch (err) {
+        st.result = { ok: false, html: `Falha: ${escapeHtml(String(err))}` };
+      }
+      this.toolBackup();
+    });
 
-        on("create", async () => {
-          let path;
-          try {
-            path = await api.pickBackupTarget(st.include);
-          } catch (err) {
-            return showToast(String(err), "error");
-          }
-          if (!path) return;
-          st.running = true;
-          st.step = "Compactando cofre e gerando manifesto…";
-          st.prog = null;
-          st.result = null;
-          this.toolBackup();
-          const stop = await api.onBackupProgress((p) => {
-            st.prog = p;
-            if (this.active === "backup") this.toolBackup();
-          });
-          try {
-            const r = await api.createBackup(path, st.include);
-            st.result = {
-              ok: true,
-              html: `✓ <b>Cofre exportado com sucesso</b> — ${mb(r.bytes)}${r.files ? ` · ${r.files} comprovantes` : " · só registros"}<br><code>${escapeHtml(r.path)}</code> <button type="button" class="btn-icon-subtle" data-bk="show">📂 Mostrar na pasta</button>`,
-              path: r.path,
-            };
-            showToast("🗄️ Cofre exportado com sucesso!", "success", 3500);
-          } catch (err) {
-            st.result = { ok: false, html: `Falha na exportação: ${escapeHtml(String(err))}` };
-          } finally {
-            stop && stop();
-            st.running = false;
-            st.prog = null;
-          }
-          if (this.active === "backup") this.toolBackup();
-        });
-        on("show", () => st.result?.path && api.revealInExplorer(st.result.path).catch(() => { }));
+    on("create", async () => {
+      let path;
+      try {
+        path = await api.pickBackupTarget(st.include);
+      } catch (err) {
+        return showToast(String(err), "error");
+      }
+      if (!path) return;
+      st.running = true;
+      st.step = "Compactando cofre e gerando manifesto…";
+      st.prog = null;
+      st.result = null;
+      this.toolBackup();
+      const stop = await api.onBackupProgress((p) => {
+        st.prog = p;
+        if (this.active === "backup") this.toolBackup();
+      });
+      try {
+        const r = await api.createBackup(path, st.include);
+        st.result = {
+          ok: true,
+          html: `✓ <b>Cofre exportado com sucesso</b> — ${mb(r.bytes)}${r.files ? ` · ${r.files} comprovantes` : " · só registros"}<br><code>${escapeHtml(r.path)}</code> <button type="button" class="btn-icon-subtle" data-bk="show">📂 Mostrar na pasta</button>`,
+          path: r.path,
+        };
+        showToast("🗄️ Cofre exportado com sucesso!", "success", 3500);
+      } catch (err) {
+        st.result = { ok: false, html: `Falha na exportação: ${escapeHtml(String(err))}` };
+      } finally {
+        stop && stop();
+        st.running = false;
+        st.prog = null;
+      }
+      if (this.active === "backup") this.toolBackup();
+    });
+    on("show", () => st.result?.path && api.revealInExplorer(st.result.path).catch(() => { }));
 
-        on("pick", async () => {
-          let path;
-          try {
-            path = await api.pickBackupFile();
-          } catch (err) {
-            return showToast(String(err), "error");
-          }
-          if (!path) return;
-          st.running = true;
-          st.step = "Lendo cofre e calculando hash SHA-256…";
-          st.result = null;
-          this.toolBackup();
-          try {
-            st.ins = await api.inspectBackup(path);
-            st.restoreDb = st.ins.has_db;
-            st.restoreFiles = st.ins.kind === "zip" && st.ins.files > 0;
-            st.overwrite = false;
-          } catch (err) {
-            st.ins = null;
-            st.result = { ok: false, html: `Não foi possível ler o cofre: ${escapeHtml(String(err))}` };
-          } finally {
-            st.running = false;
-          }
-          if (this.active === "backup") this.toolBackup();
-        });
+    on("pick", async () => {
+      let path;
+      try {
+        path = await api.pickBackupFile();
+      } catch (err) {
+        return showToast(String(err), "error");
+      }
+      if (!path) return;
+      st.running = true;
+      st.step = "Lendo cofre e calculando hash SHA-256…";
+      st.result = null;
+      this.toolBackup();
+      try {
+        st.ins = await api.inspectBackup(path);
+        st.restoreDb = st.ins.has_db;
+        st.restoreFiles = st.ins.kind === "zip" && st.ins.files > 0;
+        st.overwrite = false;
+      } catch (err) {
+        st.ins = null;
+        st.result = { ok: false, html: `Não foi possível ler o cofre: ${escapeHtml(String(err))}` };
+      } finally {
+        st.running = false;
+      }
+      if (this.active === "backup") this.toolBackup();
+    });
 
-        on("verify", async () => {
-          if (!ins?.path) return;
-          st.running = true;
-          st.step = "Testando integridade do cofre (CRC32 e SQLite)…";
-          st.result = null;
-          this.toolBackup();
-          try {
-            const rep = await api.verifyBackupIntegrity(ins.path);
-            st.result = {
-              ok: rep.is_valid,
-              html: `<b>${rep.is_valid ? "✓ Cofre Íntegro" : "⚠️ Inconsistências Detectadas"}</b>: ${escapeHtml(rep.message)}<br>
+    on("verify", async () => {
+      if (!ins?.path) return;
+      st.running = true;
+      st.step = "Testando integridade do cofre (CRC32 e SQLite)…";
+      st.result = null;
+      this.toolBackup();
+      try {
+        const rep = await api.verifyBackupIntegrity(ins.path);
+        st.result = {
+          ok: rep.is_valid,
+          html: `<b>${rep.is_valid ? "✓ Cofre Íntegro" : "⚠️ Inconsistências Detectadas"}</b>: ${escapeHtml(rep.message)}<br>
                  <small>Arquivos testados: ${rep.total_files_tested} · Registros no banco: ${rep.db_records}${rep.crc_errors.length ? `<br>Erros de CRC: ${rep.crc_errors.join(", ")}` : ""}</small>`,
-            };
-            showToast(rep.is_valid ? "✓ Cofre íntegro e validado" : "Atenção: problemas encontrados", rep.is_valid ? "success" : "warning", 3500);
-          } catch (err) {
-            st.result = { ok: false, html: `Falha na verificação: ${escapeHtml(String(err))}` };
-          } finally {
-            st.running = false;
-          }
-          if (this.active === "backup") this.toolBackup();
-        });
+        };
+        showToast(rep.is_valid ? "✓ Cofre íntegro e validado" : "Atenção: problemas encontrados", rep.is_valid ? "success" : "warning", 3500);
+      } catch (err) {
+        st.result = { ok: false, html: `Falha na verificação: ${escapeHtml(String(err))}` };
+      } finally {
+        st.running = false;
+      }
+      if (this.active === "backup") this.toolBackup();
+    });
 
-        on("restore", async () => {
-          const ins = st.ins;
-          const what = [st.restoreDb && `substituir TODOS os registros atuais pelos ${ins.records} registros do cofre`, st.restoreFiles && ins.files && `copiar ${ins.files} arquivo(s) de comprovantes${st.overwrite ? " (substituindo os existentes)" : ""}`].filter(Boolean);
-          if (!window.confirm(`Restaurar o cofre vai:\n\n• ${what.join("\n• ")}\n\nUma cópia de segurança do banco atual será guardada na pasta backups. Continuar?`)) return;
-          st.running = true;
-          st.step = "Restaurando…";
-          st.prog = null;
-          st.result = null;
-          this.toolBackup();
-          const stop = await api.onBackupProgress((p) => {
-            st.prog = p;
-            if (this.active === "backup") this.toolBackup();
-          });
-          try {
-            const r = await api.restoreBackup(ins.path, Boolean(st.restoreDb), Boolean(st.restoreFiles && ins.files), Boolean(st.overwrite));
-            const parts = [r.db_restored && "registros restaurados", (r.files_written || r.files_skipped) && `${r.files_written} arquivo(s) copiado(s)${r.files_skipped ? `, ${r.files_skipped} já existiam` : ""}`].filter(Boolean);
-            st.result = {
-              ok: !r.errors.length,
-              html: `✓ <b>Cofre restaurado</b> — ${parts.join(" · ")}${r.safety_copy ? `<br><small>Cópia do banco anterior: <code>${escapeHtml(r.safety_copy)}</code></small>` : ""}${r.errors.length ? `<details><summary>⚠️ ${r.errors.length} aviso(s)</summary><ul>${r.errors.slice(0, 50).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></details>` : ""}
+    on("restore", async () => {
+      const ins = st.ins;
+      const what = [st.restoreDb && `substituir TODOS os registros atuais pelos ${ins.records} registros do cofre`, st.restoreFiles && ins.files && `copiar ${ins.files} arquivo(s) de comprovantes${st.overwrite ? " (substituindo os existentes)" : ""}`].filter(Boolean);
+      if (!window.confirm(`Restaurar o cofre vai:\n\n• ${what.join("\n• ")}\n\nUma cópia de segurança do banco atual será guardada na pasta backups. Continuar?`)) return;
+      st.running = true;
+      st.step = "Restaurando…";
+      st.prog = null;
+      st.result = null;
+      this.toolBackup();
+      const stop = await api.onBackupProgress((p) => {
+        st.prog = p;
+        if (this.active === "backup") this.toolBackup();
+      });
+      try {
+        const r = await api.restoreBackup(ins.path, Boolean(st.restoreDb), Boolean(st.restoreFiles && ins.files), Boolean(st.overwrite));
+        const parts = [r.db_restored && "registros restaurados", (r.files_written || r.files_skipped) && `${r.files_written} arquivo(s) copiado(s)${r.files_skipped ? `, ${r.files_skipped} já existiam` : ""}`].filter(Boolean);
+        st.result = {
+          ok: !r.errors.length,
+          html: `✓ <b>Cofre restaurado</b> — ${parts.join(" · ")}${r.safety_copy ? `<br><small>Cópia do banco anterior: <code>${escapeHtml(r.safety_copy)}</code></small>` : ""}${r.errors.length ? `<details><summary>⚠️ ${r.errors.length} aviso(s)</summary><ul>${r.errors.slice(0, 50).map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></details>` : ""}
             ${r.db_restored ? `<br><button type="button" class="btn btn-primary btn-sm" data-bk="reload">Recarregar o app</button>` : ""}`,
-            };
-            st.ins = null;
-            st.est = null;
-            if (r.db_restored) setTimeout(() => location.reload(), 4000);
-            this.onChanged && this.onChanged();
-          } catch (err) {
-            st.result = { ok: false, html: `Falha na restauração: ${escapeHtml(String(err))}` };
-          } finally {
+        };
+        st.ins = null;
+        st.est = null;
+        if (r.db_restored) setTimeout(() => location.reload(), 4000);
+        this.onChanged && this.onChanged();
+      } catch (err) {
+        st.result = { ok: false, html: `Falha na restauração: ${escapeHtml(String(err))}` };
+      } finally {
         stop && stop();
         st.running = false;
         st.prog = null;

@@ -34,3 +34,12 @@ sha2 = "0.11.1"
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
+
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3

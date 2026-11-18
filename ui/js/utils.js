@@ -226,6 +226,107 @@ export const DEFAULT_EDUCACAO_MAPPINGS = [
   { description: "Outras produções de divulgação", folder: "8_educacao\\outras_producoes\\" },
 ];
 
+export const DEFAULT_CATEGORY_SUBFOLDERS = {
+  dadosgerais: DEFAULT_DADOS_GERAIS_MAPPINGS,
+  formacao: [
+    { description: "Formação Acadêmica", folder: "2_formacao\\formacao_academica\\" },
+    { description: "Curso de curta duração", folder: "2_formacao\\formacao_complementar\\" },
+    { description: "Extensão universitária", folder: "2_formacao\\formacao_complementar\\" },
+    { description: "Mba", folder: "2_formacao\\formacao_complementar\\" },
+  ],
+  atuacao: DEFAULT_ATUACAO_MAPPINGS,
+  projetos: [
+    { description: "Projetos de pesquisa", folder: "4_projetos\\projetos_pesquisa\\" },
+    { description: "Projetos de ensino", folder: "4_projetos\\projetos_ensino\\" },
+    { description: "Projetos de extensão", folder: "4_projetos\\projetos_extensão\\" },
+  ],
+  producoes: [
+    { description: "Artigos completos", folder: "5_producoes\\artigos_completos\\" },
+    { description: "Artigos aceitos", folder: "5_producoes\\artigos_aceitos\\" },
+    { description: "Livros", folder: "5_producoes\\livros\\" },
+    { description: "Capítulos de livros", folder: "5_producoes\\capítulos\\" },
+    { description: "Textos em jornais/revistas", folder: "5_producoes\\textos_jornais\\" },
+    { description: "Resumos completos", folder: "5_producoes\\resumos_completos\\" },
+    { description: "Resumos expandidos", folder: "5_producoes\\resumos_expandidos\\" },
+    { description: "Resumos simples", folder: "5_producoes\\resumos_simples\\" },
+    { description: "Trabalhos/palestras", folder: "5_producoes\\trabalho_palestra\\" },
+    { description: "Cursos", folder: "5_producoes\\cursos_ministrados\\" },
+    { description: "Material didático", folder: "5_producoes\\material_didatico\\" },
+    { description: "Mídias sociais/blog", folder: "5_producoes\\midias_sociais\\" },
+    { description: "Programas de rádio/TV", folder: "5_producoes\\radio_tv\\" },
+  ],
+  patentes: [
+    { description: "Patentes", folder: "6_patentes\\patentes\\" },
+    { description: "Programas de computador", folder: "6_patentes\\programas_computador\\" },
+    { description: "Cultivar protegida", folder: "6_patentes\\cultivar_protegida\\" },
+    { description: "Cultivar registrada", folder: "6_patentes\\cultivar_registrada\\" },
+  ],
+  inovacao: DEFAULT_INOVACAO_MAPPINGS,
+  educacao_popularizacao: DEFAULT_EDUCACAO_MAPPINGS,
+  eventos: [
+    { description: "Participação em eventos", folder: "9_eventos\\participacao_eventos\\" },
+    { description: "Organização de eventos", folder: "9_eventos\\organizacao_eventos\\" },
+  ],
+  orientacoes: [
+    { description: "Supervisão de pós-doutorado", folder: "10_orientacoes\\orientacoes_concluidas\\pos_doc\\" },
+    { description: "Tese de doutorado", folder: "10_orientacoes\\orientacoes_concluidas\\tese\\" },
+    { description: "Dissertação de mestrado", folder: "10_orientacoes\\orientacoes_concluidas\\dissertação\\" },
+    { description: "Trabalho de conclusão de curso", folder: "10_orientacoes\\orientacoes_concluidas\\graduação\\" },
+    { description: "Iniciação Científica", folder: "10_orientacoes\\orientacoes_concluidas\\ic\\" },
+    { description: "Orientação de outra natureza", folder: "10_orientacoes\\orientacoes_concluidas\\outras\\" },
+    { description: "Monitoria", folder: "10_orientacoes\\orientacoes_concluidas\\monitoria\\" },
+    { description: "Estágio", folder: "10_orientacoes\\orientacoes_concluidas\\estágio\\" },
+  ],
+  bancas: [
+    { description: "Doutorado", folder: "11_bancas\\doutorado\\" },
+    { description: "Qualificação de doutorado", folder: "11_bancas\\quali_doutorado\\" },
+    { description: "Mestrado", folder: "11_bancas\\mestrado\\" },
+    { description: "Qualificação de mestrado", folder: "11_bancas\\quali_mestrado\\" },
+    { description: "Graduação", folder: "11_bancas\\graduação\\" },
+    { description: "Estágio", folder: "11_bancas\\estágio\\" },
+  ],
+};
+
+/** Retorna as subcategorias (mappings) de uma categoria combinando o banco com os padrões do Lattes. */
+export function getCategoryMappings(cat, mappings = []) {
+  const schema = CATEGORY_SCHEMAS[cat];
+  const targets = new Set(
+    [cat, schema?.dbGroup, schema?.group, schema?.name]
+      .filter(Boolean)
+      .map((s) => fold(s))
+  );
+  if (cat === "educacao_popularizacao") {
+    targets.add("educacao");
+    targets.add("educacao e popularizacao");
+    targets.add("educacao e popularizacao de c&t");
+  }
+  const list = Array.isArray(mappings) ? mappings : [];
+  const matched = list.filter((m) => targets.has(fold(m.category_group)));
+  const defaults = DEFAULT_CATEGORY_SUBFOLDERS[cat] || [];
+  if (!matched.length) {
+    return defaults.map((d, i) => ({
+      id: -(i + 1),
+      category_group: schema?.dbGroup || schema?.group || cat,
+      description: d.description,
+      folder: d.folder,
+    }));
+  }
+  const seen = new Set(matched.map((m) => fold(m.description)));
+  const merged = [...matched];
+  for (const d of defaults) {
+    if (!seen.has(fold(d.description))) {
+      seen.add(fold(d.description));
+      merged.push({
+        id: -(merged.length + 1),
+        category_group: schema?.dbGroup || schema?.group || cat,
+        description: d.description,
+        folder: d.folder,
+      });
+    }
+  }
+  return merged;
+}
+
 export const CATEGORY_SCHEMAS = {
   dadosgerais: {
     name: "Dados Gerais",
@@ -283,6 +384,7 @@ export const CATEGORY_SCHEMAS = {
       { key: "tipo", label: "Subcategoria", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "instituicao", label: "Instituição / Revista / Empresa", render: (r) => `<strong>${escapeHtml(r.instituicao || r.titulo || "—")}</strong>` },
       { key: "enquadramento", label: "Vínculo / Cargo", width: "16%", render: (r) => escapeHtml([r.vinculo, r.enquadramento].filter(Boolean).join(" · ") || "—") },
+      { key: "descricao", label: "Descrição", width: "18%", render: (r) => r.descricao ? `<span title="${escapeHtml(r.descricao)}">${escapeHtml(r.descricao)}</span>` : "—" },
       { key: "horas", label: "Horas", width: "1%", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h/sem</span>` : "—" },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
       { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },

@@ -529,8 +529,7 @@ fn category_group(cat: &str) -> &'static str {
     match effective_category(cat) {
         "dadosgerais" => "Dados gerais",
         "formacao" => "Formação",
-        "encargos" => "Encargos",
-        "disciplinas" => "Disciplinas",
+        "encargos" | "disciplinas" => "Atuação",
         "projetos" => "Projetos",
         "patentes" => "Patentes",
         "eventos" => "Eventos",
@@ -891,6 +890,134 @@ fn emit_disciplina(ctx: &EnsinoCtx, raw_name: &str) -> Option<XmlProduction> {
     Some(item)
 }
 
+fn parse_dadosgerais_elem(
+    name: &str,
+    attrs: &HashMap<String, String>,
+    lattes_year: Option<i64>,
+) -> Vec<XmlProduction> {
+    let mut res = Vec::new();
+    match name {
+        "DADOS-GERAIS" => {
+            let nome = attrs.get("NOME-COMPLETO").cloned().unwrap_or_default();
+            if !nome.is_empty() {
+                let cpf = attrs.get("CPF").cloned().unwrap_or_default();
+                let rg = attrs.get("NUMERO-IDENTIDADE").cloned().unwrap_or_default();
+                let orcid = attrs.get("ORCID-ID").cloned().unwrap_or_default();
+                let mut parts = vec![format!("Nome: {}", clean_text(&nome))];
+                if !cpf.is_empty() {
+                    let cpf_fmt = if cpf.len() == 11 && cpf.chars().all(|c| c.is_ascii_digit()) {
+                        format!("{}.{}.{}-{}", &cpf[0..3], &cpf[3..6], &cpf[6..9], &cpf[9..])
+                    } else {
+                        cpf
+                    };
+                    parts.push(format!("CPF: {}", cpf_fmt));
+                }
+                if !rg.is_empty() {
+                    parts.push(format!("RG: {}", rg));
+                }
+                if !orcid.is_empty() {
+                    parts.push(format!("ORCID: {}", orcid));
+                }
+                let mut item = XmlProduction::new(
+                    "dadosgerais",
+                    "Identificação",
+                    "1_dados_gerais\\identificacao\\",
+                    lattes_year,
+                    format!("Identificação: {}", clean_text(&nome)),
+                    "DADOS-GERAIS",
+                );
+                item.descricao = Some(parts.join(" · "));
+                res.push(item);
+            }
+        }
+        "RESUMO-CV" => {
+            if let Some(r) = attrs.get("TEXTO-RESUMO-CV-RH") {
+                let cl = clean_text(r);
+                if !cl.trim().is_empty() {
+                    let mut item = XmlProduction::new(
+                        "dadosgerais",
+                        "Texto inicial do currículo Lattes",
+                        "1_dados_gerais\\texto_inicial\\",
+                        lattes_year,
+                        "Texto inicial do currículo Lattes / Resumo".to_string(),
+                        "RESUMO-CV",
+                    );
+                    item.descricao = Some(cl);
+                    res.push(item);
+                }
+            }
+        }
+        "OUTRAS-INFORMACOES-RELEVANTES" => {
+            if let Some(info) = attrs.get("OUTRAS-INFORMACOES-RELEVANTES") {
+                let cl = clean_text(info);
+                if !cl.trim().is_empty() {
+                    let mut item = XmlProduction::new(
+                        "dadosgerais",
+                        "Outras informações relevantes",
+                        "1_dados_gerais\\outras_informacoes\\",
+                        lattes_year,
+                        "Outras informações relevantes".to_string(),
+                        "OUTRAS-INFORMACOES-RELEVANTES",
+                    );
+                    item.descricao = Some(cl);
+                    res.push(item);
+                }
+            }
+        }
+        "ENDERECO-PROFISSIONAL" => {
+            if let Some(inst) = attrs.get("NOME-INSTITUICAO-EMPRESA") {
+                let cl_inst = clean_text(inst);
+                if !cl_inst.trim().is_empty() {
+                    let logr = attrs.get("LOGRADOURO-COMPLEMENTO").cloned().unwrap_or_default();
+                    let cid = attrs.get("CIDADE").cloned().unwrap_or_default();
+                    let uf = attrs.get("UF").cloned().unwrap_or_default();
+                    let email = attrs.get("E-MAIL").cloned().unwrap_or_default();
+                    let mut parts = vec![format!("Instituição: {}", cl_inst)];
+                    if !logr.is_empty() {
+                        parts.push(clean_text(&logr));
+                    }
+                    if !cid.is_empty() || !uf.is_empty() {
+                        parts.push(format!("{}/{}", cid, uf));
+                    }
+                    if !email.is_empty() {
+                        parts.push(format!("E-mail: {}", email));
+                    }
+                    let mut item = XmlProduction::new(
+                        "dadosgerais",
+                        "Endereço",
+                        "1_dados_gerais\\endereco\\",
+                        lattes_year,
+                        format!("Endereço profissional: {}", cl_inst),
+                        "ENDERECO-PROFISSIONAL",
+                    );
+                    item.descricao = Some(parts.join(" · "));
+                    res.push(item);
+                }
+            }
+        }
+        "IDIOMA" => {
+            if let Some(d) = attrs.get("DESCRICAO-DO-IDIOMA") {
+                let leitura = attrs.get("PROFICIENCIA-DE-LEITURA").cloned().unwrap_or_default();
+                let fala = attrs.get("PROFICIENCIA-DE-FALA").cloned().unwrap_or_default();
+                let escrita = attrs.get("PROFICIENCIA-DE-ESCRITA").cloned().unwrap_or_default();
+                let desc = format!("Leitura: {}, Fala: {}, Escrita: {}", leitura, fala, escrita);
+                let mut item = XmlProduction::new(
+                    "dadosgerais",
+                    "Idiomas",
+                    "1_dados_gerais\\idiomas\\",
+                    lattes_year,
+                    format!("Idioma: {}", clean_text(d)),
+                    "IDIOMA",
+                );
+                item.descricao = Some(desc);
+                res.push(item);
+            }
+        }
+        _ => {}
+    }
+    res
+}
+
 /// Faz o parse do XML Lattes e retorna todos os itens encontrados (sem marcar duplicatas).
 pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Falha ao ler '{}': {}", path.display(), e))?;
@@ -905,6 +1032,7 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
     let mut proj_orgao: Option<String> = None;
     let mut ensino: Option<EnsinoCtx> = None;
     let mut disc_buf: Option<(HashMap<String, String>, String)> = None;
+    let mut lattes_year: Option<i64> = None;
     let mut out = Vec::new();
 
     loop {
@@ -937,17 +1065,23 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                         extra: HashMap::new(),
                     });
                 } else {
+                    let a = attrs_of(&e);
+                    if name == "CURRICULO-VITAE" {
+                        if let Some(d) = a.get("DATA-ATUALIZACAO") {
+                            if d.len() >= 4 {
+                                lattes_year = d[d.len() - 4..].parse::<i64>().ok();
+                            }
+                        }
+                    }
+                    out.extend(parse_dadosgerais_elem(&name, &a, lattes_year));
                     match name.as_str() {
                         "ATUACAO-PROFISSIONAL" => {
-                            let a = attrs_of(&e);
                             ap_inst = first_attr(&a, &["NOME-INSTITUICAO"]);
                         }
                         "PARTICIPACAO-EM-PROJETO" => {
-                            let a = attrs_of(&e);
                             proj_orgao = first_attr(&a, &["NOME-ORGAO"]);
                         }
                         "ENSINO" => {
-                            let a = attrs_of(&e);
                             let (tipo, folder) = ensino_tipo_folder(a.get("TIPO-ENSINO").map(|s| s.as_str()).unwrap_or(""));
                             ensino = Some(EnsinoCtx {
                                 tipo,
@@ -958,31 +1092,31 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                             });
                         }
                         "DISCIPLINA" if ensino.is_some() => {
-                            disc_buf = Some((attrs_of(&e), String::new()));
+                            disc_buf = Some((a, String::new()));
                         }
                         "DIRECAO-E-ADMINISTRACAO" => {
-                            if let Some(it) = parse_direcao_elem(&attrs_of(&e), ap_inst.as_deref()) {
+                            if let Some(it) = parse_direcao_elem(&a, ap_inst.as_deref()) {
                                 out.push(it);
                             }
                         }
                         "CONSELHO-COMISSAO-E-CONSULTORIA" => {
-                            if let Some(it) = parse_conselho_elem(&attrs_of(&e), ap_inst.as_deref()) {
+                            if let Some(it) = parse_conselho_elem(&a, ap_inst.as_deref()) {
                                 out.push(it);
                             }
                         }
                         "PROJETO-DE-PESQUISA" => {
-                            if let Some(it) = parse_projeto_elem(&attrs_of(&e), proj_orgao.as_deref(), ap_inst.as_deref()) {
+                            if let Some(it) = parse_projeto_elem(&a, proj_orgao.as_deref(), ap_inst.as_deref()) {
                                 out.push(it);
                             }
                         }
                         "PREMIO-TITULO" => {
-                            if let Some(it) = parse_premio_elem(&attrs_of(&e)) {
+                            if let Some(it) = parse_premio_elem(&a) {
                                 out.push(it);
                             }
                         }
                         other => {
                             let in_comp = stack.iter().any(|s| s == "FORMACAO-COMPLEMENTAR");
-                            if let Some(it) = parse_formacao_elem(other, &attrs_of(&e), in_comp) {
+                            if let Some(it) = parse_formacao_elem(other, &a, in_comp) {
                                 out.push(it);
                             }
                         }
@@ -1002,10 +1136,18 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                         b.extra.extend(attrs_of(&e));
                     }
                 } else {
+                    let a = attrs_of(&e);
+                    if name == "CURRICULO-VITAE" {
+                        if let Some(d) = a.get("DATA-ATUALIZACAO") {
+                            if d.len() >= 4 {
+                                lattes_year = d[d.len() - 4..].parse::<i64>().ok();
+                            }
+                        }
+                    }
+                    out.extend(parse_dadosgerais_elem(&name, &a, lattes_year));
                     match name.as_str() {
                         "DISCIPLINA" => {
                             if let Some(ctx) = ensino.as_ref() {
-                                let a = attrs_of(&e);
                                 if let Some(d) = first_attr(&a, &["NOME-DISCIPLINA"]) {
                                     if let Some(it) = emit_disciplina(ctx, &d) {
                                         out.push(it);
@@ -1014,28 +1156,28 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                             }
                         }
                         "DIRECAO-E-ADMINISTRACAO" => {
-                            if let Some(it) = parse_direcao_elem(&attrs_of(&e), ap_inst.as_deref()) {
+                            if let Some(it) = parse_direcao_elem(&a, ap_inst.as_deref()) {
                                 out.push(it);
                             }
                         }
                         "CONSELHO-COMISSAO-E-CONSULTORIA" => {
-                            if let Some(it) = parse_conselho_elem(&attrs_of(&e), ap_inst.as_deref()) {
+                            if let Some(it) = parse_conselho_elem(&a, ap_inst.as_deref()) {
                                 out.push(it);
                             }
                         }
                         "PROJETO-DE-PESQUISA" => {
-                            if let Some(it) = parse_projeto_elem(&attrs_of(&e), proj_orgao.as_deref(), ap_inst.as_deref()) {
+                            if let Some(it) = parse_projeto_elem(&a, proj_orgao.as_deref(), ap_inst.as_deref()) {
                                 out.push(it);
                             }
                         }
                         "PREMIO-TITULO" => {
-                            if let Some(it) = parse_premio_elem(&attrs_of(&e)) {
+                            if let Some(it) = parse_premio_elem(&a) {
                                 out.push(it);
                             }
                         }
                         other => {
                             let in_comp = stack.iter().any(|s| s == "FORMACAO-COMPLEMENTAR");
-                            if let Some(it) = parse_formacao_elem(other, &attrs_of(&e), in_comp) {
+                            if let Some(it) = parse_formacao_elem(other, &a, in_comp) {
                                 out.push(it);
                             }
                         }
@@ -1372,7 +1514,7 @@ impl MultiTitleIndex {
             ("bancas", "SELECT titulo FROM bancas WHERE titulo IS NOT NULL"),
             ("dadosgerais", "SELECT descricao FROM dadosgerais WHERE descricao IS NOT NULL"),
             ("formacao", "SELECT descricao FROM formacao WHERE descricao IS NOT NULL"),
-            ("encargos", "SELECT descricao FROM encargos WHERE descricao IS NOT NULL"),
+            ("encargos", "SELECT descricao FROM encargos WHERE descricao IS NOT NULL UNION SELECT COALESCE(titulo, descricao) FROM atuacao WHERE COALESCE(titulo, descricao) IS NOT NULL"),
             ("projetos", "SELECT descricao FROM projetos WHERE descricao IS NOT NULL"),
             ("patentes", "SELECT descricao FROM patentes WHERE descricao IS NOT NULL"),
             ("eventos", "SELECT descricao FROM eventos WHERE descricao IS NOT NULL"),
@@ -1388,7 +1530,7 @@ impl MultiTitleIndex {
 
         let mut disciplinas = HashSet::new();
         let mut stmt = conn
-            .prepare("SELECT disciplina, ano FROM disciplinas WHERE disciplina IS NOT NULL")
+            .prepare("SELECT disciplina, ano FROM disciplinas WHERE disciplina IS NOT NULL UNION SELECT COALESCE(titulo, descricao), ano FROM atuacao WHERE COALESCE(titulo, descricao) IS NOT NULL")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)))
@@ -1503,16 +1645,22 @@ pub fn import_items(conn: &mut Connection, root_dir: &Path, items: &[XmlProducti
                 )
             }
             "encargos" => {
+                let inst = it.journal.as_deref().unwrap_or("UFSC");
                 tx.execute(
-                    "INSERT INTO encargos (ano, tipo, identifier, file, folder, descricao, horas, log, path, url) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, NULL, ?8)",
-                    params![it.ano, it.tipo, it.doi, folder, desc, it.horas, log, it.url],
+                    "INSERT INTO atuacao (ano, tipo, instituicao, titulo, descricao, horas, identifier, file, folder, log, path, url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9, NULL, ?10)",
+                    params![it.ano, it.tipo, inst, desc, desc, it.horas, it.doi, folder, log, it.url],
                 )
             }
             "disciplinas" => {
                 let disc = it.disciplina.as_deref().unwrap_or(&it.titulo);
+                let inst = it.journal.as_deref().or(it.curso.as_deref()).unwrap_or("");
+                let full_desc = match it.curso.as_deref().filter(|c| !c.is_empty()) {
+                    Some(c) if !inst.eq_ignore_ascii_case(c) => format!("{} ({})", disc, c),
+                    _ => disc.to_string(),
+                };
                 tx.execute(
-                    "INSERT INTO disciplinas (ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path, url) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, NULL, ?8, NULL, ?9)",
-                    params![it.ano, it.tipo, it.curso, it.doi, folder, disc, it.horas, log, it.url],
+                    "INSERT INTO atuacao (ano, tipo, instituicao, titulo, enquadramento, horas, descricao, identifier, file, folder, log, path, url) VALUES (?1, ?2, ?3, ?4, 'Docente', ?5, ?6, ?7, NULL, ?8, ?9, NULL, ?10)",
+                    params![it.ano, it.tipo, inst, disc, it.horas, full_desc, it.doi, folder, log, it.url],
                 )
             }
             "projetos" => {
@@ -1556,6 +1704,7 @@ pub fn import_items(conn: &mut Connection, root_dir: &Path, items: &[XmlProducti
         n += 1;
     }
     tx.commit().map_err(|e| e.to_string())?;
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
     Ok(n)
 }
 
@@ -1815,8 +1964,8 @@ mod tests {
         let inserted = import_items(&mut conn, &root_dir, &to_import).unwrap();
         assert_eq!(inserted, to_import.len());
 
-        // Verificar inserção nas 10 tabelas de produções do XML
-        for tbl in ["dadosgerais", "formacao", "encargos", "disciplinas", "projetos", "producoes", "patentes", "eventos", "orientacoes", "bancas"] {
+        // Verificar inserção nas tabelas de produções do XML (encargos e disciplinas vão para atuacao)
+        for tbl in ["dadosgerais", "formacao", "atuacao", "projetos", "producoes", "patentes", "eventos", "orientacoes", "bancas"] {
             let cnt: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", tbl), [], |r| r.get(0)).unwrap();
             assert!(cnt >= 1, "tabela {} deveria ter >= 1 registro", tbl);
         }

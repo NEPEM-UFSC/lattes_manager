@@ -4,12 +4,12 @@
 
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
-import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
+import { CATEGORY_SCHEMAS, escapeHtml, getCategoryMappings, showToast } from "../utils.js";
 import { PALETTE } from "./charts.js";
 import { ocrImage } from "./docAnalyzer.js";
 
 const IMG = /\.(png|jpe?g)$/i;
-const MAIN_FIELDS = ["titulo", "disciplina", "descricao", "aluno"];
+const MAIN_FIELDS = ["titulo", "instituicao", "disciplina", "descricao", "aluno"];
 const EXTRA_FIELDS = ["journal", "identifier", "qualis", "horas", "aluno", "disciplina", "curso", "descricao"];
 
 const mb = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(2)} GB` : b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
@@ -52,11 +52,26 @@ export class BatchImport {
     this.tipoFixo ??= "";
     this.online ??= true;
     this.ocr ??= true;
+    this.concurrency ??= 8;
     this.rows = [];
     this.result = null;
     this.overlay.style.display = "flex";
     if (files && files.length) {
       this.files = files.map((p) => (typeof p === "string" ? { path: p, name: p.split(/[\\/]/).pop(), size: 0 } : p));
+    }
+    if (!((this.getMappings && this.getMappings()) || []).length) {
+      api
+        .getSubfolderMappings()
+        .then((ms) => {
+          if (Array.isArray(ms) && ms.length) {
+            this.localMappings = ms;
+            if (window._app && !(window._app.mappings || []).length) {
+              window._app.mappings = ms;
+            }
+            if (this.phase) this.render();
+          }
+        })
+        .catch(() => {});
     }
     this.render();
   }
@@ -69,8 +84,9 @@ export class BatchImport {
   }
 
   tiposOf(cat) {
-    const g = (CATEGORY_SCHEMAS[cat]?.dbGroup || CATEGORY_SCHEMAS[cat]?.group)?.toLowerCase();
-    return (this.getMappings() || []).filter((m) => m.category_group.toLowerCase() === g);
+    const raw = (this.getMappings && this.getMappings()) || [];
+    const src = raw.length ? raw : this.localMappings || [];
+    return getCategoryMappings(cat, src);
   }
 
   folderOf(cat, tipo) {
@@ -96,7 +112,7 @@ export class BatchImport {
   // ---------------------------------------------------------------- 1. origem e opções
   renderSetup() {
     const total = this.files.reduce((a, f) => a + (f.size || 0), 0);
-    const cats = Object.entries(CATEGORY_SCHEMAS);
+    const cats = Object.entries(CATEGORY_SCHEMAS).filter(([, s]) => !s.legacy);
     const tipos = this.mode !== "auto" ? this.tiposOf(this.mode) : [];
     const nPdf = this.files.filter((f) => /\.pdf$/i.test(f.path)).length;
     this.shell(
@@ -127,9 +143,20 @@ export class BatchImport {
             this.mode !== "auto"
               ? `<label class="rb-field"><span>Tipo</span><select class="form-select" data-o="tipoFixo">
                   <option value="">✨ Automático (sugerido para cada arquivo)</option>
-                  ${tipos.map((m) => `<option ${m.description === this.tipoFixo ? "selected" : ""}>${escapeHtml(m.description)}</option>`).join("")}</select></label>`
-              : ""
+                  ${tipos.map((m) => `<option value="${escapeHtml(m.description)}" ${m.description === this.tipoFixo ? "selected" : ""}>${escapeHtml(m.description)}</option>`).join("")}</select></label>`
+              : `<label class="rb-field"><span>Tipo</span><select class="form-select" data-o="tipoFixo" disabled>
+                  <option value="">✨ Automático (selecione uma categoria acima para fixar um tipo)</option>
+                </select></label>`
           }
+          <div class="rb-field">
+            <span>Processamento simultâneo</span>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:4px;">
+              ${[5, 8, 10, 15].map((n) => `
+                <button type="button" class="btn btn-sm ${(this.concurrency || 8) === n ? "btn-primary" : "btn-secondary"}" data-conc="${n}" style="font-size:11.5px; padding:4px 12px; border-radius:14px; min-width:42px;" title="Processar até ${n} documentos ao mesmo tempo">${n}x</button>
+              `).join("")}
+              <small class="muted" style="margin-left:6px;">até ${this.concurrency || 8} documentos analisados em paralelo</small>
+            </div>
+          </div>
           <label class="bi-chk"><input type="checkbox" data-o="online" ${this.online ? "checked" : ""}/> <span><b>Consultar a Crossref</b> para artigos com DOI (título, periódico, ano e Qualis) — requer internet</span></label>
           <label class="bi-chk"><input type="checkbox" data-o="ocr" ${this.ocr ? "checked" : ""}/> <span><b>Ler imagens e PDFs digitalizados (OCR)</b> — mais preciso, porém mais lento</span></label>
         </div>`,
@@ -162,6 +189,12 @@ export class BatchImport {
       this.render();
     });
     on("go", () => this.analyzeAll());
+    o.querySelectorAll("[data-conc]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        this.concurrency = Number(btn.dataset.conc) || 8;
+        this.render();
+      })
+    );
     o.querySelectorAll("[data-o]").forEach((el) =>
       el.addEventListener("change", async () => {
         const k = el.dataset.o;
@@ -184,27 +217,59 @@ export class BatchImport {
   }
 
   // ---------------------------------------------------------------- 2. análise
+  formatActiveNames(activeNames) {
+    const arr = [...activeNames];
+    if (!arr.length) return this.ocrLabel || "";
+    const preview = arr.length <= 2 ? arr.join(" · ") : `${arr.slice(0, 2).join(" · ")} (+${arr.length - 2})`;
+    return this.ocrLabel ? `${preview} (${this.ocrLabel})` : preview;
+  }
+
   async analyzeAll() {
     this.phase = "analyze";
     this.cancel = false;
     this.rows = [];
     this.done = 0;
+    this.current = "";
+    this.ocrLabel = null;
     this.render();
+    if (!((this.getMappings && this.getMappings()) || []).length && !(this.localMappings || []).length) {
+      try {
+        const ms = await api.getSubfolderMappings();
+        if (Array.isArray(ms) && ms.length) this.localMappings = ms;
+      } catch {}
+    }
     try {
       this.existing = (await api.getAllRecords()) || {};
     } catch {
       this.existing = {};
     }
     this.claimed = new Set();
-    for (const f of this.files) {
-      if (this.cancel) break;
-      this.current = f.name;
-      this.ocrPct = null;
-      this.renderAnalyze();
-      const row = await this.analyzeOne(f);
-      this.rows.push(row);
-      this.done++;
-    }
+    const results = new Array(this.files.length);
+    const activeNames = new Set();
+    const concurrency = Math.max(1, Math.min(this.concurrency || 8, this.files.length));
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < this.files.length && !this.cancel) {
+        const idx = cursor++;
+        const f = this.files[idx];
+        activeNames.add(f.name);
+        this.current = this.formatActiveNames(activeNames);
+        this.updateAnalyzeProgress();
+        try {
+          results[idx] = await this.analyzeOne(f);
+        } finally {
+          activeNames.delete(f.name);
+          this.done++;
+          this.current = this.formatActiveNames(activeNames);
+          this.updateAnalyzeProgress();
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    this.ocrLabel = null;
+    this.rows = results.filter(Boolean);
     if (this.phase !== "analyze") return; // fechado
     this.phase = "review";
     this.render();
@@ -214,29 +279,44 @@ export class BatchImport {
     if (this.phase !== "analyze") return;
     const n = this.files.length;
     const pct = Math.round((this.done / Math.max(1, n)) * 100);
+    const conc = Math.max(1, Math.min(this.concurrency || 8, Math.max(1, n)));
     this.shell(
-      "Lendo e classificando cada documento…",
+      `Lendo e classificando documentos em paralelo (${conc}x)…`,
       `<div class="da-loading bi-loading"><div class="da-orb"></div>
-        <b>${this.done} de ${n} analisado(s)</b>
-        <span class="bi-cur">${escapeHtml(this.current || "")}${this.ocrPct != null ? ` · OCR ${Math.round(this.ocrPct * 100)}%` : ""}</span>
-        <div class="tl-progress"><i style="width:${pct}%"></i></div></div>`,
+        <b data-bi-count>${this.done} de ${n} analisado(s)</b>
+        <span class="bi-cur" data-bi-cur>${escapeHtml(this.current || "")}</span>
+        <div class="tl-progress"><i data-bi-bar style="width:${pct}%"></i></div></div>`,
       `<span style="flex:1"></span><button type="button" class="btn btn-secondary" data-a="stop">${this.cancel ? "Parando…" : "Parar e revisar o que já foi lido"}</button>`
     );
     this.overlay.querySelector('[data-a="stop"]').addEventListener("click", () => {
       this.cancel = true;
-      this.renderAnalyze();
+      const btn = this.overlay.querySelector('[data-a="stop"]');
+      if (btn) btn.textContent = "Parando…";
     });
   }
 
-  async ocrAnalyze(path, getBytes, hint = 0) {
+  updateAnalyzeProgress() {
+    if (this.phase !== "analyze") return;
+    const n = this.files.length;
+    const pct = Math.round((this.done / Math.max(1, n)) * 100);
+    const cnt = this.overlay.querySelector("[data-bi-count]");
+    const cur = this.overlay.querySelector("[data-bi-cur]");
+    const bar = this.overlay.querySelector("[data-bi-bar]");
+    if (cnt) cnt.textContent = `${this.done} de ${n} analisado(s)`;
+    if (cur) cur.textContent = this.current || "";
+    if (bar) bar.style.width = `${pct}%`;
+  }
+
+  async ocrAnalyze(path, fileName, getBytes, hint = 0) {
     const bytes = await getBytes();
     const text = await ocrImage(bytes, (p, st) => {
       if (/recogniz/i.test(st)) {
-        this.ocrPct = p;
-        const el = this.overlay.querySelector(".bi-cur");
-        if (el) el.textContent = `${this.current} · OCR ${Math.round(p * 100)}%`;
+        this.ocrLabel = `OCR ${fileName}: ${Math.round(p * 100)}%`;
+        const cur = this.overlay.querySelector("[data-bi-cur]");
+        if (cur && this.phase === "analyze") cur.textContent = this.ocrLabel;
       }
     }, hint);
+    this.ocrLabel = null;
     return api.analyzeDocument(path, text);
   }
 
@@ -246,12 +326,12 @@ export class BatchImport {
     let res = null;
     try {
       if (IMG.test(f.path)) {
-        res = this.ocr ? await this.ocrAnalyze(f.path, () => api.readImageFile(f.path)) : await api.analyzeDocument(f.path, "");
+        res = this.ocr ? await this.ocrAnalyze(f.path, f.name, () => api.readImageFile(f.path)) : await api.analyzeDocument(f.path, "");
       } else {
         res = await api.analyzeDocument(f.path);
         if (res.needs_ocr && this.ocr) {
           const rot = await api.pdfRotation(f.path).catch(() => 0);
-          res = (await this.ocrAnalyze(f.path, () => api.pdfScanImage(f.path), rot).catch(() => null)) || res;
+          res = (await this.ocrAnalyze(f.path, f.name, () => api.pdfScanImage(f.path), rot).catch(() => null)) || res;
         }
       }
     } catch (e) {
@@ -339,8 +419,9 @@ export class BatchImport {
   }
 
   renderReview() {
+    this.rows.forEach((r) => this.fixTipo(r));
     const k = this.counts();
-    const cats = Object.entries(CATEGORY_SCHEMAS);
+    const cats = Object.entries(CATEGORY_SCHEMAS).filter(([, s]) => !s.legacy);
     const color = (cat) => PALETTE[cat] || CATEGORY_SCHEMAS[cat]?.color || "#6366f1";
     const pct = (p) => `${Math.round(p * 100)}%`;
     const allOn = this.rows.every((r) => r.include);
@@ -356,7 +437,10 @@ export class BatchImport {
             ${this.mode === "auto" ? `<span class="bi-conf ${r.conf >= 0.7 ? "hi" : r.conf >= 0.45 ? "mid" : "lo"}" title="Confiança da classificação">${pct(r.conf)}</span>` : ""}
             ${r.note ? `<small class="bi-note">${escapeHtml(r.note)}</small>` : ""}</td>
           <td><select class="form-select bi-cat ${lowConf ? "warn" : ""}" data-f="cat" style="--c:${color(r.cat)}" ${isAttach ? "disabled" : ""}>${cats.map(([key, s]) => `<option value="${key}" ${key === r.cat ? "selected" : ""}>${escapeHtml(s.group)}</option>`).join("")}</select></td>
-          <td><select class="form-select" data-f="tipo" ${isAttach ? "disabled" : ""}>${tipos.map((m) => `<option ${m.description === r.tipo ? "selected" : ""}>${escapeHtml(m.description)}</option>`).join("")}</select></td>
+          <td><select class="form-select" data-f="tipo" ${isAttach ? "disabled" : ""}>
+              ${!r.tipo ? '<option value="" selected>Selecione um tipo…</option>' : ""}
+              ${tipos.map((m) => `<option value="${escapeHtml(m.description)}" ${m.description === r.tipo ? "selected" : ""}>${escapeHtml(m.description)}</option>`).join("")}
+            </select></td>
           <td><input class="form-input bi-ano" data-f="ano" inputmode="numeric" value="${escapeHtml(String(r.ano || ""))}" placeholder="ano" ${isAttach ? "disabled" : ""}/></td>
           <td><input class="form-input" data-f="text" value="${escapeHtml(r.text)}" placeholder="${escapeHtml(mainField(r.cat))}" ${isAttach ? "disabled" : ""}/>
             ${r.extra.journal || r.extra.identifier ? `<small class="bi-meta">${escapeHtml([r.extra.journal, r.extra.identifier && /^10\./.test(r.extra.identifier) ? `DOI ${r.extra.identifier}` : null, r.extra.qualis ? `Qualis ${r.extra.qualis}` : null].filter(Boolean).join(" · "))}</small>` : ""}</td>
@@ -443,14 +527,18 @@ export class BatchImport {
     });
     o.querySelector('[data-bulk="tipo"]').addEventListener("change", (e) => {
       this.bulkTipo = e.target.value;
-      this.renderReview();
+      const btn = o.querySelector('[data-a="bulk"]');
+      if (btn) btn.disabled = !(this.bulkCat || this.bulkTipo);
     });
     o.querySelector('[data-a="bulk"]').addEventListener("click", () => this.applyBulk());
   }
 
   /** Opções de tipo para a ação em lote: da categoria escolhida ou de todas (agrupadas). Valor: "cat||tipo". */
   bulkTipoOptions() {
-    const cats = this.bulkCat ? [this.bulkCat] : [...new Set(this.rows.map((r) => r.cat))];
+    let cats = this.bulkCat ? [this.bulkCat] : [...new Set(this.rows.map((r) => r.cat).filter(Boolean))];
+    if (!cats.length) {
+      cats = Object.keys(CATEGORY_SCHEMAS).filter((k) => !CATEGORY_SCHEMAS[k]?.legacy);
+    }
     const opt = (c, t) => {
       const v = `${c}||${t}`;
       return `<option value="${escapeHtml(v)}" ${this.bulkTipo === v ? "selected" : ""}>${escapeHtml(t)}</option>`;
@@ -461,7 +549,7 @@ export class BatchImport {
       .join("");
   }
 
-  /** Aplica categoria e/ou tipo às linhas marcadas (as que serão anexadas a registros existentes ficam como estão). */
+  /** Aplica categoria e/ou tipo às linhas marcadas (as que serão anexadas a registros existentes ficam como estão quando há novas linhas). */
   applyBulk() {
     let cat = this.bulkCat || null;
     let tipo = null;
@@ -471,12 +559,16 @@ export class BatchImport {
       tipo = t;
     }
     if (!cat) return;
+    const checked = this.rows.filter((r) => r.include);
+    const hasNonAttach = checked.some((r) => !r.action.startsWith("attach"));
     let n = 0, kept = 0;
-    for (const r of this.rows) {
-      if (!r.include) continue;
+    for (const r of checked) {
       if (r.action.startsWith("attach")) {
-        kept++;
-        continue;
+        if (hasNonAttach) {
+          kept++;
+          continue;
+        }
+        r.action = "create";
       }
       if (r.cat !== cat) {
         const oldMain = mainField(r.cat);
@@ -494,7 +586,7 @@ export class BatchImport {
     this.bulkTipo = "";
     this.renderReview();
     const label = `${CATEGORY_SCHEMAS[cat]?.group || cat}${tipo ? ` › ${tipo}` : ""}`;
-    showToast(n ? `${label} aplicado a ${n} linha(s)${kept ? ` · ${kept} anexo(s) a registros existentes mantido(s)` : ""}` : "Nenhuma linha marcada para alterar (as de anexo ficam como estão)", n ? "success" : "info", 3500);
+    showToast(n ? `${label} aplicado a ${n} linha(s)${kept ? ` · ${kept} anexo(s) a registros existentes mantido(s)` : ""}` : "Nenhuma linha marcada para alterar", n ? "success" : "info", 3500);
   }
 
   // ---------------------------------------------------------------- 4. importação
@@ -520,26 +612,44 @@ export class BatchImport {
     this.result = { created: 0, attached: 0, errors: [], cats: new Set() };
     this.done = 0;
     this.total = todo.length;
-    for (const r of todo) {
-      this.current = r.file.name;
-      this.renderImport();
-      try {
-        if (r.action.startsWith("attach:")) {
-          const [, cat, id] = r.action.split(":");
-          await api.updateRecord(cat, Number(id), {}, r.file.path);
-          this.result.attached++;
-          this.result.cats.add(cat);
-        } else {
-          await api.createRecord(r.cat, this.buildData(r), r.file.path);
-          this.result.created++;
-          this.result.cats.add(r.cat);
+    this.current = "";
+    this.renderImport();
+
+    const activeNames = new Set();
+    const concurrency = Math.max(1, Math.min(this.concurrency || 8, todo.length));
+    let cursor = 0;
+
+    const worker = async () => {
+      while (cursor < todo.length) {
+        const r = todo[cursor++];
+        activeNames.add(r.file.name);
+        this.current = this.formatActiveNames(activeNames);
+        this.updateImportProgress();
+        try {
+          if (r.action.startsWith("attach:")) {
+            const [, cat, id] = r.action.split(":");
+            await api.updateRecord(cat, Number(id), {}, r.file.path);
+            this.result.attached++;
+            this.result.cats.add(cat);
+          } else {
+            await api.createRecord(r.cat, this.buildData(r), r.file.path);
+            this.result.created++;
+            this.result.cats.add(r.cat);
+          }
+          r.imported = true;
+        } catch (e) {
+          this.result.errors.push(`${r.file.name}: ${e}`);
+        } finally {
+          activeNames.delete(r.file.name);
+          this.done++;
+          this.current = this.formatActiveNames(activeNames);
+          this.updateImportProgress();
         }
-        r.imported = true;
-      } catch (e) {
-        this.result.errors.push(`${r.file.name}: ${e}`);
       }
-      this.done++;
-    }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    if (this.phase !== "import") return;
     this.phase = "done";
     this.render();
     this.onDone && this.onDone([...this.result.cats]);
@@ -547,12 +657,24 @@ export class BatchImport {
 
   renderImport() {
     const pct = Math.round((this.done / Math.max(1, this.total)) * 100);
+    const conc = Math.max(1, Math.min(this.concurrency || 8, Math.max(1, this.total)));
     this.shell(
-      "Copiando os arquivos para as subpastas e criando os registros…",
-      `<div class="da-loading bi-loading"><div class="da-orb"></div><b>${this.done} de ${this.total}</b>
-        <span class="bi-cur">${escapeHtml(this.current || "")}</span><div class="tl-progress"><i style="width:${pct}%"></i></div></div>`,
+      `Copiando os arquivos para as subpastas e criando os registros em paralelo (${conc}x)…`,
+      `<div class="da-loading bi-loading"><div class="da-orb"></div><b data-bi-count>${this.done} de ${this.total}</b>
+        <span class="bi-cur" data-bi-cur>${escapeHtml(this.current || "")}</span><div class="tl-progress"><i data-bi-bar style="width:${pct}%"></i></div></div>`,
       ""
     );
+  }
+
+  updateImportProgress() {
+    if (this.phase !== "import") return;
+    const pct = Math.round((this.done / Math.max(1, this.total)) * 100);
+    const cnt = this.overlay.querySelector("[data-bi-count]");
+    const cur = this.overlay.querySelector("[data-bi-cur]");
+    const bar = this.overlay.querySelector("[data-bi-bar]");
+    if (cnt) cnt.textContent = `${this.done} de ${this.total}`;
+    if (cur) cur.textContent = this.current || "";
+    if (bar) bar.style.width = `${pct}%`;
   }
 
   renderDone() {

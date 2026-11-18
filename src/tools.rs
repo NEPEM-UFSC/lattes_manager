@@ -389,6 +389,474 @@ pub fn write_xlsx(path: &Path, sheets: &[Sheet]) -> Result<(), String> {
     wb.save(path).map_err(|e| format!("Falha ao salvar a planilha: {}", e))
 }
 
+// ---------------- Auditoria e Limpeza Recursiva de Pastas ----------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditedFolderItem {
+    pub rel_path: String,
+    pub abs_path: String,
+    pub exists_on_disk: bool,
+    pub is_mapped: bool,
+    pub is_parent_of_mapped: bool,
+    pub mapping_id: Option<i64>,
+    pub category_group: Option<String>,
+    pub suggested_group: String,
+    pub description: String,
+    pub direct_files: usize,
+    pub total_tree_files: usize,
+    pub subdirs_count: usize,
+    pub linked_files_count: usize,
+    pub unlinked_files_count: usize,
+    pub records_using_folder: usize,
+    pub unlinked_files: Vec<String>,
+    pub unlinked_bytes: u64,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct RootFolderAudit {
+    pub root_path: String,
+    pub total_disk_folders: usize,
+    pub empty_folders: Vec<AuditedFolderItem>,
+    pub unmapped_folders: Vec<AuditedFolderItem>,
+    pub folders_with_unlinked_files: Vec<AuditedFolderItem>,
+    pub missing_disk_folders: Vec<AuditedFolderItem>,
+}
+
+fn is_ignored_top_dir(name_lower: &str) -> bool {
+    matches!(
+        name_lower,
+        ".git" | ".pytest_cache" | "backups" | "perfil" | "system volume information" | "$recycle.bin"
+    ) || name_lower.starts_with('.')
+}
+
+fn is_os_junk_file(name_lower: &str) -> bool {
+    matches!(name_lower, "desktop.ini" | "thumbs.db" | ".ds_store") || name_lower.starts_with("~$")
+}
+
+fn infer_group_from_rel(rel_path: &str) -> String {
+    let first = rel_path
+        .split(['\\', '/'])
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+    match first.as_str() {
+        s if s.starts_with("1_dados") => "Dados gerais",
+        s if s.starts_with("2_formacao") || s == "formacao_academica" => "Formação",
+        s if s.starts_with("3_atuacao") || s.starts_with("12_atuacao") || s.starts_with("13_atuacao") => "Atuação",
+        s if s.starts_with("4_projetos") => "Projetos",
+        s if s.starts_with("5_producoes") => "Produções",
+        s if s.starts_with("6_patentes") => "Patentes",
+        s if s.starts_with("7_inovacao") => "Inovação",
+        s if s.starts_with("8_educacao") => "Educação e Popularização de C&T",
+        s if s.starts_with("9_eventos") => "Eventos",
+        s if s.starts_with("10_orientacoes") => "Orientações",
+        s if s.starts_with("11_bancas") => "Bancas",
+        _ => "Dados gerais",
+    }
+    .to_string()
+}
+
+fn humanize_folder_name(rel_path: &str) -> String {
+    let base = rel_path
+        .trim_end_matches(['\\', '/'])
+        .split(['\\', '/'])
+        .next_back()
+        .unwrap_or(rel_path);
+    let clean = base.replace('_', " ").trim().to_string();
+    let mut chars = clean.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        None => clean,
+    }
+}
+
+fn collect_referenced_state(conn: &Connection) -> Result<(HashSet<String>, HashMap<String, usize>), String> {
+    let mut referenced_files = HashSet::new();
+    let mut records_by_folder: HashMap<String, usize> = HashMap::new();
+    for cat in all_categories(conn) {
+        for r in queries::get_records(conn, &cat, None, None, None).map_err(|e| e.to_string())? {
+            if let Some(fld) = r.folder.as_deref().map(linker::norm_rel).filter(|s| !s.is_empty()) {
+                *records_by_folder.entry(fld).or_insert(0) += 1;
+            }
+            if let Some(p) = r.path.as_deref().filter(|s| !s.trim().is_empty()) {
+                referenced_files.insert(linker::norm_rel(p));
+            }
+            for att in &r.attachments {
+                if !att.path.trim().is_empty() {
+                    referenced_files.insert(linker::norm_rel(&att.path));
+                }
+            }
+        }
+    }
+    Ok((referenced_files, records_by_folder))
+}
+
+fn count_tree_real_files(dir: &Path) -> usize {
+    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
+    let mut count = 0usize;
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            count += count_tree_real_files(&p);
+        } else {
+            let name_low = entry.file_name().to_string_lossy().to_lowercase();
+            if !is_os_junk_file(&name_low) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+fn walk_disk_dirs(dir: &Path, root: &Path, is_root: bool, out: &mut Vec<PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if !p.is_dir() {
+            continue;
+        }
+        let name_low = entry.file_name().to_string_lossy().to_lowercase();
+        if is_root && is_ignored_top_dir(&name_low) {
+            continue;
+        }
+        if !is_root && name_low.starts_with('.') {
+            continue;
+        }
+        out.push(p.clone());
+        walk_disk_dirs(&p, root, false, out);
+    }
+}
+
+fn safe_rel_inside_root(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let trimmed = rel.trim().trim_matches(|c| c == '\\' || c == '/');
+    if trimmed.is_empty() {
+        return Err("Caminho vazio não permitido".to_string());
+    }
+    let p = Path::new(trimmed);
+    if p.is_absolute() {
+        return Err(format!("Caminho absoluto não permitido: {}", rel));
+    }
+    for comp in p.components() {
+        match comp {
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return Err(format!("Caminho inválido fora da pasta raiz: {}", rel));
+            }
+            _ => {}
+        }
+    }
+    let top = trimmed.split(['\\', '/']).next().unwrap_or("").to_lowercase();
+    if is_ignored_top_dir(&top) {
+        return Err(format!("Pasta protegida do sistema não pode ser alterada: {}", rel));
+    }
+    let full = crate::files::rel_join(root, trimmed);
+    if full.exists() {
+        if let (Ok(c_full), Ok(c_root)) = (full.canonicalize(), root.canonicalize()) {
+            if !c_full.starts_with(&c_root) || c_full == c_root {
+                return Err(format!("Caminho fora da pasta raiz permitida: {}", rel));
+            }
+        }
+    }
+    Ok(full)
+}
+
+pub fn scan_root_folders(conn: &Connection, root: &Path) -> Result<RootFolderAudit, String> {
+    let clean_root = crate::strip_verbatim(root);
+    let mut audit = RootFolderAudit {
+        root_path: clean_root.to_string_lossy().to_string(),
+        ..Default::default()
+    };
+
+    let mappings = queries::get_subfolder_mappings(conn, None).map_err(|e| e.to_string())?;
+    let mut mapped_by_norm: HashMap<String, crate::db::models::SubfolderMapping> = HashMap::new();
+    for m in &mappings {
+        let key = linker::norm_rel(&m.folder);
+        if !key.is_empty() {
+            mapped_by_norm.entry(key).or_insert_with(|| m.clone());
+        }
+    }
+
+    let (referenced_files, records_by_folder) = collect_referenced_state(conn)?;
+
+    let mut disk_dirs = Vec::new();
+    walk_disk_dirs(root, root, true, &mut disk_dirs);
+    audit.total_disk_folders = disk_dirs.len();
+
+    for dir_path in disk_dirs {
+        let Ok(rel) = dir_path.strip_prefix(root) else { continue };
+        let rel_path = rel
+            .to_string_lossy()
+            .replace('/', "\\")
+            .trim_matches('\\')
+            .to_string();
+        if rel_path.is_empty() {
+            continue;
+        }
+        let norm_dir = linker::norm_rel(&rel_path);
+        let mapping = mapped_by_norm.get(&norm_dir);
+        let prefix = format!("{}\\", norm_dir);
+        let is_parent_of_mapped = mapped_by_norm.keys().any(|k| k.starts_with(&prefix));
+
+        let mut direct_files = 0usize;
+        let mut subdirs_count = 0usize;
+        let mut linked_files_count = 0usize;
+        let mut unlinked_files_count = 0usize;
+        let mut unlinked_files = Vec::new();
+        let mut unlinked_bytes = 0u64;
+
+        if let Ok(rd) = std::fs::read_dir(&dir_path) {
+            for entry in rd.flatten() {
+                let p = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+                let name_low = name.to_lowercase();
+                if p.is_dir() {
+                    if !name_low.starts_with('.') {
+                        subdirs_count += 1;
+                    }
+                    continue;
+                }
+                if is_os_junk_file(&name_low) {
+                    continue;
+                }
+                direct_files += 1;
+                let file_rel = format!("{}\\{}", rel_path, name);
+                if referenced_files.contains(&linker::norm_rel(&file_rel)) {
+                    linked_files_count += 1;
+                } else {
+                    unlinked_files_count += 1;
+                    unlinked_bytes += std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                    unlinked_files.push(file_rel);
+                }
+            }
+        }
+        unlinked_files.sort();
+        let total_tree_files = count_tree_real_files(&dir_path);
+        let records_using_folder = records_by_folder.get(&norm_dir).copied().unwrap_or(0);
+        let is_mapped = mapping.is_some();
+        let suggested_group = mapping
+            .map(|m| m.category_group.clone())
+            .unwrap_or_else(|| infer_group_from_rel(&rel_path));
+        let description = mapping
+            .map(|m| m.description.clone())
+            .unwrap_or_else(|| humanize_folder_name(&rel_path));
+
+        let item = AuditedFolderItem {
+            rel_path,
+            abs_path: crate::strip_verbatim(&dir_path).to_string_lossy().to_string(),
+            exists_on_disk: true,
+            is_mapped,
+            is_parent_of_mapped,
+            mapping_id: mapping.map(|m| m.id),
+            category_group: mapping.map(|m| m.category_group.clone()),
+            suggested_group,
+            description,
+            direct_files,
+            total_tree_files,
+            subdirs_count,
+            linked_files_count,
+            unlinked_files_count,
+            records_using_folder,
+            unlinked_files,
+            unlinked_bytes,
+        };
+
+        if total_tree_files == 0 {
+            audit.empty_folders.push(item.clone());
+        }
+        if !is_mapped && !is_parent_of_mapped {
+            audit.unmapped_folders.push(item.clone());
+        }
+        if unlinked_files_count > 0 {
+            audit.folders_with_unlinked_files.push(item);
+        }
+    }
+
+    for m in mappings {
+        let clean_rel = m
+            .folder
+            .trim()
+            .replace('/', "\\")
+            .trim_matches('\\')
+            .to_string();
+        if clean_rel.is_empty() {
+            continue;
+        }
+        let full = crate::files::rel_join(root, &clean_rel);
+        if !full.is_dir() {
+            let norm_dir = linker::norm_rel(&clean_rel);
+            let records_using_folder = records_by_folder.get(&norm_dir).copied().unwrap_or(0);
+            audit.missing_disk_folders.push(AuditedFolderItem {
+                rel_path: clean_rel,
+                abs_path: crate::strip_verbatim(&full).to_string_lossy().to_string(),
+                exists_on_disk: false,
+                is_mapped: true,
+                is_parent_of_mapped: false,
+                mapping_id: Some(m.id),
+                category_group: Some(m.category_group.clone()),
+                suggested_group: m.category_group,
+                description: m.description,
+                direct_files: 0,
+                total_tree_files: 0,
+                subdirs_count: 0,
+                linked_files_count: 0,
+                unlinked_files_count: 0,
+                records_using_folder,
+                unlinked_files: Vec::new(),
+                unlinked_bytes: 0,
+            });
+        }
+    }
+
+    audit.empty_folders.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    audit.unmapped_folders.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    audit.folders_with_unlinked_files.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    audit.missing_disk_folders.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+
+    Ok(audit)
+}
+
+fn dir_tree_safety_check(
+    dir: &Path,
+    root: &Path,
+    referenced: &HashSet<String>,
+    delete_unlinked_files: bool,
+) -> Result<(), String> {
+    let Ok(rd) = std::fs::read_dir(dir) else { return Ok(()) };
+    for entry in rd.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            dir_tree_safety_check(&p, root, referenced, delete_unlinked_files)?;
+        } else {
+            let name_low = entry.file_name().to_string_lossy().to_lowercase();
+            if is_os_junk_file(&name_low) {
+                continue;
+            }
+            if let Ok(rel) = p.strip_prefix(root) {
+                let rel_str = rel.to_string_lossy().to_string();
+                if referenced.contains(&linker::norm_rel(&rel_str)) {
+                    return Err("contém comprovante(s) vinculado(s) a registros".to_string());
+                }
+            }
+            if !delete_unlinked_files {
+                return Err("a pasta não está vazia".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn remove_audited_folders(
+    conn: &Connection,
+    root: &Path,
+    rel_paths: &[String],
+    remove_mappings: bool,
+    delete_unlinked_files: bool,
+) -> ApplyResult {
+    let mut res = ApplyResult::default();
+    let (referenced, _) = match collect_referenced_state(conn) {
+        Ok(x) => x,
+        Err(e) => {
+            res.erros.push(e);
+            return res;
+        }
+    };
+
+    let mut sorted: Vec<String> = rel_paths
+        .iter()
+        .map(|s| s.trim().replace('/', "\\").trim_matches('\\').to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    sorted.sort_by(|a, b| {
+        let da = a.matches('\\').count();
+        let db = b.matches('\\').count();
+        db.cmp(&da).then_with(|| a.cmp(b))
+    });
+    sorted.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+
+    for rel in sorted {
+        let r = (|| -> Result<(), String> {
+            let full = safe_rel_inside_root(root, &rel)?;
+            if full.exists() {
+                if !full.is_dir() {
+                    return Err("não é uma pasta".to_string());
+                }
+                dir_tree_safety_check(&full, root, &referenced, delete_unlinked_files)?;
+                std::fs::remove_dir_all(&full)
+                    .map_err(|e| format!("falha ao remover pasta: {}", e))?;
+            }
+            if remove_mappings {
+                let norm = linker::norm_rel(&rel);
+                let _ = conn.execute(
+                    "DELETE FROM subfolder_mappings WHERE TRIM(REPLACE(LOWER(folder), '/', '\\'), '\\') = ?1",
+                    params![norm],
+                );
+            }
+            Ok(())
+        })();
+        match r {
+            Ok(()) => res.ok += 1,
+            Err(e) => res.erros.push(format!("{}: {}", rel, e)),
+        }
+    }
+    res
+}
+
+pub fn create_missing_mapped_folders(root: &Path, rel_paths: &[String]) -> ApplyResult {
+    let mut res = ApplyResult::default();
+    for rel in rel_paths {
+        let r = (|| -> Result<(), String> {
+            let full = safe_rel_inside_root(root, rel)?;
+            std::fs::create_dir_all(&full).map_err(|e| e.to_string())
+        })();
+        match r {
+            Ok(()) => res.ok += 1,
+            Err(e) => res.erros.push(format!("{}: {}", rel, e)),
+        }
+    }
+    res
+}
+
+pub fn remove_unlinked_mappings(conn: &Connection, mapping_ids: &[i64]) -> ApplyResult {
+    let mut res = ApplyResult::default();
+    for &id in mapping_ids {
+        match conn.execute("DELETE FROM subfolder_mappings WHERE id = ?1", params![id]) {
+            Ok(n) if n > 0 => res.ok += 1,
+            Ok(_) => res.erros.push(format!("Mapeamento #{} não encontrado", id)),
+            Err(e) => res.erros.push(format!("#{}: {}", id, e)),
+        }
+    }
+    res
+}
+
+pub fn delete_orphan_files(conn: &Connection, root: &Path, rel_files: &[String]) -> ApplyResult {
+    let mut res = ApplyResult::default();
+    let (referenced, _) = match collect_referenced_state(conn) {
+        Ok(x) => x,
+        Err(e) => {
+            res.erros.push(e);
+            return res;
+        }
+    };
+    for rel in rel_files {
+        let r = (|| -> Result<(), String> {
+            let full = safe_rel_inside_root(root, rel)?;
+            if referenced.contains(&linker::norm_rel(rel)) {
+                return Err("arquivo está vinculado a um registro".to_string());
+            }
+            if !full.is_file() {
+                return Err("arquivo não encontrado".to_string());
+            }
+            std::fs::remove_file(&full).map_err(|e| e.to_string())
+        })();
+        match r {
+            Ok(()) => res.ok += 1,
+            Err(e) => res.erros.push(format!("{}: {}", rel, e)),
+        }
+    }
+    res
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,6 +892,68 @@ mod tests {
         let fc = check_files(&conn, &dir).unwrap();
         assert_eq!(fc.orfaos, vec!["5_producoes\\artigos\\solto.pdf".to_string()]);
         assert!(fc.ausentes.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_scan_and_clean_root_folders() {
+        let dir = std::env::temp_dir().join("lattes_folder_audit_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("6_patentes").join("patentes")).unwrap();
+        std::fs::create_dir_all(dir.join("6_patentes").join("teste")).unwrap();
+        std::fs::create_dir_all(dir.join("5_producoes").join("artigos_completos")).unwrap();
+        std::fs::create_dir_all(dir.join("backups")).unwrap();
+
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO subfolder_mappings (category_group, description, folder) VALUES ('Patentes', 'Patentes', '6_patentes\\patentes\\')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO subfolder_mappings (category_group, description, folder) VALUES ('Produções', 'Artigos completos', '5_producoes\\artigos_completos\\')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO subfolder_mappings (category_group, description, folder) VALUES ('Inovação', 'Produtos tecnológicos', '7_inovacao\\produtos_tecnologicos\\')",
+            [],
+        ).unwrap();
+
+        std::fs::write(dir.join("5_producoes\\artigos_completos\\001_artigo.pdf"), b"%PDF").unwrap();
+        std::fs::write(dir.join("5_producoes\\artigos_completos\\solto.pdf"), b"%PDF").unwrap();
+        conn.execute(
+            "INSERT INTO producoes (ano, titulo, file, path, folder) VALUES (2025, 'Artigo 1', '001_artigo.pdf', '5_producoes\\artigos_completos\\001_artigo.pdf', '5_producoes\\artigos_completos\\')",
+            [],
+        ).unwrap();
+
+        let audit = scan_root_folders(&conn, &dir).unwrap();
+        assert!(audit.empty_folders.iter().any(|f| f.rel_path == r"6_patentes\teste"));
+        assert!(audit.empty_folders.iter().any(|f| f.rel_path == r"6_patentes\patentes"));
+        assert!(audit.unmapped_folders.iter().any(|f| f.rel_path == r"6_patentes\teste"));
+        assert!(!audit.unmapped_folders.iter().any(|f| f.rel_path == "backups"));
+        assert!(audit.folders_with_unlinked_files.iter().any(|f| f.rel_path == r"5_producoes\artigos_completos" && f.unlinked_files_count == 1));
+        assert!(audit.missing_disk_folders.iter().any(|f| f.rel_path == r"7_inovacao\produtos_tecnologicos"));
+
+        // Safety: refuse deleting folder containing a linked file
+        let blocked = remove_audited_folders(&conn, &dir, &[r"5_producoes\artigos_completos".to_string()], false, true);
+        assert_eq!(blocked.ok, 0);
+        assert_eq!(blocked.erros.len(), 1);
+        assert!(dir.join(r"5_producoes\artigos_completos\001_artigo.pdf").is_file());
+
+        // Remove empty unmapped folder
+        let removed = remove_audited_folders(&conn, &dir, &[r"6_patentes\teste".to_string()], false, false);
+        assert_eq!(removed.ok, 1, "{:?}", removed.erros);
+        assert!(!dir.join(r"6_patentes\teste").exists());
+
+        // Delete orphan file safely
+        let del_orphan = delete_orphan_files(&conn, &dir, &[r"5_producoes\artigos_completos\solto.pdf".to_string()]);
+        assert_eq!(del_orphan.ok, 1, "{:?}", del_orphan.erros);
+        assert!(!dir.join(r"5_producoes\artigos_completos\solto.pdf").exists());
+
+        // Create missing mapped folder on disk
+        let created = create_missing_mapped_folders(&dir, &[r"7_inovacao\produtos_tecnologicos".to_string()]);
+        assert_eq!(created.ok, 1, "{:?}", created.erros);
+        assert!(dir.join(r"7_inovacao\produtos_tecnologicos").is_dir());
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

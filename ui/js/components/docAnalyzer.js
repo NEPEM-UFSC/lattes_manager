@@ -3,7 +3,7 @@
 
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
-import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
+import { CATEGORY_SCHEMAS, escapeHtml, getCategoryMappings, showToast } from "../utils.js";
 import { PALETTE } from "./charts.js";
 
 const IMG = /\.(png|jpe?g|webp|bmp|gif|tiff?)$/i;
@@ -26,6 +26,7 @@ const ICONS = {
 // ---------- OCR (tesseract.js empacotado, offline) ----------
 let ocrWorker = null;
 let ocrProgress = null;
+let ocrQueue = Promise.resolve();
 function loadScript(src) {
   return new Promise((res, rej) => {
     if (window.Tesseract) return res();
@@ -57,30 +58,36 @@ async function rotated(bitmap, deg) {
 /**
  * Texto de uma imagem (bytes). Usa a rotação indicada (`hint`, ex.: /Rotate do PDF) e, se a
  * confiança for baixa, tenta as outras orientações e fica com a melhor. `onProgress(0..1, etapa)`.
+ * Fila serializada para permitir chamadas concorrentes sem corrida no worker Tesseract.
  */
-export async function ocrImage(bytes, onProgress, hint = 0) {
-  ocrProgress = onProgress;
-  await loadScript("vendor/tesseract/tesseract.min.js");
-  if (!ocrWorker) {
-    const base = new URL("vendor/tesseract/", location.href).href;
-    ocrWorker = await window.Tesseract.createWorker(["por", "eng"], 1, {
-      workerPath: base + "worker.min.js",
-      corePath: base,
-      langPath: base,
-      workerBlobURL: false,
-      cacheMethod: "none",
-      logger: (m) => ocrProgress && ocrProgress(m.progress || 0, m.status || ""),
-    });
-  }
-  const bitmap = await createImageBitmap(new Blob([bytes]));
-  const order = [...new Set([((hint % 360) + 360) % 360, 0, 90, 270, 180])];
-  let best = { conf: -1, text: "" };
-  for (const deg of order) {
-    const { data } = await ocrWorker.recognize(await rotated(bitmap, deg));
-    if (data.confidence > best.conf) best = { conf: data.confidence, text: data.text || "", deg };
-    if (data.confidence >= 70) break; // boa leitura: não precisa testar outras orientações
-  }
-  return best.text;
+export function ocrImage(bytes, onProgress, hint = 0) {
+  const run = async () => {
+    ocrProgress = onProgress;
+    await loadScript("vendor/tesseract/tesseract.min.js");
+    if (!ocrWorker) {
+      const base = new URL("vendor/tesseract/", location.href).href;
+      ocrWorker = await window.Tesseract.createWorker(["por", "eng"], 1, {
+        workerPath: base + "worker.min.js",
+        corePath: base,
+        langPath: base,
+        workerBlobURL: false,
+        cacheMethod: "none",
+        logger: (m) => ocrProgress && ocrProgress(m.progress || 0, m.status || ""),
+      });
+    }
+    const bitmap = await createImageBitmap(new Blob([bytes]));
+    const order = [...new Set([((hint % 360) + 360) % 360, 0, 90, 270, 180])];
+    let best = { conf: -1, text: "" };
+    for (const deg of order) {
+      const { data } = await ocrWorker.recognize(await rotated(bitmap, deg));
+      if (data.confidence > best.conf) best = { conf: data.confidence, text: data.text || "", deg };
+      if (data.confidence >= 70) break; // boa leitura: não precisa testar outras orientações
+    }
+    return best.text;
+  };
+  const p = ocrQueue.then(run, run);
+  ocrQueue = p.catch(() => {});
+  return p;
 }
 
 export class DocAnalyzer {
@@ -160,8 +167,7 @@ export class DocAnalyzer {
   }
 
   tiposOf(cat) {
-    const g = (CATEGORY_SCHEMAS[cat]?.dbGroup || CATEGORY_SCHEMAS[cat]?.group)?.toLowerCase();
-    return (this.getMappings() || []).filter((m) => m.category_group.toLowerCase() === g).map((m) => m.description);
+    return getCategoryMappings(cat, this.getMappings() || []).map((m) => m.description);
   }
 
   render() {

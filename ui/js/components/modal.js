@@ -1,6 +1,6 @@
 // Record Create / Edit Modal Component
 
-import { CATEGORY_SCHEMAS, DEFAULT_DADOS_GERAIS_MAPPINGS, DEFAULT_ATUACAO_MAPPINGS, escapeHtml, showToast } from "../utils.js";
+import { CATEGORY_SCHEMAS, getCategoryMappings, escapeHtml, showToast } from "../utils.js";
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 import { FieldHistory } from "./fieldHistory.js";
@@ -82,7 +82,33 @@ export class RecordModal {
     this.btnLinkExistingFile?.addEventListener("click", () => this.handlePickExistingProof());
     this.btnRemoveAttachment?.addEventListener("click", () => this.clearSelectedFile());
 
+    const dropzone = document.getElementById("file-dropzone");
+    if (dropzone) {
+      dropzone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropzone.classList.add("drag-over");
+      });
+      dropzone.addEventListener("dragleave", (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("drag-over");
+      });
+      dropzone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("drag-over");
+        if (e.dataTransfer?.files?.length) {
+          const paths = [...e.dataTransfer.files].map((f) => f.path || f.name).filter(Boolean);
+          if (paths.length && paths.some((p) => /^[a-zA-Z]:[\\/]/.test(p))) {
+            this.addSourceFiles(paths);
+          }
+        }
+      });
+    }
+
     this.form.addEventListener("submit", (e) => this.handleSubmit(e));
+  }
+
+  isOpen() {
+    return this.overlay && this.overlay.style.display === "flex";
   }
 
   renderAttachmentsList() {
@@ -352,11 +378,10 @@ export class RecordModal {
     if (optFolder) return optFolder;
     const inpFolder = document.getElementById("field-folder")?.value;
     if (inpFolder && inpFolder.replace(/[\\/]+$/, "").includes("\\")) return inpFolder;
-    const schema = CATEGORY_SCHEMAS[this.category];
-    const groupName = (schema?.dbGroup || schema?.group || "").toLowerCase();
     const tipoVal = (tipoSelect?.value || "").toLowerCase();
-    const m = this.mappings.find(
-      (x) => x.category_group.toLowerCase() === groupName && (tipoVal ? x.description.toLowerCase() === tipoVal : true)
+    const all = getCategoryMappings(this.category, this.mappings);
+    const m = all.find(
+      (x) => (tipoVal ? x.description.toLowerCase() === tipoVal : true)
     );
     return m?.folder || inpFolder || "";
   }
@@ -365,30 +390,7 @@ export class RecordModal {
     if (!schema) return;
     let html = "";
 
-    let groupMappings = this.mappings.filter(
-      (m) => m.category_group.toLowerCase() === (schema.dbGroup || schema.group).toLowerCase()
-    );
-    if (this.category === "dadosgerais") {
-      const merged = [...groupMappings];
-      const seen = new Set(merged.map((m) => foldKey(m.description)));
-      for (const def of DEFAULT_DADOS_GERAIS_MAPPINGS) {
-        if (!seen.has(foldKey(def.description))) {
-          merged.push({ category_group: "Dados gerais", ...def });
-          seen.add(foldKey(def.description));
-        }
-      }
-      groupMappings = merged;
-    } else if (this.category === "atuacao") {
-      const merged = [...groupMappings];
-      const seen = new Set(merged.map((m) => foldKey(m.description)));
-      for (const def of DEFAULT_ATUACAO_MAPPINGS) {
-        if (!seen.has(foldKey(def.description))) {
-          merged.push({ category_group: "Atuação", ...def });
-          seen.add(foldKey(def.description));
-        }
-      }
-      groupMappings = merged;
-    }
+    const groupMappings = getCategoryMappings(this.category, this.mappings);
 
     for (const field of schema.fields) {
       const isFull = field.width === "full";
@@ -508,51 +510,63 @@ export class RecordModal {
         extensions: ["pdf", "png", "jpg", "jpeg", "docx", "xlsx"],
       });
       if (!pickedFiles || !pickedFiles.length) return;
-      const folder = this.currentResolvedFolder();
-      for (const p of pickedFiles) {
-        const fileName = p.split(/[\\/]/).pop() || "documento.pdf";
-        this.attachments.push({
-          id: null,
-          file: fileName,
-          path: p,
-          sourcePath: p,
-          isNew: true,
-          folder,
-          description: "",
-          ord: this.attachments.length,
-        });
-      }
-      this.renderAttachmentsList();
-      const firstPdf = pickedFiles.find((f) => f.toLowerCase().endsWith(".pdf"));
-      if (firstPdf) {
-        if (this.category === "producoes") this.extractMetadata(firstPdf);
-        else this.analyzeForForm(firstPdf);
-      }
+      this.addSourceFiles(pickedFiles);
     } catch (err) {
       console.error("Falha ao selecionar arquivos:", err);
       showToast(`Erro ao selecionar arquivos: ${err}`, "error");
     }
   }
 
-  /** Anexa um arquivo do disco; se for PDF de produção, extrai os metadados. */
-  setSourceFile(picked, extract = true) {
-    const fileName = picked.split(/[\\/]/).pop() || "documento.pdf";
+  /** Adiciona um ou múltiplos arquivos aos comprovantes deste registro (preserva os comprovantes já vinculados). */
+  addSourceFiles(files, extract = true) {
+    if (!files) return;
+    const list = Array.isArray(files) ? files : [files];
+    if (!list.length) return;
     const folder = this.currentResolvedFolder();
-    // Ao arrastar um arquivo, mantém apenas este arquivo para ser copiado para a pasta de destino
-    this.attachments = [{
-      id: null,
-      file: fileName,
-      path: picked,
-      sourcePath: picked,
-      isNew: true,
-      folder,
-      description: "",
-      ord: 0,
-    }];
+    const added = [];
+
+    for (const p of list) {
+      if (!p) continue;
+      const fileName = p.split(/[\\/]/).pop() || "documento.pdf";
+      // Evita duplicar se o arquivo de origem ou nome já foi adicionado
+      const alreadyPresent = this.attachments.some(
+        (a) => (a.sourcePath && a.sourcePath === p) || (a.file === fileName && a.path === p)
+      );
+      if (alreadyPresent) continue;
+
+      const newAtt = {
+        id: null,
+        file: fileName,
+        path: p,
+        sourcePath: p,
+        isNew: true,
+        folder,
+        description: "",
+        ord: this.attachments.length,
+      };
+      this.attachments.push(newAtt);
+      added.push(newAtt);
+    }
+
     this.renderAttachmentsList();
-    const ext = fileName.split(".").pop()?.toUpperCase() || "DOC";
-    if (extract && this.category === "producoes" && ext === "PDF") this.extractMetadata(picked);
-    else if (extract && ext === "PDF") this.analyzeForForm(picked);
+
+    if (added.length > 0) {
+      showToast(
+        `${added.length} comprovante${added.length > 1 ? "s adicionados" : " adicionado"}. Clique em "Salvar" para confirmar.`,
+        "success",
+        3000
+      );
+      const firstPdf = added.find((a) => (a.file || "").toLowerCase().endsWith(".pdf"));
+      if (firstPdf && extract) {
+        if (this.category === "producoes") this.extractMetadata(firstPdf.path);
+        else this.analyzeForForm(firstPdf.path);
+      }
+    }
+  }
+
+  /** Anexa um arquivo do disco (compatibilidade retroativa, chama addSourceFiles). */
+  setSourceFile(picked, extract = true) {
+    this.addSourceFiles(picked, extract);
   }
 
   /** Outras categorias: lê o PDF anexado, preenche campos vazios e avisa se parece ser de outra categoria. */

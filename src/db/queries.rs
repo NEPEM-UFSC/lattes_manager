@@ -529,6 +529,32 @@ pub fn get_subfolder_mappings(conn: &Connection, group: Option<&str>) -> Result<
 }
 
 pub fn add_subfolder_mapping(conn: &Connection, group: &str, description: &str, folder: &str) -> Result<SubfolderMapping> {
+    if let Ok(existing) = conn.query_row(
+        "SELECT id, category_group, description, created_at FROM subfolder_mappings WHERE fold(category_group) = fold(?1) AND fold(description) = fold(?2) ORDER BY id ASC LIMIT 1",
+        params![group, description],
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        },
+    ) {
+        let (id, existing_group, existing_desc, created_at) = existing;
+        conn.execute(
+            "UPDATE subfolder_mappings SET folder = ?1 WHERE id = ?2",
+            params![folder, id],
+        )?;
+        return Ok(SubfolderMapping {
+            id,
+            category_group: existing_group,
+            description: existing_desc,
+            folder: folder.to_string(),
+            created_at,
+        });
+    }
+
     conn.execute(
         "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES (?1, ?2, ?3)",
         params![group, description, folder],
@@ -756,7 +782,9 @@ pub fn insert_record(
             )?;
         }
         "atuacao" => {
-            let instituicao = json_str(data, "instituicao").or_else(|| json_str(data, "titulo"));
+            let instituicao = json_str(data, "instituicao")
+                .or_else(|| json_str(data, "titulo"))
+                .or_else(|| json_str(data, "descricao"));
             let titulo = instituicao.clone();
             let ano_fim = json_i64(data, "ano_fim");
             let vinculo = json_str(data, "vinculo");
@@ -939,7 +967,8 @@ pub fn update_record(
                 json_str(data, "titulo")
             } else {
                 existing.instituicao.or(existing.titulo)
-            };
+            }
+            .or_else(|| json_str(data, "descricao"));
             let titulo = instituicao.clone();
             let ano_fim = if data.get("ano_fim").is_some() {
                 json_i64(data, "ano_fim")

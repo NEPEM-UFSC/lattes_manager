@@ -384,14 +384,19 @@ export const api = {
       delete_file: Boolean(deleteFile),
     }),
 
-  batchUpdateRecords: (category, ids, { ano = null, tipo = null, qualis = null } = {}) =>
-    invokeCommand("batch_update_records", {
+  batchUpdateRecords: (category, ids, data = {}) => {
+    const ano = data.ano !== null && data.ano !== undefined && data.ano !== "" ? Number(data.ano) : null;
+    const tipo = data.tipo !== null && data.tipo !== undefined && data.tipo !== "" ? String(data.tipo).trim() : null;
+    const qualis = data.qualis !== null && data.qualis !== undefined && data.qualis !== "" ? String(data.qualis).trim() : null;
+    return invokeCommand("batch_update_records", {
       category,
       ids: (ids || []).map(Number),
-      ano: ano !== null && ano !== undefined && ano !== "" ? Number(ano) : null,
-      tipo: tipo !== null && tipo !== undefined ? tipo : null,
-      qualis: qualis !== null && qualis !== undefined ? qualis : null,
-    }),
+      ano,
+      tipo,
+      qualis,
+      data,
+    });
+  },
 
   batchDeleteRecords: (category, ids, deleteFiles = false) =>
     invokeCommand("batch_delete_records", {
@@ -482,6 +487,12 @@ export const api = {
   applyFileRenames: (items) => invokeCommand("apply_file_renames", { items }),
   checkFiles: () => invokeCommand("check_files"),
   clearMissingLinks: (items) => invokeCommand("clear_missing_links", { items }),
+  scanRootFolders: () => invokeCommand("scan_root_folders"),
+  removeAuditedFolders: (relPaths, removeMappings = false, deleteUnlinkedFiles = false) =>
+    invokeCommand("remove_audited_folders", { relPaths, removeMappings, deleteUnlinkedFiles }),
+  createMissingMappedFolders: (relPaths) => invokeCommand("create_missing_mapped_folders", { relPaths }),
+  removeUnlinkedMappings: (mappingIds) => invokeCommand("remove_unlinked_mappings", { mappingIds }),
+  deleteOrphanFiles: (relFiles) => invokeCommand("delete_orphan_files", { relFiles }),
   backupDatabase: () => invokeCommand("backup_database"),
   // backup completo / restauração
   backupEstimate: () => invokeCommand("backup_estimate"),

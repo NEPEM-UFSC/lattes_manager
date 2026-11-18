@@ -5,6 +5,7 @@ import {
   CATEGORY_SCHEMAS,
   DEFAULT_DADOS_GERAIS_MAPPINGS,
   DEFAULT_ATUACAO_MAPPINGS,
+  getCategoryMappings,
   showToast,
   escapeHtml,
   registerCustomCategory,
@@ -119,7 +120,12 @@ class App {
         }
       },
       onFetchPdf: (rec) => this.fetchPdfFor(rec),
-      onOpenDoi: (rec) => api.openDoi(rec.identifier).catch((e) => showToast(String(e), "error")),
+      onOpenDoi: (rec) => {
+        const d = (rec.identifier && /^10\./.test(String(rec.identifier).trim()))
+          ? rec.identifier
+          : (rec.doi || rec.url || rec.identifier);
+        if (d) api.openDoi(d).catch((e) => showToast(`Erro ao abrir DOI: ${e}`, "error"));
+      },
       onLinkProof: (recs) => this.openProofPickerFor(recs),
       onBulkLinkProof: (recs) => this.openProofPickerFor(recs),
       onBulkDuplicate: (recs) => this.bulkDuplicateRecords(recs),
@@ -141,6 +147,10 @@ class App {
       onMappingAdded: () => {
         this.loadMappings();
         this.loadStats();
+      },
+      onAuditFolders: () => {
+        this.showTools();
+        this.toolsView.open("folders_audit");
       },
     });
 
@@ -168,11 +178,32 @@ class App {
     });
     this.xmlImport = new XmlImportModal({
       onImported: async () => {
+        const unState = this.toolsView?.getState ? this.toolsView.getState("scholar_unmatched") : null;
+        if (unState) {
+          unState.data = null;
+          unState.ignoredIds?.clear();
+          unState.selectedScholarIds?.clear();
+        }
+        if (this.profilePanel) {
+          this.profilePanel.p = null;
+        }
         await Promise.all([this.loadStats(), this.loadMappings()]);
         if (this.view === "home") this.homeView.show();
         else if (this.view === "graficos") this.chartsView.show();
         else if (this.view === "records") this.switchCategory("producoes");
       },
+    });
+
+    window.addEventListener("profile-updated", async () => {
+      if (this.profilePanel) {
+        this.profilePanel.p = null;
+        if (this.currentCategory === "dadosgerais") {
+          await this.profilePanel.show();
+        }
+      }
+      if (this.view === "home") {
+        this.homeView?.show();
+      }
     });
 
     this.linker = new LinkerModal({
@@ -250,7 +281,7 @@ class App {
       openLinker: () => this.linker.open(),
       onCreateWithData: (cat, data, cb) => this.openCreateRecordWithData(cat, data, cb),
       onChanged: async () => {
-        await this.loadStats();
+        await Promise.all([this.loadStats(), this.loadMappings()]);
         if (this.view === "home") this.homeView.show();
       },
     });
@@ -471,7 +502,7 @@ class App {
         try {
           const prof = await api.getSetting("profile");
           authorName = prof?.values?.nome || "";
-        } catch {}
+        } catch { }
       }
       const catSlug = slug(schema.group || cat).toLowerCase() || "comprovantes";
       const authorSlug = slug(authorName) || "lattes";
@@ -479,7 +510,7 @@ class App {
       let absPath = null;
       try {
         absPath = await api.writePreviewTemp(previewFilename, res.bytes);
-      } catch {}
+      } catch { }
 
       const mb = (res.bytes.length / 1048576).toFixed(1);
       const extra = res.failed.length ? ` · ⚠️ ${res.failed.length} não incorporado(s)` : "";
@@ -506,9 +537,10 @@ class App {
     }
   }
 
-  /** Vincula um arquivo arrastado diretamente sobre a linha de um registro. */
-  async attachDroppedFileToRecord(rec, filePath) {
-    if (!rec || !filePath) return;
+  /** Vincula um ou múltiplos arquivos arrastados diretamente sobre a linha de um registro. */
+  async attachDroppedFilesToRecord(rec, files) {
+    const list = Array.isArray(files) ? files : [files].filter(Boolean);
+    if (!rec || !list.length) return;
     const cat = this.currentCategory;
     const data = {};
     const idStr = String(rec.identifier || "").trim();
@@ -527,13 +559,23 @@ class App {
     const shortDesc = String(rawDesc).length > 52 ? `${String(rawDesc).slice(0, 49)}...` : String(rawDesc);
 
     try {
-      await api.updateRecord(cat, rec.id, data, filePath);
-      showToast(`Comprovante vinculado a "${shortDesc}"`, "success", 3500);
+      await api.updateRecord(cat, rec.id, data, null, list);
+      const count = list.length;
+      showToast(
+        `${count} comprovante${count > 1 ? "s vinculados" : " vinculado"} a "${shortDesc}"`,
+        "success",
+        3500
+      );
       await Promise.all([this.loadRecords(), this.loadStats()]);
     } catch (err) {
-      console.error("Erro ao vincular comprovante:", err);
-      showToast(`Erro ao vincular comprovante: ${err}`, "error");
+      console.error("Erro ao vincular comprovante(s):", err);
+      showToast(`Erro ao vincular comprovante(s): ${err}`, "error");
     }
+  }
+
+  /** Compatibilidade: anexa um arquivo ao registro */
+  attachDroppedFileToRecord(rec, filePath) {
+    return this.attachDroppedFilesToRecord(rec, [filePath]);
   }
 
   /** Arrastar arquivos do Explorer para a janela (eventos nativos do Tauri). */
@@ -543,7 +585,6 @@ class App {
     const overlay = document.getElementById("drop-overlay");
     const ok = (paths) => (paths || []).filter((p) => /\.(pdf|png|jpe?g)$/i.test(p));
     let draggingValidFiles = false;
-    let draggingSingleFile = false;
 
     const findHoveredRowId = (pos) => {
       if (!pos || this.view !== "records" || this.recordModal.overlay.style.display === "flex") return null;
@@ -564,41 +605,55 @@ class App {
       await ev.listen("tauri://drag-enter", (e) => {
         const valid = ok(e.payload?.paths);
         draggingValidFiles = valid.length > 0;
-        draggingSingleFile = valid.length === 1;
         if (window._activeProofPicker?.isOpen?.()) {
           window._activeProofPicker.setDragOver(draggingValidFiles);
           return;
         }
-        const rowId = draggingSingleFile ? findHoveredRowId(e.payload?.position) : null;
+        if (this.recordModal.overlay.style.display === "flex") {
+          document.getElementById("file-dropzone")?.classList.toggle("drag-over", draggingValidFiles);
+          overlay.classList.remove("on");
+          return;
+        }
+        const rowId = findHoveredRowId(e.payload?.position);
         this.tableView.setDropTarget(rowId);
         overlay.classList.toggle("on", draggingValidFiles && !rowId);
       });
+
       await ev.listen("tauri://drag-over", (e) => {
         if (!draggingValidFiles) return;
         if (window._activeProofPicker?.isOpen?.()) {
           window._activeProofPicker.setDragOver(true);
           return;
         }
-        const rowId = draggingSingleFile ? findHoveredRowId(e.payload?.position) : null;
+        if (this.recordModal.overlay.style.display === "flex") {
+          document.getElementById("file-dropzone")?.classList.add("drag-over");
+          overlay.classList.remove("on");
+          return;
+        }
+        const rowId = findHoveredRowId(e.payload?.position);
         this.tableView.setDropTarget(rowId);
         overlay.classList.toggle("on", !rowId);
       });
+
       await ev.listen("tauri://drag-leave", () => {
         draggingValidFiles = false;
-        draggingSingleFile = false;
         if (window._activeProofPicker?.isOpen?.()) {
           window._activeProofPicker.setDragOver(false);
           return;
         }
+        document.getElementById("file-dropzone")?.classList.remove("drag-over");
         overlay.classList.remove("on");
         this.tableView.setDropTarget(null);
       });
+
       await ev.listen("tauri://drag-drop", async (e) => {
+        document.getElementById("file-dropzone")?.classList.remove("drag-over");
+        overlay.classList.remove("on");
+        this.tableView.setDropTarget(null);
+
         if (window._activeProofPicker?.isOpen?.()) {
           window._activeProofPicker.setDragOver(false);
           draggingValidFiles = false;
-          draggingSingleFile = false;
-          overlay.classList.remove("on");
           const files = ok(e.payload?.paths);
           if (files.length > 0) {
             await window._activeProofPicker.handleDroppedFiles(files);
@@ -606,34 +661,38 @@ class App {
           return;
         }
 
+        // Se o modal de registro está aberto: inclui TODOS os arquivos arrastados no formulário
+        if (this.recordModal.overlay.style.display === "flex") {
+          draggingValidFiles = false;
+          const files = ok(e.payload?.paths);
+          if (!files.length) return showToast("Arraste um PDF ou imagem", "info", 2500);
+          this.recordModal.addSourceFiles(files);
+          return;
+        }
+
         const droppedRowId =
           findHoveredRowId(e.payload?.position) ??
           (window._hoveredRecordId != null ? String(window._hoveredRecordId) : null);
         draggingValidFiles = false;
-        draggingSingleFile = false;
-        overlay.classList.remove("on");
-        this.tableView.setDropTarget(null);
 
         const files = ok(e.payload?.paths);
         if (!files.length) return showToast("Arraste um PDF ou imagem", "info", 2500);
 
-        if (
-          files.length === 1 &&
-          droppedRowId != null &&
-          this.view === "records" &&
-          this.recordModal.overlay.style.display !== "flex"
-        ) {
+        // Se soltou sobre uma linha específica da tabela: vincula todos os arquivos àquele registro
+        if (droppedRowId != null && this.view === "records") {
           const rec =
             this.tableView.records.find((r) => String(r.id) === String(droppedRowId)) ||
             this.allRecords.find((r) => String(r.id) === String(droppedRowId));
           if (rec) {
-            await this.attachDroppedFileToRecord(rec, files[0]);
+            await this.attachDroppedFilesToRecord(rec, files);
             return;
           }
         }
 
-        // vários arquivos: importação em lote (com revisão antes de salvar)
-        if (files.length > 1 && this.recordModal.overlay.style.display !== "flex") return this.batchImport.open(files);
+        // Se soltou na área geral: múltiplos arquivos abrem importação em lote; 1 arquivo abre docAnalyzer
+        if (files.length > 1) {
+          return this.batchImport.open(files);
+        }
         this.newFromFile(files[0]);
       });
     } catch (err) {
@@ -730,7 +789,7 @@ class App {
           savedOverrides = writeSavedCategoryOverrides(parsed);
         }
       }
-    } catch {}
+    } catch { }
     applyCategoryOverrides(savedOverrides);
 
     let savedOrder = readSavedCategoryOrder();
@@ -746,7 +805,7 @@ class App {
         savedOrder = mapped;
         writeSavedCategoryOrder(mapped);
       }
-    } catch {}
+    } catch { }
     const orderedKeys = applyCategoryOrder(savedOrder);
 
     const ul = document.getElementById("nav-category-list");
@@ -925,51 +984,51 @@ class App {
     document.getElementById("btn-add-doi")?.addEventListener("click", newByDoi);
 
     // Atalhos
-      document.addEventListener("keydown", async (e) => {
-        const mod = e.ctrlKey || e.metaKey;
-        if (mod && e.key.toLowerCase() === "k") {
-          e.preventDefault();
-          if (this.view !== "records") {
-            await this.switchCategory(this.currentCategory || "producoes");
-          }
-          this.inputSearch.focus();
-          this.inputSearch.select();
-        } else if (mod && e.key.toLowerCase() === "n" && this.view === "records") {
-          e.preventDefault();
-          this.recordModal.openCreate(this.currentCategory, this.mappings);
+    document.addEventListener("keydown", async (e) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (this.view !== "records") {
+          await this.switchCategory(this.currentCategory || "producoes");
         }
-      });
-
-      // Action Buttons
-      this.btnNewRecord.addEventListener("click", () => {
-        if (this.isSubpastasView) {
-          this.subfoldersView.openModal();
-        } else {
-          this.recordModal.openCreate(this.currentCategory, this.mappings);
-        }
-      });
-
-      if (this.btnEmptyNewRecord) {
-        this.btnEmptyNewRecord.addEventListener("click", () => {
-          this.recordModal.openCreate(this.currentCategory, this.mappings);
-        });
+        this.inputSearch.focus();
+        this.inputSearch.select();
+      } else if (mod && e.key.toLowerCase() === "n" && this.view === "records") {
+        e.preventDefault();
+        this.recordModal.openCreate(this.currentCategory, this.mappings);
       }
+    });
 
-      this.btnRefresh.addEventListener("click", () => {
-        this.loadRecords();
-        this.loadStats();
-        showToast("Dados atualizados", "info", 1500);
+    // Action Buttons
+    this.btnNewRecord.addEventListener("click", () => {
+      if (this.isSubpastasView) {
+        this.subfoldersView.openModal();
+      } else {
+        this.recordModal.openCreate(this.currentCategory, this.mappings);
+      }
+    });
+
+    if (this.btnEmptyNewRecord) {
+      this.btnEmptyNewRecord.addEventListener("click", () => {
+        this.recordModal.openCreate(this.currentCategory, this.mappings);
       });
-
-
-      // Delete Modal Events
-      this.btnCloseDeleteModal.addEventListener("click", () => this.closeDeleteModal());
-      this.btnCancelDelete.addEventListener("click", () => this.closeDeleteModal());
-      this.deleteModalOverlay.addEventListener("click", (e) => {
-        if (e.target === this.deleteModalOverlay && easyClose()) this.closeDeleteModal();
-      });
-      this.btnConfirmDelete.addEventListener("click", () => this.handleConfirmDelete());
     }
+
+    this.btnRefresh.addEventListener("click", () => {
+      this.loadRecords();
+      this.loadStats();
+      showToast("Dados atualizados", "info", 1500);
+    });
+
+
+    // Delete Modal Events
+    this.btnCloseDeleteModal.addEventListener("click", () => this.closeDeleteModal());
+    this.btnCancelDelete.addEventListener("click", () => this.closeDeleteModal());
+    this.deleteModalOverlay.addEventListener("click", (e) => {
+      if (e.target === this.deleteModalOverlay && easyClose()) this.closeDeleteModal();
+    });
+    this.btnConfirmDelete.addEventListener("click", () => this.handleConfirmDelete());
+  }
 
   syncProfileMode(mode = this.profilePanel?.mode || "both") {
     const isDadosGerais = this.view === "records" && this.currentCategory === "dadosgerais";
@@ -1025,13 +1084,8 @@ class App {
       this.allRecords = records || [];
       const schema = CATEGORY_SCHEMAS[cat];
       const groupName = (schema?.dbGroup || GROUP_BY_CATEGORY[cat] || schema?.group || "").toLowerCase();
-      const defaultTipos = [
-        ...this.mappings
-          .filter((m) => m.category_group?.toLowerCase() === groupName)
-          .map((m) => m.description),
-        ...(cat === "dadosgerais" ? DEFAULT_DADOS_GERAIS_MAPPINGS.map((d) => d.description) : []),
-        ...(cat === "atuacao" ? DEFAULT_ATUACAO_MAPPINGS.map((d) => d.description) : []),
-      ];
+      const catMappings = getCategoryMappings(cat, this.mappings || []);
+      const defaultTipos = catMappings.map((m) => m.description).filter(Boolean);
       this.filterBar.setRecords(cat, this.allRecords, defaultTipos);
       if (cat === "dadosgerais") {
         this.profilePanel.setRecordsCount(this.allRecords.length);
@@ -1183,7 +1237,7 @@ class App {
       }
       try {
         localStorage.setItem(SEED_KEY, "1");
-      } catch {}
+      } catch { }
     } catch (err) {
       console.warn("Falha no seed de subcategorias padrão:", err);
     } finally {
@@ -1245,9 +1299,9 @@ class App {
     overlay.className = "modal-overlay";
     overlay.style.display = "none";
     overlay.innerHTML = `
-      <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-dialog batch-modal-dialog">
         <header class="modal-header">
-          <h3 class="modal-title">Alterar Registros em Lote</h3>
+          <h3 class="modal-title" id="batch-edit-modal-title">Alterar Registros em Lote</h3>
           <button type="button" class="btn-close-modal" data-batch-close>&times;</button>
         </header>
         <form id="batch-edit-form" class="modal-form">
@@ -1333,54 +1387,102 @@ class App {
     const modal = this.ensureBatchEditModal();
     this._batchEditTargetRecords = records.slice();
     const cat = this.currentCategory;
-    const schema = CATEGORY_SCHEMAS[cat];
+    const schema = CATEGORY_SCHEMAS[cat] || { name: cat, fields: [] };
+
+    const titleEl = modal.overlay.querySelector("#batch-edit-modal-title");
+    if (titleEl) {
+      titleEl.textContent = `Alterar Registros em Lote — ${schema.name || cat}`;
+    }
 
     const hintEl = modal.overlay.querySelector("#batch-edit-hint");
-    hintEl.textContent = `Aplicando alteração em ${records.length} registro(s). Deixe um campo sem alteração para manter os valores individuais.`;
+    hintEl.textContent = `Aplicando alteração em ${records.length} registro(s). Preencha apenas os campos que deseja alterar; campos deixados em branco manterão seus valores individuais inalterados.`;
 
-    const tipoField = schema?.fields?.find((f) => f.name === "tipo");
-    const tipoOptions = [
-      ...new Set([
-        ...(tipoField?.options || []),
-        ...this.allRecords.map((r) => r.tipo).filter(Boolean),
-      ].filter((v) => String(v).trim() !== "")),
-    ].sort((a, b) => String(a).localeCompare(String(b), "pt-BR"));
-
-    const qualisOptions = [
-      ...new Set([
-        ...this.qualis.filter(Boolean),
-        ...DEFAULT_QUALIS.filter(Boolean),
-      ]),
-    ];
-
+    const groupMappings = getCategoryMappings(cat, this.mappings || []);
     const fieldsEl = modal.overlay.querySelector("#batch-edit-fields");
-    fieldsEl.innerHTML = `
-      <div class="batch-field">
-        <label for="batch-edit-ano">Ano</label>
-        <input type="number" id="batch-edit-ano" min="1900" max="2100" placeholder="Manter atual" />
-      </div>
-      <div class="batch-field">
-        <label for="batch-edit-tipo">Tipo</label>
-        ${tipoOptions.length > 0
-        ? `<select id="batch-edit-tipo">
-                <option value="">(Manter atual)</option>
-                ${tipoOptions.map((opt) => `<option value="${escapeHtml(opt)}">${escapeHtml(opt)}</option>`).join("")}
-              </select>`
-        : `<input type="text" id="batch-edit-tipo" placeholder="Manter atual" />`
-      }
-      </div>
-      ${cat === "producoes"
-        ? `<div class="batch-field">
-              <label for="batch-edit-qualis">Qualis</label>
-              <select id="batch-edit-qualis">
-                <option value="">(Manter atual)</option>
-                ${qualisOptions.map((q) => `<option value="${escapeHtml(q)}">${escapeHtml(q)}</option>`).join("")}
-              </select>
-            </div>`
-        : ""
-      }
-    `;
 
+    let fieldsHtml = "";
+    for (const field of schema.fields || []) {
+      const isFull = field.width === "full";
+      const fieldId = `batch-field-${field.name}`;
+
+      if (field.type === "tipo_select") {
+        const mappingTipos = groupMappings.map((m) => m.description).filter(Boolean);
+        const schemaTipos = field.options || [];
+        const recordTipos = (this.allRecords || []).map((r) => r.tipo).filter(Boolean);
+        const selectedRecordTipos = records.map((r) => r.tipo).filter(Boolean);
+
+        const seenTipos = new Set();
+        const tipoOptions = [];
+        for (const opt of [...mappingTipos, ...schemaTipos, ...recordTipos, ...selectedRecordTipos]) {
+          const clean = String(opt || "").trim();
+          if (!clean) continue;
+          const key = clean.toLowerCase();
+          if (!seenTipos.has(key)) {
+            seenTipos.add(key);
+            tipoOptions.push(clean);
+          }
+        }
+        tipoOptions.sort((a, b) => a.localeCompare(b, "pt-BR"));
+
+        fieldsHtml += `
+          <div class="batch-field ${isFull ? "batch-field-full" : ""}">
+            <label for="${fieldId}">${escapeHtml(field.label)}</label>
+            <select id="${fieldId}" data-batch-field="${field.name}" data-field-type="select">
+              <option value="">(Manter atual)</option>
+              ${tipoOptions.map((opt) => `<option value="${escapeHtml(opt)}">${escapeHtml(opt)}</option>`).join("")}
+            </select>
+          </div>
+        `;
+      } else if (field.type === "select") {
+        let opts = field.options || [];
+        if (field.name === "qualis" && cat === "producoes") {
+          opts = [
+            ...new Set([
+              ...this.qualis.filter(Boolean),
+              ...DEFAULT_QUALIS.filter(Boolean),
+            ]),
+          ];
+        }
+        fieldsHtml += `
+          <div class="batch-field ${isFull ? "batch-field-full" : ""}">
+            <label for="${fieldId}">${escapeHtml(field.label)}</label>
+            <select id="${fieldId}" data-batch-field="${field.name}" data-field-type="select">
+              <option value="">(Manter atual)</option>
+              ${opts.map((opt) => `<option value="${escapeHtml(opt)}">${escapeHtml(opt || "Nenhum")}</option>`).join("")}
+            </select>
+          </div>
+        `;
+      } else if (field.type === "number") {
+        const minAttr = field.min != null ? `min="${field.min}"` : (field.name === "ano" || field.name === "ano_fim" ? 'min="1900"' : "");
+        const maxAttr = field.max != null ? `max="${field.max}"` : (field.name === "ano" || field.name === "ano_fim" ? 'max="2100"' : "");
+        fieldsHtml += `
+          <div class="batch-field ${isFull ? "batch-field-full" : ""}">
+            <label for="${fieldId}">${escapeHtml(field.label)}</label>
+            <input type="number" id="${fieldId}" data-batch-field="${field.name}" data-field-type="number"
+                   ${minAttr} ${maxAttr} placeholder="${escapeHtml(field.placeholder || "Manter atual")}" />
+          </div>
+        `;
+      } else if (field.type === "textarea") {
+        fieldsHtml += `
+          <div class="batch-field ${isFull ? "batch-field-full" : ""}">
+            <label for="${fieldId}">${escapeHtml(field.label)}</label>
+            <textarea id="${fieldId}" data-batch-field="${field.name}" data-field-type="textarea"
+                      placeholder="${escapeHtml(field.placeholder || "Deixe em branco para manter os valores atuais...")}"></textarea>
+          </div>
+        `;
+      } else {
+        // text, doi, link
+        fieldsHtml += `
+          <div class="batch-field ${isFull ? "batch-field-full" : ""}">
+            <label for="${fieldId}">${escapeHtml(field.label)}</label>
+            <input type="text" id="${fieldId}" data-batch-field="${field.name}" data-field-type="text"
+                   placeholder="${escapeHtml(field.placeholder || "Manter atual")}" />
+          </div>
+        `;
+      }
+    }
+
+    fieldsEl.innerHTML = fieldsHtml;
     modal.overlay.style.display = "flex";
   }
 
@@ -1388,29 +1490,47 @@ class App {
     const records = this._batchEditTargetRecords || [];
     if (!records.length || !this._batchEditModal) return;
 
-    const anoRaw = String(this._batchEditModal.overlay.querySelector("#batch-edit-ano")?.value || "").trim();
-    const tipoRaw = String(this._batchEditModal.overlay.querySelector("#batch-edit-tipo")?.value || "").trim();
-    const qualisRaw = String(this._batchEditModal.overlay.querySelector("#batch-edit-qualis")?.value || "").trim();
-
+    const modal = this._batchEditModal;
+    const inputs = modal.overlay.querySelectorAll("[data-batch-field]");
     const data = {};
-    if (anoRaw !== "") {
-      const anoNum = Number(anoRaw);
-      if (!Number.isInteger(anoNum) || anoNum < 1900 || anoNum > 2100) {
-        showToast("Informe um ano válido entre 1900 e 2100", "error");
-        return;
+
+    for (const el of inputs) {
+      const name = el.dataset.batchField;
+      const ftype = el.dataset.fieldType;
+      const val = (el.value || "").trim();
+      if (!val) continue;
+
+      if (ftype === "number") {
+        const num = Number(val);
+        if (Number.isNaN(num)) {
+          showToast(`Valor inválido no campo ${name}`, "error");
+          return;
+        }
+        if ((name === "ano" || name === "ano_fim") && (num < 1900 || num > 2100)) {
+          showToast("Informe um ano válido entre 1900 e 2100", "error");
+          return;
+        }
+        data[name] = num;
+      } else {
+        data[name] = val;
       }
-      data.ano = anoNum;
     }
-    if (tipoRaw !== "") data.tipo = tipoRaw;
-    if (this.currentCategory === "producoes" && qualisRaw !== "") data.qualis = qualisRaw;
+
+    const cat = this.currentCategory;
+    if (data.tipo) {
+      const groupMappings = getCategoryMappings(cat, this.mappings || []);
+      const m = groupMappings.find((x) => x.description.trim().toLowerCase() === data.tipo.trim().toLowerCase());
+      if (m?.folder) {
+        data.folder = m.folder;
+      }
+    }
 
     if (!Object.keys(data).length) {
       showToast("Selecione ou preencha ao menos um campo para alterar em lote", "info");
       return;
     }
 
-    const btn = this._batchEditModal.overlay.querySelector("#btn-confirm-batch-edit");
-    const cat = this.currentCategory;
+    const btn = modal.overlay.querySelector("#btn-confirm-batch-edit");
     const ids = records.map((r) => r.id);
 
     try {
@@ -1426,7 +1546,7 @@ class App {
         }
       }
       showToast(`${ids.length} registro(s) atualizado(s) com sucesso`, "success");
-      this._batchEditModal.close();
+      modal.close();
       this.tableView.clearSelection();
       await Promise.all([this.loadRecords(), this.loadStats()]);
     } catch (err) {
@@ -1605,6 +1725,19 @@ class App {
     }
   }
 }
+
+// Intercepta qualquer clique em link externo (http/https ou doi.org) para abrir no navegador padrão do sistema
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a");
+  if (!a) return;
+  const href = a.getAttribute("href");
+  if (!href) return;
+  if (href.startsWith("http://") || href.startsWith("https://")) {
+    e.preventDefault();
+    e.stopPropagation();
+    api.openUrl(href).catch((err) => showToast(`Erro ao abrir link: ${err}`, "error"));
+  }
+});
 
 // Bootstrap on DOM ready
 document.addEventListener("DOMContentLoaded", () => {

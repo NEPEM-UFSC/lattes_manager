@@ -467,8 +467,15 @@ FROM custom_records WHERE category = 'x_atuacao'
         if let Ok(rows) = rows {
             for r in rows.flatten() {
                 let (old_id, ano, tipo, curso, ident, file, folder, disc, horas, alunos, log, path, url) = r;
-                let tipo_str = tipo.map(|t| if t.starts_with("Ensino") { t } else { format!("Ensino: {}", t) });
-                let desc = alunos.map(|a| format!("{} alunos", a));
+                let tipo_str = tipo.map(|t| {
+                    let trimmed = t.trim();
+                    if let Some(rest) = trimmed.strip_prefix("Ensino:") {
+                        rest.trim().to_string()
+                    } else {
+                        trimmed.to_string()
+                    }
+                });
+                let desc = alunos.map(|a| format!("{} alunos", a)).or_else(|| disc.clone());
                 let exists: i64 = conn.query_row(
                     "SELECT COUNT(*) FROM atuacao WHERE ano IS ?1 AND titulo IS ?2",
                     rusqlite::params![ano, disc],
@@ -489,11 +496,96 @@ FROM custom_records WHERE category = 'x_atuacao'
         }
     }
 
-    // Copia subpastas legadas de Encargos e Disciplinas para Atuação
+    // Remove prefixo legado "Ensino: " de atuacao e subfolder_mappings
     let _ = conn.execute(
-        "INSERT OR IGNORE INTO subfolder_mappings (category_group, description, folder)
-         SELECT 'Atuação', description, folder FROM subfolder_mappings
-         WHERE lower(category_group) IN ('disciplinas', 'encargos')",
+        "UPDATE atuacao SET tipo = TRIM(SUBSTR(tipo, 9)) WHERE tipo LIKE 'Ensino: %'",
+        [],
+    );
+    let _ = conn.execute(
+        "DELETE FROM subfolder_mappings WHERE description LIKE 'Ensino: %' AND EXISTS (SELECT 1 FROM subfolder_mappings s2 WHERE fold(s2.category_group) = fold(subfolder_mappings.category_group) AND fold(s2.description) = fold(TRIM(SUBSTR(subfolder_mappings.description, 9))))",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE subfolder_mappings SET description = TRIM(SUBSTR(description, 9)) WHERE description LIKE 'Ensino: %'",
+        [],
+    );
+
+    // Normaliza caminhos legados 12_atuacao\ e 13_atuacao\ para 3_atuacao\ em subfolder_mappings, atuacao e record_attachments
+    let _ = conn.execute(
+        r#"UPDATE subfolder_mappings
+           SET folder = '3_atuacao\' || SUBSTR(folder, 12)
+           WHERE folder LIKE '13_atuacao\%' OR folder LIKE '12_atuacao\%'"#,
+        [],
+    );
+    let _ = conn.execute(
+        r#"UPDATE subfolder_mappings
+           SET folder = folder || '\'
+           WHERE fold(category_group) = 'atuacao' AND folder NOT LIKE '%\' AND folder NOT LIKE '%/'"#,
+        [],
+    );
+    let _ = conn.execute(
+        r#"UPDATE atuacao
+           SET folder = CASE
+                 WHEN (folder LIKE '13_atuacao\%' OR folder LIKE '12_atuacao\%')
+                 THEN RTRIM('3_atuacao\' || SUBSTR(folder, 12), '\') || '\'
+                 ELSE folder
+               END,
+               path = CASE
+                 WHEN (path LIKE '13_atuacao\%' OR path LIKE '12_atuacao\%')
+                 THEN '3_atuacao\' || SUBSTR(path, 12)
+                 ELSE path
+               END
+           WHERE folder LIKE '13_atuacao\%' OR folder LIKE '12_atuacao\%'
+              OR path LIKE '13_atuacao\%' OR path LIKE '12_atuacao\%'"#,
+        [],
+    );
+    let _ = conn.execute(
+        r#"UPDATE record_attachments
+           SET folder = CASE
+                 WHEN (folder LIKE '13_atuacao\%' OR folder LIKE '12_atuacao\%')
+                 THEN RTRIM('3_atuacao\' || SUBSTR(folder, 12), '\') || '\'
+                 ELSE folder
+               END,
+               path = CASE
+                 WHEN (path LIKE '13_atuacao\%' OR path LIKE '12_atuacao\%')
+                 THEN '3_atuacao\' || SUBSTR(path, 12)
+                 ELSE path
+               END
+           WHERE folder LIKE '13_atuacao\%' OR folder LIKE '12_atuacao\%'
+              OR path LIKE '13_atuacao\%' OR path LIKE '12_atuacao\%'"#,
+        [],
+    );
+
+    // Migra subpastas legadas de Encargos e Disciplinas para Atuação sem duplicidade e remove os grupos legados
+    let _ = conn.execute(
+        "INSERT INTO subfolder_mappings (category_group, description, folder)
+         SELECT 'Atuação', s.description, s.folder
+         FROM subfolder_mappings s
+         WHERE fold(s.category_group) IN ('disciplinas', 'encargos')
+           AND NOT EXISTS (
+               SELECT 1 FROM subfolder_mappings a
+               WHERE fold(a.category_group) = 'atuacao'
+                 AND fold(a.description) = fold(s.description)
+           )",
+        [],
+    );
+    let _ = conn.execute(
+        "DELETE FROM subfolder_mappings WHERE fold(category_group) IN ('disciplinas', 'encargos')",
+        [],
+    );
+
+    // Remove eventuais duplicatas em subfolder_mappings e impõe unicidade em (category_group, description)
+    let _ = conn.execute(
+        "DELETE FROM subfolder_mappings
+         WHERE id NOT IN (
+             SELECT MIN(id)
+             FROM subfolder_mappings
+             GROUP BY fold(category_group), fold(description)
+         )",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_subfolder_unique_group_desc ON subfolder_mappings(category_group, description)",
         [],
     );
 
@@ -501,7 +593,7 @@ FROM custom_records WHERE category = 'x_atuacao'
     for (desc, folder) in DEFAULT_ATUACAO_MAPPINGS {
         let exists: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM subfolder_mappings WHERE lower(category_group) = 'atuação' AND lower(description) = lower(?1)",
+                "SELECT COUNT(*) FROM subfolder_mappings WHERE fold(category_group) = 'atuacao' AND fold(description) = fold(?1)",
                 [desc],
                 |r| r.get(0),
             )
@@ -518,7 +610,7 @@ FROM custom_records WHERE category = 'x_atuacao'
     for (desc, folder) in DEFAULT_INOVACAO_MAPPINGS {
         let exists: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM subfolder_mappings WHERE lower(category_group) = 'inovação' AND lower(description) = lower(?1)",
+                "SELECT COUNT(*) FROM subfolder_mappings WHERE fold(category_group) = 'inovacao' AND fold(description) = fold(?1)",
                 [desc],
                 |r| r.get(0),
             )
@@ -535,7 +627,7 @@ FROM custom_records WHERE category = 'x_atuacao'
     for (desc, folder) in DEFAULT_EDUCACAO_MAPPINGS {
         let exists: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM subfolder_mappings WHERE lower(category_group) IN ('educação e popularização de c&t', 'educação e popularização', 'educação') AND lower(description) = lower(?1)",
+                "SELECT COUNT(*) FROM subfolder_mappings WHERE fold(category_group) IN ('educacao e popularizacao de c&t', 'educacao e popularizacao', 'educacao') AND fold(description) = fold(?1)",
                 [desc],
                 |r| r.get(0),
             )
@@ -547,6 +639,27 @@ FROM custom_records WHERE category = 'x_atuacao'
             );
         }
     }
+
+    // Remove eventuais duplicatas em record_attachments
+    let _ = conn.execute(
+        "DELETE FROM record_attachments
+         WHERE id NOT IN (
+             SELECT MIN(id)
+             FROM record_attachments
+             GROUP BY category, record_id, path
+         )",
+        [],
+    );
+
+    // Preenche instituicao/titulo em atuacao quando vier apenas descricao (ex.: importação em lote antiga)
+    let _ = conn.execute(
+        "UPDATE atuacao
+         SET instituicao = TRIM(REPLACE(descricao, char(160), ' ')),
+             titulo = TRIM(REPLACE(descricao, char(160), ' '))
+         WHERE (instituicao IS NULL OR TRIM(instituicao) = '')
+           AND descricao IS NOT NULL AND TRIM(descricao) <> ''",
+        [],
+    );
 
     // Atualiza options.category_order para o padrão oficial do Lattes
     let _ = conn.execute(

@@ -1700,12 +1700,19 @@ body.viewer-docked .table-actions {
   justify-content: flex-end;
 }
 
-body.viewer-docked .data-table td:last-child,
 body.viewer-docked .data-table th:last-child {
   position: sticky;
   right: 0;
+  background: var(--surface-2);
+  z-index: 6;
+  box-shadow: -8px 0 12px -10px rgba(2, 6, 23, .25);
+}
+
+body.viewer-docked .data-table td:last-child {
+  position: sticky;
+  right: 0;
   background: var(--surface-bg);
-  z-index: 1;
+  z-index: 2;
   box-shadow: -8px 0 12px -10px rgba(2, 6, 23, .25);
 }
 
@@ -1798,13 +1805,12 @@ body.viewer-docked .sidebar-nav {
   padding-right: 8px !important;
 }
 
-body.viewer-docked .data-table th:not(.col-main):not(.col-ano):not(.col-aluno):not(:last-child),
-body.viewer-docked .data-table td:not(.col-main):not(.col-ano):not(.col-aluno):not(:last-child) {
-  display: none;
-}
-
-body.viewer-docked .data-table .col-main {
-  width: auto !important;
+/* Todas as colunas (Cargo, Tipo, Qualis, etc.) permanecem visíveis mesmo com o visualizador aberto */
+body.viewer-docked .data-table .col-main,
+body.viewer-docked .data-table th.col-main,
+body.viewer-docked .data-table td.col-titulo,
+body.viewer-docked .data-table th.col-titulo {
+  min-width: 220px;
 }
 
 body.viewer-docked .filter-bar {

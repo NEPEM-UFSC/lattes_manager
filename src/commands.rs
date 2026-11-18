@@ -388,10 +388,12 @@ pub fn update_record_impl(
 
     let mut data_clone = data.clone();
     if !new_attachments.is_empty() || data.get("attachments").is_some() {
-        let mut existing_atts: Vec<AttachmentDto> = data
-            .get("attachments")
-            .and_then(|a| serde_json::from_value(a.clone()).ok())
-            .unwrap_or_default();
+        let mut existing_atts: Vec<AttachmentDto> = if let Some(arr) = data.get("attachments") {
+            serde_json::from_value(arr.clone()).unwrap_or_default()
+        } else {
+            let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+            queries::get_attachments_for_record(&conn, category, id).unwrap_or_default()
+        };
 
         // Remove quaisquer anexos temporários que apontem para arquivos externos brutos
         // ou que correspondam aos arquivos de origem que acabaram de ser copiados para a pasta de destino.
@@ -424,8 +426,10 @@ pub fn update_record_impl(
     }
 
     let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
-    queries::update_record(&conn, category, id, &data_clone, attached_file, attached_path)
-        .map_err(|e| format!("Falha ao atualizar registro: {}", e))
+    let res = queries::update_record(&conn, category, id, &data_clone, attached_file, attached_path)
+        .map_err(|e| format!("Falha ao atualizar registro: {}", e))?;
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+    Ok(res)
 }
 
 pub fn delete_record_impl(
@@ -482,6 +486,30 @@ fn dedup_ids(ids: &[i64]) -> Vec<i64> {
     ids.iter().copied().filter(|id| seen.insert(*id)).collect()
 }
 
+const ALLOWED_BATCH_COLUMNS: &[&str] = &[
+    "ano",
+    "ano_fim",
+    "tipo",
+    "instituicao",
+    "titulo",
+    "vinculo",
+    "enquadramento",
+    "horas",
+    "dedicacao_exclusiva",
+    "vinculo_empregaticio",
+    "descricao",
+    "identifier",
+    "journal",
+    "qualis",
+    "citations",
+    "aluno",
+    "curso",
+    "disciplina",
+    "alunos",
+    "url",
+    "folder",
+];
+
 pub fn batch_update_records_impl(
     db: &Mutex<Connection>,
     category: &str,
@@ -489,6 +517,7 @@ pub fn batch_update_records_impl(
     ano: Option<i64>,
     tipo: Option<String>,
     qualis: Option<String>,
+    data: Option<&serde_json::Value>,
 ) -> Result<usize, String> {
     let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
     let table = validate_batch_category(&conn, category)?;
@@ -497,33 +526,102 @@ pub fn batch_update_records_impl(
         return Ok(0);
     }
 
+    let is_cust = crate::custom::is_custom(&table);
+    let table_cols: Vec<String> = if is_cust {
+        ALLOWED_BATCH_COLUMNS.iter().map(|s| s.to_string()).collect()
+    } else {
+        let mut pragma = conn
+            .prepare(&format!("PRAGMA table_info({})", table))
+            .map_err(|e| e.to_string())?;
+        let rows = pragma
+            .query_map([], |r| r.get::<_, String>(1))
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    let mut sets: Vec<String> = Vec::new();
+    let mut base_params: Vec<rusqlite::types::Value> = Vec::new();
+
+    // 1. Processa objeto data genérico (permite atualizar qualquer campo do cadastro)
+    if let Some(obj) = data.and_then(|d| d.as_object()) {
+        for (k, v) in obj {
+            let col = k.to_lowercase();
+            if !ALLOWED_BATCH_COLUMNS.contains(&col.as_str()) || !table_cols.iter().any(|c| c.eq_ignore_ascii_case(&col)) {
+                continue;
+            }
+            if sets.iter().any(|s| s.starts_with(&format!("{} =", col))) {
+                continue;
+            }
+            match v {
+                serde_json::Value::Null => {
+                    sets.push(format!("{} = ?", col));
+                    base_params.push(rusqlite::types::Value::Null);
+                }
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        sets.push(format!("{} = ?", col));
+                        base_params.push(rusqlite::types::Value::Integer(i));
+                    } else if let Some(f) = n.as_f64() {
+                        sets.push(format!("{} = ?", col));
+                        base_params.push(rusqlite::types::Value::Real(f));
+                    }
+                }
+                serde_json::Value::String(s) => {
+                    let trimmed = s.trim();
+                    if trimmed.is_empty() {
+                        sets.push(format!("{} = ?", col));
+                        base_params.push(rusqlite::types::Value::Null);
+                    } else {
+                        sets.push(format!("{} = ?", col));
+                        base_params.push(rusqlite::types::Value::Text(trimmed.to_string()));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // 2. Fallbacks diretos para ano, tipo e qualis
+    if let Some(y) = ano {
+        if !sets.iter().any(|s| s.starts_with("ano =")) && table_cols.iter().any(|c| c.eq_ignore_ascii_case("ano")) {
+            sets.push("ano = ?".to_string());
+            base_params.push(rusqlite::types::Value::Integer(y));
+        }
+    }
+    if let Some(t) = tipo {
+        let trimmed = t.trim().to_string();
+        if !sets.iter().any(|s| s.starts_with("tipo =")) && table_cols.iter().any(|c| c.eq_ignore_ascii_case("tipo")) {
+            sets.push("tipo = ?".to_string());
+            base_params.push(if trimmed.is_empty() {
+                rusqlite::types::Value::Null
+            } else {
+                rusqlite::types::Value::Text(trimmed)
+            });
+        }
+    }
     let eff_qualis = if table == "producoes" { qualis } else { None };
-    if ano.is_none() && tipo.is_none() && eff_qualis.is_none() {
+    if let Some(q) = eff_qualis {
+        let trimmed = q.trim().to_string();
+        if !sets.iter().any(|s| s.starts_with("qualis =")) && table_cols.iter().any(|c| c.eq_ignore_ascii_case("qualis")) {
+            sets.push("qualis = ?".to_string());
+            base_params.push(if trimmed.is_empty() {
+                rusqlite::types::Value::Null
+            } else {
+                rusqlite::types::Value::Text(trimmed)
+            });
+        }
+    }
+
+    if sets.is_empty() {
         return Ok(0);
     }
 
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let mut sets: Vec<&'static str> = Vec::new();
-    let mut base_params: Vec<rusqlite::types::Value> = Vec::new();
-    if let Some(y) = ano {
-        sets.push("ano = ?");
-        base_params.push(rusqlite::types::Value::Integer(y));
+    if table_cols.iter().any(|c| c.eq_ignore_ascii_case("log")) {
+        sets.push("log = ?".to_string());
+        base_params.push(rusqlite::types::Value::Text(now));
     }
-    for (col_sql, val) in [("tipo = ?", tipo), ("qualis = ?", eff_qualis)] {
-        if let Some(s) = val {
-            sets.push(col_sql);
-            let t = s.trim().to_string();
-            base_params.push(if t.is_empty() {
-                rusqlite::types::Value::Null
-            } else {
-                rusqlite::types::Value::Text(t)
-            });
-        }
-    }
-    sets.push("log = ?");
-    base_params.push(rusqlite::types::Value::Text(now));
 
-    let is_cust = crate::custom::is_custom(&table);
     let sql = if is_cust {
         format!(
             "UPDATE custom_records SET {} WHERE category = ? AND id = ?",
@@ -554,6 +652,7 @@ pub fn batch_update_records_impl(
     }
     tx.commit()
         .map_err(|e| format!("Falha ao concluir transação: {}", e))?;
+    let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
     Ok(updated)
 }
 
@@ -823,7 +922,10 @@ pub fn add_record_attachment(
         let _ = std::fs::create_dir_all(&target_subfolder);
     }
 
-    let base = format!("{}_{}", rec.identifier.as_deref().unwrap_or("doc"), rec.attachments.len() + 1);
+    let json_rec = serde_json::to_value(&rec).unwrap_or(serde_json::Value::Null);
+    let rec_base = crate::files::naming::record_base_name(&category, &json_rec)
+        .unwrap_or_else(|| rec.identifier.clone().unwrap_or_else(|| "doc".to_string()));
+    let base = format!("{}_{}", rec_base, rec.attachments.len() + 1);
     let att = storage::save_attached_file_as(p, &target_subfolder, &state.root_dir, Some(&base))
         .map_err(|e| format!("Falha ao salvar anexo: {}", e))?;
 
@@ -886,8 +988,9 @@ pub fn batch_update_records(
     ano: Option<i64>,
     tipo: Option<String>,
     qualis: Option<String>,
+    data: Option<serde_json::Value>,
 ) -> Result<usize, String> {
-    batch_update_records_impl(&state.db, &category, &ids, ano, tipo, qualis)
+    batch_update_records_impl(&state.db, &category, &ids, ano, tipo, qualis, data.as_ref())
 }
 
 #[tauri::command(async)]
@@ -996,7 +1099,30 @@ fn resolve_xml_path(root_dir: &Path, xml_path: Option<&str>) -> PathBuf {
         Some(p) => PathBuf::from(p),
         None => {
             let a = root_dir.join("lattes_xml.xml");
-            if a.exists() { a } else { root_dir.join("lattes_xml") }
+            if a.exists() {
+                return a;
+            }
+            let b = root_dir.join("lattes_xml");
+            if b.exists() {
+                return b;
+            }
+            if let Ok(entries) = std::fs::read_dir(root_dir) {
+                let mut candidates = Vec::new();
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()).map(|s| s.eq_ignore_ascii_case("xml")).unwrap_or(false) {
+                        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                        if stem.len() == 16 && stem.chars().all(|c| c.is_ascii_digit()) {
+                            return path;
+                        }
+                        candidates.push(path);
+                    }
+                }
+                if let Some(first) = candidates.into_iter().next() {
+                    return first;
+                }
+            }
+            a
         }
     }
 }
@@ -1572,14 +1698,45 @@ pub async fn extract_record_doi(app: tauri::AppHandle, category: String, id: i64
     .map_err(|e| e.to_string())?
 }
 
+/// Auxiliar para abrir URL no navegador padrão com fallback robusto no Windows.
+fn open_in_browser(url: &str) -> Result<(), String> {
+    if let Err(e) = opener::open(url) {
+        #[cfg(windows)]
+        {
+            let res = std::process::Command::new("cmd")
+                .args(["/c", "start", "", url])
+                .spawn();
+            if let Err(cmd_err) = res {
+                return Err(format!("Falha ao abrir no navegador: {} (fallback cmd: {})", e, cmd_err));
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            return Err(format!("Falha ao abrir no navegador: {}", e));
+        }
+    }
+    Ok(())
+}
+
 /// Abre https://doi.org/<doi> no navegador padrão (só aceita DOIs).
 #[tauri::command]
 pub fn open_doi(doi: String) -> Result<(), String> {
-    let d = doi.trim().trim_start_matches("https://doi.org/").trim_start_matches("doi:").trim();
+    let clean = crate::doi::parse_doi(&doi).unwrap_or_else(|| {
+        doi.trim()
+            .trim_start_matches("https://doi.org/")
+            .trim_start_matches("http://doi.org/")
+            .trim_start_matches("https://dx.doi.org/")
+            .trim_start_matches("http://dx.doi.org/")
+            .trim_start_matches("doi:")
+            .trim_start_matches("DOI:")
+            .trim()
+            .to_string()
+    });
+    let d = clean.trim();
     if !d.starts_with("10.") || d.contains(char::is_whitespace) {
         return Err("DOI inválido".into());
     }
-    opener::open(format!("https://doi.org/{}", d)).map_err(|e| e.to_string())
+    open_in_browser(&format!("https://doi.org/{}", d))
 }
 
 // ==========================================
@@ -1628,7 +1785,7 @@ pub fn open_url(url: String) -> Result<(), String> {
     if !(u.starts_with("https://") || u.starts_with("http://")) || u.contains(char::is_whitespace) {
         return Err("Endereço inválido".into());
     }
-    opener::open(u).map_err(|e| e.to_string())
+    open_in_browser(u)
 }
 
 // ==========================================
@@ -1688,6 +1845,55 @@ pub fn clear_missing_links(state: tauri::State<'_, AppState>, items: Vec<crate::
 }
 
 #[tauri::command(async)]
+pub fn scan_root_folders(state: tauri::State<'_, AppState>) -> Result<crate::tools::RootFolderAudit, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::tools::scan_root_folders(&conn, &state.root_dir)
+}
+
+#[tauri::command(async)]
+pub fn remove_audited_folders(
+    state: tauri::State<'_, AppState>,
+    rel_paths: Vec<String>,
+    remove_mappings: Option<bool>,
+    delete_unlinked_files: Option<bool>,
+) -> Result<crate::tools::ApplyResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(crate::tools::remove_audited_folders(
+        &conn,
+        &state.root_dir,
+        &rel_paths,
+        remove_mappings.unwrap_or(false),
+        delete_unlinked_files.unwrap_or(false),
+    ))
+}
+
+#[tauri::command(async)]
+pub fn create_missing_mapped_folders(
+    state: tauri::State<'_, AppState>,
+    rel_paths: Vec<String>,
+) -> Result<crate::tools::ApplyResult, String> {
+    Ok(crate::tools::create_missing_mapped_folders(&state.root_dir, &rel_paths))
+}
+
+#[tauri::command(async)]
+pub fn remove_unlinked_mappings(
+    state: tauri::State<'_, AppState>,
+    mapping_ids: Vec<i64>,
+) -> Result<crate::tools::ApplyResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(crate::tools::remove_unlinked_mappings(&conn, &mapping_ids))
+}
+
+#[tauri::command(async)]
+pub fn delete_orphan_files(
+    state: tauri::State<'_, AppState>,
+    rel_files: Vec<String>,
+) -> Result<crate::tools::ApplyResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(crate::tools::delete_orphan_files(&conn, &state.root_dir, &rel_files))
+}
+
+#[tauri::command(async)]
 pub fn backup_database(state: tauri::State<'_, AppState>) -> Result<crate::tools::BackupInfo, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::tools::backup(&conn, &state.root_dir)
@@ -1711,10 +1917,16 @@ pub fn export_xlsx(state: tauri::State<'_, AppState>, sheets: Vec<crate::tools::
 // CLASSIFICAR DOCUMENTO (qualquer categoria)
 // ==========================================
 
-static INDEX_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static INDEX_CACHE: std::sync::Mutex<Option<(std::time::Instant, std::sync::Arc<Vec<crate::classify::TrainDoc>>)>> =
+    std::sync::Mutex::new(None);
 
-fn update_doc_index_with_docs(state: &AppState) -> Result<Vec<crate::classify::TrainDoc>, String> {
-    let _g = INDEX_LOCK.lock().map_err(|e| e.to_string())?;
+fn update_doc_index_with_docs(state: &AppState) -> Result<std::sync::Arc<Vec<crate::classify::TrainDoc>>, String> {
+    let mut cache = INDEX_CACHE.lock().map_err(|e| e.to_string())?;
+    if let Some((ts, ref docs_arc)) = *cache {
+        if ts.elapsed() < std::time::Duration::from_secs(4) {
+            return Ok(std::sync::Arc::clone(docs_arc));
+        }
+    }
     let (docs, stale) = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         let docs = crate::classify::training_docs(&conn, &state.root_dir);
@@ -1726,7 +1938,9 @@ fn update_doc_index_with_docs(state: &AppState) -> Result<Vec<crate::classify::T
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         crate::classify::store_index(&conn, &rows);
     }
-    Ok(docs)
+    let arc = std::sync::Arc::new(docs);
+    *cache = Some((std::time::Instant::now(), std::sync::Arc::clone(&arc)));
+    Ok(arc)
 }
 
 /// Atualiza o índice de textos dos comprovantes vinculados (só o que mudou).
@@ -1760,11 +1974,11 @@ pub async fn analyze_document(app: tauri::AppHandle, path: String, text: Option<
         if chars < 60 {
             a.needs_ocr = true;
         }
+        a.campos = crate::classify::extract_fields(&text);
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         let valid: std::collections::HashSet<String> = crate::tools::all_categories(&conn).into_iter().collect();
         a.sugestoes = crate::classify::suggest_cached(&conn, &docs, &text, &name, &valid, None);
         a.sugestoes.truncate(5);
-        a.campos = crate::classify::extract_fields(&text);
         let top: Vec<String> = a.sugestoes.iter().take(2).map(|s| s.category.clone()).collect();
         a.registros = crate::classify::match_records(&conn, &text, &top);
         Ok(a)
@@ -2089,7 +2303,7 @@ mod tests {
 
         // Empty ids returns 0 without error
         assert_eq!(
-            batch_update_records_impl(&db, "producoes", &[], Some(2024), None, None).unwrap(),
+            batch_update_records_impl(&db, "producoes", &[], Some(2024), None, None, None).unwrap(),
             0
         );
 
@@ -2101,6 +2315,7 @@ mod tests {
             Some(2024),
             Some("  Artigo Completo ".into()),
             Some("A1".into()),
+            None,
         )
         .unwrap();
         assert_eq!(count, 2);
@@ -2115,27 +2330,40 @@ mod tests {
         drop(conn);
 
         // Blank string clears field to NULL
-        let cleared = batch_update_records_impl(&db, "producoes", &[p1], None, None, Some("   ".into())).unwrap();
+        let cleared = batch_update_records_impl(&db, "producoes", &[p1], None, None, Some("   ".into()), None).unwrap();
         assert_eq!(cleared, 1);
         let r1_after = queries::get_record_by_id(&db.lock().unwrap(), "producoes", p1).unwrap();
         assert_eq!(r1_after.qualis, None);
 
+        // Batch update with generic data dictionary
+        let upd_data = json!({
+            "titulo": "Novo Título Coletivo",
+            "journal": "Nature Communications"
+        });
+        assert_eq!(
+            batch_update_records_impl(&db, "producoes", &[p1, p2], None, None, None, Some(&upd_data)).unwrap(),
+            2
+        );
+        let r1_upd = queries::get_record_by_id(&db.lock().unwrap(), "producoes", p1).unwrap();
+        assert_eq!(r1_upd.titulo.as_deref(), Some("Novo Título Coletivo"));
+        assert_eq!(r1_upd.journal.as_deref(), Some("Nature Communications"));
+
         // Only qualis on non-producoes is ignored and returns 0 cleanly
         assert_eq!(
-            batch_update_records_impl(&db, "eventos", &[e1], None, None, Some("A1".into())).unwrap(),
+            batch_update_records_impl(&db, "eventos", &[e1], None, None, Some("A1".into()), None).unwrap(),
             0
         );
         // Updating ano + qualis on non-producoes updates ano and ignores qualis
         assert_eq!(
-            batch_update_records_impl(&db, "eventos", &[e1], Some(2023), None, Some("A1".into())).unwrap(),
+            batch_update_records_impl(&db, "eventos", &[e1], Some(2023), None, Some("A1".into()), None).unwrap(),
             1
         );
         let ev_after = queries::get_record_by_id(&db.lock().unwrap(), "eventos", e1).unwrap();
         assert_eq!(ev_after.ano, Some(2023));
 
         // Invalid category errors
-        assert!(batch_update_records_impl(&db, "nao_existe", &[1], Some(2024), None, None).is_err());
-        assert!(batch_update_records_impl(&db, "x_inexistente", &[1], Some(2024), None, None).is_err());
+        assert!(batch_update_records_impl(&db, "nao_existe", &[1], Some(2024), None, None, None).is_err());
+        assert!(batch_update_records_impl(&db, "x_inexistente", &[1], Some(2024), None, None, None).is_err());
     }
 
     #[test]
@@ -2167,7 +2395,7 @@ mod tests {
 
         // Custom category batch update
         assert_eq!(
-            batch_update_records_impl(&db, "x_premios", &[c1], Some(2025), Some("Honra".into()), Some("A1".into())).unwrap(),
+            batch_update_records_impl(&db, "x_premios", &[c1], Some(2025), Some("Honra".into()), Some("A1".into()), None).unwrap(),
             1
         );
         let cust_after = queries::get_record_by_id(&db.lock().unwrap(), "x_premios", c1).unwrap();
@@ -2299,6 +2527,65 @@ mod tests {
         let list_ed = queries::get_records(&db.lock().unwrap(), "educacao_popularizacao", None, None, None).unwrap();
         assert_eq!(list_ed.len(), 1);
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_create_tables_idempotent_subfolder_mappings() {
+        let conn = crate::db::open_in_memory().unwrap();
+        crate::db::schema::create_tables(&conn).unwrap();
+
+        // Simulate legacy Encargos/Disciplinas/13_atuacao rows and duplicates
+        let _ = conn.execute("DROP INDEX IF EXISTS idx_subfolder_unique_group_desc", []);
+        conn.execute(
+            "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES ('Disciplinas', 'Encargos Extensão', '3_atuacao\\atuacao_profissional\\encargos_extensão\\')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES ('Encargos', 'Chefia', '3_atuacao\\atuacao_profissional\\chefia\\')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES ('Atuação', 'Chefia', '3_atuacao\\atuacao_profissional\\chefia\\')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO subfolder_mappings (category_group, description, folder) VALUES ('Atuação', 'Áreas extras', '13_atuacao\\areas_extras')",
+            [],
+        ).unwrap();
+
+        crate::db::schema::create_tables(&conn).unwrap();
+        let count1: i64 = conn.query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0)).unwrap();
+
+        // Calling create_tables multiple times must never duplicate mappings
+        crate::db::schema::create_tables(&conn).unwrap();
+        crate::db::schema::create_tables(&conn).unwrap();
+        let count2: i64 = conn.query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0)).unwrap();
+        assert_eq!(count1, count2);
+
+        let legacy_cnt: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM subfolder_mappings WHERE fold(category_group) IN ('disciplinas', 'encargos') OR folder LIKE '13_atuacao\\%' OR folder LIKE '12_atuacao\\%'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(legacy_cnt, 0);
+
+        let migrated_folder: String = conn.query_row(
+            "SELECT folder FROM subfolder_mappings WHERE description = 'Áreas extras'",
+            [],
+            |r| r.get(0),
+        ).unwrap();
+        assert_eq!(migrated_folder, r"3_atuacao\areas_extras\");
+
+        // add_subfolder_mapping must also be idempotent
+        let root = std::env::temp_dir().join("test_idempotent_subfolders_root");
+        let _ = std::fs::create_dir_all(&root);
+        let db = Mutex::new(conn);
+        let first = add_subfolder_mapping_impl(&db, &root, "Atuação", "Chefia", r"3_atuacao\atuacao_profissional\chefia\").unwrap();
+        let second = add_subfolder_mapping_impl(&db, &root, "atuação", "CHEFIA", r"3_atuacao\atuacao_profissional\chefia\").unwrap();
+        assert_eq!(first.id, second.id);
+        let count3: i64 = db.lock().unwrap().query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0)).unwrap();
+        assert_eq!(count2, count3);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

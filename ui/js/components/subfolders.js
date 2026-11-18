@@ -5,7 +5,7 @@ import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 
 export class SubfoldersView {
-  constructor({ onMappingAdded }) {
+  constructor({ onMappingAdded, onAuditFolders }) {
     this.container = document.getElementById("subfolders-container");
     this.modalOverlay = document.getElementById("subfolder-modal-overlay");
     this.form = document.getElementById("subfolder-form");
@@ -13,6 +13,7 @@ export class SubfoldersView {
     this.btnCancel = document.getElementById("btn-cancel-subfolder");
 
     this.onMappingAdded = onMappingAdded;
+    this.onAuditFolders = onAuditFolders;
     this.mappings = [];
     this.selectedGroup = "";
 
@@ -78,6 +79,10 @@ export class SubfoldersView {
               .join("")}
           </select>
 
+          <button type="button" id="btn-audit-subfolders" class="btn btn-secondary btn-sm" title="Varrer pasta raiz em busca de pastas em branco, sem vínculo e arquivos soltos">
+            🗂️ Auditar Pastas no Disco
+          </button>
+
           <button type="button" id="btn-add-subfolder" class="btn btn-primary btn-sm">
             + Nova Subpasta
           </button>
@@ -137,6 +142,17 @@ export class SubfoldersView {
     if (btnAdd) {
       btnAdd.addEventListener("click", () => this.openModal());
     }
+
+    const btnAudit = document.getElementById("btn-audit-subfolders");
+    if (btnAudit) {
+      btnAudit.addEventListener("click", () => {
+        if (this.onAuditFolders) this.onAuditFolders();
+        else if (window._app) {
+          window._app.showTools();
+          window._app.toolsView.open("folders_audit");
+        }
+      });
+    }
   }
 
   openModal() {
@@ -165,7 +181,12 @@ export class SubfoldersView {
 
     try {
       const created = await api.addSubfolderMapping(group, desc, folder);
-      this.mappings.push(created);
+      const idx = this.mappings.findIndex((m) => m.id === created.id);
+      if (idx >= 0) {
+        this.mappings[idx] = created;
+      } else {
+        this.mappings.push(created);
+      }
       showToast("Mapeamento de subpasta criado com sucesso!", "success");
       this.closeModal();
       this.render();

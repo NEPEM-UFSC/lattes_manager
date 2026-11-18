@@ -196,7 +196,7 @@ pub fn migrate_workbook(
 
         if let (Some(g), Some(d), Some(f)) = (group, desc, folder) {
             tx.execute(
-                "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES (?1, ?2, ?3)",
+                "INSERT OR IGNORE INTO subfolder_mappings (category_group, description, folder) VALUES (?1, ?2, ?3)",
                 params![g, d, f],
             )?;
             mapping_count += 1;

@@ -157,25 +157,112 @@ pub fn slugify(s: &str, max: usize) -> String {
     out
 }
 
+fn push_part(parts: &mut Vec<String>, val: Option<String>) {
+    if let Some(v) = val {
+        let trimmed = v.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let lower = trimmed.to_lowercase();
+        // Não adiciona se for idêntico ou se já estiver contido em alguma parte existente
+        if !parts.iter().any(|p| {
+            let p_lower = p.to_lowercase();
+            p_lower == lower || (lower.len() >= 6 && p_lower.contains(&lower))
+        }) {
+            parts.push(trimmed.to_string());
+        }
+    }
+}
+
 /// Nome-base do comprovante a partir do registro (sem prefixo numérico nem extensão).
+/// Concatena de forma rica os campos mais descritivos para cada categoria (instituição, vínculo, cargo, título, descrição, orientando, etc.).
 pub fn record_base_name(category: &str, rec: &serde_json::Value) -> Option<String> {
     let g = |k: &str| rec.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let ano = rec.get("ano").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())));
-    let text = match category {
-        "orientacoes" | "bancas" => match (g("aluno"), g("titulo")) {
-            (Some(a), Some(t)) => format!("{} {}", a, t),
-            (a, t) => a.or(t)?,
-        },
-        "disciplinas" => {
-            let d = g("disciplina").or_else(|| g("curso"))?;
-            match ano {
-                Some(y) => format!("{} {}", d, y),
-                None => d,
+
+    let mut parts = Vec::new();
+
+    match category {
+        "orientacoes" | "bancas" => {
+            push_part(&mut parts, g("aluno"));
+            push_part(&mut parts, g("titulo").or_else(|| g("descricao")));
+            if parts.is_empty() {
+                push_part(&mut parts, g("tipo"));
             }
         }
-        _ => g("instituicao").or_else(|| g("titulo")).or_else(|| g("descricao")).or_else(|| g("tipo"))?,
-    };
-    let s = slugify(&text, 60);
+        "disciplinas" => {
+            push_part(&mut parts, g("curso"));
+            push_part(&mut parts, g("disciplina"));
+            if let Some(y) = ano {
+                parts.push(y.to_string());
+            }
+        }
+        "producoes" => {
+            push_part(&mut parts, g("titulo"));
+            push_part(&mut parts, g("journal"));
+            if parts.is_empty() {
+                push_part(&mut parts, g("tipo"));
+            }
+        }
+        "formacao" => {
+            push_part(&mut parts, g("tipo"));
+            push_part(&mut parts, g("curso"));
+            push_part(&mut parts, g("instituicao"));
+            push_part(&mut parts, g("descricao"));
+        }
+        "eventos" => {
+            push_part(&mut parts, g("tipo"));
+            push_part(&mut parts, g("descricao").or_else(|| g("titulo")));
+        }
+        "patentes" => {
+            push_part(&mut parts, g("tipo"));
+            push_part(&mut parts, g("descricao").or_else(|| g("titulo")));
+        }
+        "projetos" => {
+            push_part(&mut parts, g("instituicao").or_else(|| g("orgao")));
+            push_part(&mut parts, g("titulo").or_else(|| g("descricao")));
+            if parts.is_empty() {
+                push_part(&mut parts, g("tipo"));
+            }
+        }
+        "inovacao" => {
+            push_part(&mut parts, g("instituicao"));
+            push_part(&mut parts, g("titulo"));
+            push_part(&mut parts, g("descricao"));
+            if parts.is_empty() {
+                push_part(&mut parts, g("tipo"));
+            }
+        }
+        "educacao_popularizacao" => {
+            push_part(&mut parts, g("instituicao"));
+            push_part(&mut parts, g("titulo"));
+            push_part(&mut parts, g("descricao"));
+            if parts.is_empty() {
+                push_part(&mut parts, g("tipo"));
+            }
+        }
+        "dadosgerais" => {
+            push_part(&mut parts, g("tipo"));
+            push_part(&mut parts, g("instituicao"));
+            push_part(&mut parts, g("descricao"));
+        }
+        _ => {
+            // "atuacao", "encargos" e categorias customizadas
+            push_part(&mut parts, g("instituicao"));
+            push_part(&mut parts, g("enquadramento").or_else(|| g("vinculo")).or_else(|| g("cargo")));
+            push_part(&mut parts, g("descricao").or_else(|| g("titulo")));
+            if parts.is_empty() {
+                push_part(&mut parts, g("tipo"));
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    let text = parts.join(" ");
+    let s = slugify(&text, 80);
     (s.len() >= 3).then_some(s)
 }
 
@@ -215,6 +302,15 @@ mod tests {
         assert_eq!(record_base_name("bancas", &rec).as_deref(), Some("joao_da_silva_selecao_genomica"));
         let rec = serde_json::json!({"disciplina": "Genética", "ano": 2024});
         assert_eq!(record_base_name("disciplinas", &rec).as_deref(), Some("genetica_2024"));
+        let rec = serde_json::json!({
+            "instituicao": "UFSC",
+            "enquadramento": "Supervisão de Laboratório",
+            "descricao": "Supervisão do Laboratório de Experimentação"
+        });
+        assert_eq!(
+            record_base_name("atuacao", &rec).as_deref(),
+            Some("ufsc_supervisao_de_laboratorio_supervisao_do_laboratorio_de_experimentacao")
+        );
     }
 
     #[test]
