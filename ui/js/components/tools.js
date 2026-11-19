@@ -390,23 +390,59 @@ function fmtDate([y, mo, d], kind) {
   }
 }
 
-// ---------- catálogo ----------
+// ---------- catálogo por classes ----------
+const TOOL_CLASSES = [
+  {
+    id: "sync",
+    icon: "🔄",
+    title: "Sincronização, Comparação & Auditoria de Dados",
+    subtitle: "Compare o banco de dados com o XML do Lattes, histórico de versões, Google Scholar e possíveis duplicatas.",
+  },
+  {
+    id: "producoes",
+    icon: "📚",
+    title: "Produções, DOI, Qualis & Métricas",
+    subtitle: "Enriqueça produções com citações do Google Scholar, extração de DOI, download de PDFs e classificação Qualis.",
+  },
+  {
+    id: "arquivos",
+    icon: "📂",
+    title: "Comprovantes, Pastas & Integridade de Arquivos",
+    subtitle: "Localize, vincule, audite, verifique e renomeie comprovantes e pastas do currículo no disco.",
+  },
+  {
+    id: "utilitarios",
+    icon: "✨",
+    title: "Padronização, Utilitários & Backup",
+    subtitle: "Padronize textos, formate nomes/datas e exporte ou restaure backups portáteis completos.",
+  },
+];
+
+// [id, icon, title, description, classId]
 const TOOLS = [
-  ["scholar", "🎓", "Citações Google Scholar (SerpApi)", "Extraia métricas (índice H, i10 e citações) e atualize os artigos publicados no banco de dados automaticamente."],
-  ["scholar_unmatched", "🔎", "Artigos do Scholar ausentes no Lattes", "Compare suas publicações do Google Scholar com as do Lattes Manager e cadastre artigos faltantes com 1 clique."],
-  ["vassoura", "🧹", "Vassoura de Comprovantes", "Varra qualquer pasta externa (Downloads, Documentos) para localizar e vincular comprovantes em PDF automaticamente aos registros sem anexo."],
-  ["pdfs", "⚡", "Baixar PDFs pelos DOIs (lote)", "Itera sobre as produções sem comprovante (ex.: após importar XML), resolve os DOIs de acesso aberto e salva os PDFs na pasta de Produções."],
-  ["invalid_proofs", "⚠️", "Procurar comprovantes inválidos", "Localize registros com links para PDFs ou imagens que não existem mais no disco e vincule comprovantes válidos com 1 clique."],
-  ["timemachine", "🕰️", "Lattes Time Machine (Comparador)", "Compare o cadastro atual com um novo XML do Lattes (ou compare dois XMLs) e veja todas as novidades, alterações e exclusões."],
-  ["backup", "🗄️", "Cofre Portátil de Comprovantes", "Exporte ou restaure um cofre único (.lattespack / .zip) com todos os registros, fotos e comprovantes em PDF, com validação SHA-256."],
-  ["formatar", "🔤", "Formatador de nomes e datas", "Cole nomes ou datas e converta: Nome Próprio, ABNT (OLIVOTO, T.), Vancouver, nome de arquivo, dd/mm/aaaa, ISO, por extenso."],
-  ["padronizar", "✨", "Padronizar textos dos registros", "Corrige MAIÚSCULAS, espaços duplos e capitalização de nomes de alunos, títulos e periódicos — com prévia antes de aplicar."],
-  ["renomear", "🏷️", "Renomear comprovantes", "Renomeia os arquivos pelo título do registro: 001_titulo_do_trabalho.pdf (sem acentos, com _), atualizando os vínculos."],
-  ["verificar", "🩺", "Verificar arquivos", "Encontra registros cujo arquivo sumiu da pasta e arquivos nas pastas que não estão ligados a nenhum registro."],
-  ["folders_audit", "🗂️", "Auditoria e Limpeza de Pastas", "Varre a pasta raiz recursivamente para identificar pastas em branco, pastas sem vínculo com subpastas e arquivos soltos, com opções para remover, criar ou vincular."],
-  ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista."],
-  ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref."],
-  ["duplicatas", "👯", "Duplicatas e vínculos", "Abre o assistente que liga arquivos soltos aos registros e mostra possíveis registros duplicados."],
+  // Sincronização & Comparação
+  ["cross_check", "🔀", "Checagem Cruzada (BD × XML)", "Compare o banco de dados do software com o XML do Lattes por categoria: interseção (BD ∩ XML), união (BD ∪ XML), faltando no banco e sobrando no banco.", "sync"],
+  ["timemachine", "🕰️", "Lattes Time Machine (Comparador)", "Compare o cadastro atual com um novo XML do Lattes (ou compare dois XMLs) e veja todas as novidades, alterações e exclusões.", "sync"],
+  ["scholar_unmatched", "🔎", "Artigos do Scholar ausentes no Lattes", "Compare suas publicações do Google Scholar com as do Lattes Manager e cadastre artigos faltantes com 1 clique.", "sync"],
+  ["duplicatas", "👯", "Duplicatas e vínculos", "Abre o assistente que liga arquivos soltos aos registros e mostra possíveis registros duplicados.", "sync"],
+
+  // Produções & Métricas
+  ["scholar", "🎓", "Citações Google Scholar (SerpApi)", "Extraia métricas (índice H, i10 e citações) e atualize os artigos publicados no banco de dados automaticamente.", "producoes"],
+  ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref.", "producoes"],
+  ["pdfs", "⚡", "Baixar PDFs pelos DOIs (lote)", "Itera sobre as produções sem comprovante (ex.: após importar XML), resolve os DOIs de acesso aberto e salva os PDFs na pasta de Produções.", "producoes"],
+  ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista.", "producoes"],
+
+  // Comprovantes & Arquivos
+  ["vassoura", "🧹", "Vassoura de Comprovantes", "Varra qualquer pasta externa (Downloads, Documentos) para localizar e vincular comprovantes em PDF automaticamente aos registros sem anexo.", "arquivos"],
+  ["folders_audit", "🗂️", "Auditoria e Limpeza de Pastas", "Varre a pasta raiz recursivamente para identificar pastas em branco, pastas sem vínculo com subpastas e arquivos soltos, com opções para remover, criar ou vincular.", "arquivos"],
+  ["invalid_proofs", "⚠️", "Procurar comprovantes inválidos", "Localize registros com links para PDFs ou imagens que não existem mais no disco e vincule comprovantes válidos com 1 clique.", "arquivos"],
+  ["verificar", "🩺", "Verificar arquivos", "Encontra registros cujo arquivo sumiu da pasta e arquivos nas pastas que não estão ligados a nenhum registro.", "arquivos"],
+  ["renomear", "🏷️", "Renomear comprovantes", "Renomeia os arquivos pelo título do registro: 001_titulo_do_trabalho.pdf (sem acentos, com _), atualizando os vínculos.", "arquivos"],
+
+  // Padronização, Utilitários & Backup
+  ["padronizar", "✨", "Padronizar textos dos registros", "Corrige MAIÚSCULAS, espaços duplos e capitalização de nomes de alunos, títulos e periódicos — com prévia antes de aplicar.", "utilitarios"],
+  ["formatar", "🔤", "Formatador de nomes e datas", "Cole nomes ou datas e converta: Nome Próprio, ABNT (OLIVOTO, T.), Vancouver, nome de arquivo, dd/mm/aaaa, ISO, por extenso.", "utilitarios"],
+  ["backup", "🗄️", "Cofre Portátil de Comprovantes", "Exporte ou restaure um cofre único (.lattespack / .zip) com todos os registros, fotos e comprovantes em PDF, com validação SHA-256.", "utilitarios"],
 ];
 
 export class ToolsView {
@@ -417,6 +453,7 @@ export class ToolsView {
     this.fetchPdf = fetchPdf;
     this.onCreateWithData = onCreateWithData;
     this.active = null;
+    this.activeClass = "all";
     this.states = {};
   }
 
@@ -465,30 +502,69 @@ export class ToolsView {
 
   render() {
     if (this.active) return this.renderTool();
+    const visibleClasses = this.activeClass === "all"
+      ? TOOL_CLASSES
+      : TOOL_CLASSES.filter((c) => c.id === this.activeClass);
+
+    let cardIndex = 0;
+    const renderCard = ([k, ic, t, d]) => {
+      const i = cardIndex++;
+      const running = this.isRunning(k);
+      const finished = !running && Boolean(this.states[k]?.finished);
+      const pill = running
+        ? `<span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700;background:var(--primary-light);color:var(--primary);border:1px solid var(--primary-border);">⏳ Em execução (segundo plano)…</span>`
+        : finished
+          ? `<span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700;background:var(--success-bg,rgba(34,197,94,0.12));color:var(--success-text);">✓ Concluído (ver resultados)</span>`
+          : "";
+      return `<button type="button" class="tl-card" data-tool="${k}" style="--i:${i}">
+            <span class="tl-ic">${ic}</span>
+            <div class="tl-card-body">
+              <b>${escapeHtml(t)}</b>
+              <span>${escapeHtml(d)}</span>
+              ${pill}
+            </div>
+            <i class="tl-go">→</i></button>`;
+    };
+
     this.el.innerHTML = `
       <div class="tl-wrap">
-        <div class="tl-grid">
-          ${TOOLS.map(
-      ([k, ic, t, d], i) => {
-        const running = this.isRunning(k);
-        const finished = !running && Boolean(this.states[k]?.finished);
-        const pill = running
-          ? `<span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700;background:var(--primary-light);color:var(--primary);border:1px solid var(--primary-border);">⏳ Em execução (segundo plano)…</span>`
-          : finished
-            ? `<span style="display:inline-block;margin-top:6px;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700;background:var(--success-bg,rgba(34,197,94,0.12));color:var(--success-text);">✓ Concluído (ver resultados)</span>`
-            : "";
-        return `<button type="button" class="tl-card" data-tool="${k}" style="--i:${i}">
-              <span class="tl-ic">${ic}</span>
-              <div class="tl-card-body">
-                <b>${escapeHtml(t)}</b>
-                <span>${escapeHtml(d)}</span>
-                ${pill}
+        <div class="tl-class-bar">
+          <button type="button" class="tl-class-pill ${this.activeClass === "all" ? "on" : ""}" data-tool-class="all">
+            🧰 Todas (${TOOLS.length})
+          </button>
+          ${TOOL_CLASSES.map((cls) => {
+            const count = TOOLS.filter((t) => t[4] === cls.id).length;
+            return `<button type="button" class="tl-class-pill ${this.activeClass === cls.id ? "on" : ""}" data-tool-class="${cls.id}">
+              ${cls.icon} ${escapeHtml(cls.title)} (${count})
+            </button>`;
+          }).join("")}
+        </div>
+        <div class="tl-sections">
+          ${visibleClasses.map((cls) => {
+            const items = TOOLS.filter((t) => t[4] === cls.id);
+            return `<section class="tl-section">
+              <div class="tl-section-head">
+                <span class="tl-section-ic">${cls.icon}</span>
+                <div>
+                  <h3 class="tl-section-title">${escapeHtml(cls.title)}</h3>
+                  <p class="tl-section-sub">${escapeHtml(cls.subtitle)}</p>
+                </div>
+                <span class="tl-section-count">${items.length} ferramenta${items.length === 1 ? "" : "s"}</span>
               </div>
-              <i class="tl-go">→</i></button>`;
-      }
-    ).join("")}
+              <div class="tl-grid">
+                ${items.map(renderCard).join("")}
+              </div>
+            </section>`;
+          }).join("")}
         </div>
       </div>`;
+
+    this.el.querySelectorAll("[data-tool-class]").forEach((b) =>
+      b.addEventListener("click", () => {
+        this.activeClass = b.dataset.toolClass;
+        this.render();
+      })
+    );
     this.el.querySelectorAll("[data-tool]").forEach((b) => b.addEventListener("click", () => this.open(b.dataset.tool)));
   }
 
@@ -524,6 +600,7 @@ export class ToolsView {
       vassoura: () => this.toolVassoura(),
       invalid_proofs: () => this.toolInvalidProofs(),
       timemachine: () => this.toolTimeMachine(),
+      cross_check: () => this.toolCrossCheck(),
       backup: () => this.toolBackup(),
       formatar: () => this.toolFormat(),
       padronizar: () => this.toolTidy(),
@@ -2132,6 +2209,417 @@ export class ToolsView {
       try {
         await navigator.clipboard.writeText(txt);
         showToast("Relatório copiado para a área de transferência!", "success", 3000);
+      } catch {
+        showToast("Erro ao copiar para a área de transferência", "error");
+      }
+    });
+  }
+
+  // ===== CHECAGEM CRUZADA (BD × XML: INTERSEÇÃO, UNIÃO, DIFERENÇAS) =====
+  async toolCrossCheck() {
+    const st = this.state;
+    st.xmlPath ??= localStorage.getItem("lattes_last_xcheck_xml") || null;
+    st.result ??= null;
+    st.loading ??= false;
+    st.setFilter ??= "only_xml"; // "union" | "intersection" | "only_xml" | "only_db"
+    st.catFilter ??= "all";
+    st.query ??= "";
+    st.selectedXmlIndices ??= new Set();
+    st.importing ??= false;
+
+    const runCheck = async (path) => {
+      if (!path) return;
+      st.loading = true;
+      this.toolCrossCheck();
+      try {
+        st.result = await api.crossCheckLattesXml(path);
+        st.selectedXmlIndices = new Set();
+        localStorage.setItem("lattes_last_xcheck_xml", path);
+      } catch (e) {
+        st.result = null;
+        showToast(`Falha na checagem cruzada: ${e}`, "error");
+      } finally {
+        st.loading = false;
+        this.toolCrossCheck();
+      }
+    };
+
+    if (!st.result) {
+      this.shell(
+        "Checagem Cruzada (Banco de Dados × XML do Lattes)",
+        "Compare seu banco de dados atual com o arquivo XML do Lattes para visualizar interseção (BD ∩ XML), união (BD ∪ XML), itens faltando no banco (XML \\ BD) e itens sobrando no banco (BD \\ XML).",
+        `<div class="tm-setup-box">
+          <div class="tm-picker-grid">
+            <div class="tm-picker-card" style="display:flex; flex-direction:column; align-items:flex-start; gap:8px;">
+              <div class="tm-picker-lbl">📄 Arquivo XML do Currículo Lattes</div>
+              <div class="tm-picker-val mono">${st.xmlPath ? escapeHtml(st.xmlPath) : "Nenhum arquivo selecionado"}</div>
+              <button type="button" class="btn btn-secondary btn-sm" id="xc-pick-xml">Selecionar XML do Lattes...</button>
+            </div>
+          </div>
+          <div style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 10px;">
+            <button type="button" class="btn btn-primary" id="xc-run" ${!st.xmlPath || st.loading ? "disabled" : ""}>
+              ${st.loading ? "⏳ Analisando banco e XML..." : "🔀 Executar Checagem Cruzada"}
+            </button>
+          </div>
+        </div>`
+      );
+
+      this.el.querySelector("#xc-pick-xml")?.addEventListener("click", async () => {
+        try {
+          const p = await api.selectXmlFile();
+          if (p) {
+            st.xmlPath = p;
+            this.toolCrossCheck();
+          }
+        } catch (e) {
+          showToast(String(e), "error");
+        }
+      });
+
+      this.el.querySelector("#xc-run")?.addEventListener("click", () => runCheck(st.xmlPath));
+      return;
+    }
+
+    const res = st.result;
+    const covPct = res.total_union > 0 ? Math.round((res.total_intersection / res.total_union) * 100) : 100;
+
+    // Indexed items so we can track selection of only_xml items reliably
+    const indexedItems = res.items.map((it, idx) => ({ ...it, _idx: idx }));
+    const q = (st.query || "").trim().toLowerCase();
+    const filtered = indexedItems.filter((it) => {
+      if (st.setFilter !== "union" && it.status !== st.setFilter) return false;
+      if (st.catFilter !== "all" && it.category !== st.catFilter) return false;
+      if (q) {
+        const hay = `${it.titulo || ""} ${it.tipo || ""} ${it.extra || ""} ${it.ano || ""} ${it.category_label || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const visibleOnlyXml = filtered.filter((it) => it.status === "only_xml" && it.xml_item);
+    const allVisibleXmlSelected = visibleOnlyXml.length > 0 && visibleOnlyXml.every((it) => st.selectedXmlIndices.has(it._idx));
+
+    this.shell(
+      "Checagem Cruzada (Banco de Dados × XML do Lattes)",
+      `Banco de Dados Atual × <b>${escapeHtml(res.xml_name)}</b> ${res.xml_date ? `(${escapeHtml(res.xml_date)})` : ""} · Cobertura da interseção: <b>${covPct}%</b>`,
+      `<div class="tm-container">
+        <div class="tm-stats-grid">
+          <div class="tm-stat-card tm-stat-unchanged" data-xc-set="union" style="cursor:pointer;" title="Clique para ver a União (BD ∪ XML)">
+            <b>∪ ${res.total_union}</b>
+            <span>União (BD ∪ XML)</span>
+          </div>
+          <div class="tm-stat-card tm-stat-added" data-xc-set="intersection" style="cursor:pointer;" title="Clique para ver a Interseção (BD ∩ XML)">
+            <b>∩ ${res.total_intersection}</b>
+            <span>Interseção (BD ∩ XML)</span>
+          </div>
+          <div class="tm-stat-card tm-stat-modified" data-xc-set="only_xml" style="cursor:pointer;" title="Clique para ver o que está faltando no Banco (XML \\ BD)">
+            <b>+${res.total_only_xml}</b>
+            <span>Só no XML (Faltando no BD)</span>
+          </div>
+          <div class="tm-stat-card tm-stat-removed" data-xc-set="only_db" style="cursor:pointer;" title="Clique para ver o que está sobrando no Banco (BD \\ XML)">
+            <b>-${res.total_only_db}</b>
+            <span>Só no Banco (Sobrando no BD)</span>
+          </div>
+        </div>
+
+        <div style="margin: 14px 0;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+            <b style="font-size:13px; color:var(--text-secondary);">Resumo por Categoria (clique em uma linha ou valor para filtrar)</b>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" id="xc-recheck" ${st.loading ? "disabled" : ""}>🔄 Reanalisar</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="xc-copy-report">📋 Copiar Relatório</button>
+              <button type="button" class="btn btn-secondary btn-sm" id="xc-change-xml">📄 Trocar XML</button>
+            </div>
+          </div>
+          <div class="tl-table sm" style="max-height:260px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Categoria</th>
+                  <th style="text-align:right;">No Banco</th>
+                  <th style="text-align:right;">No XML</th>
+                  <th style="text-align:right;">Interseção (BD ∩ XML)</th>
+                  <th style="text-align:right;">Faltando (XML \\ BD)</th>
+                  <th style="text-align:right;">Sobrando (BD \\ XML)</th>
+                  <th style="text-align:right;">União (BD ∪ XML)</th>
+                  <th style="text-align:right;">Cobertura</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${res.categories.map((c) => {
+                  const pct = c.union_count > 0 ? Math.round((c.intersection / c.union_count) * 100) : 100;
+                  const activeRow = st.catFilter === c.category ? 'style="background:rgba(99,102,241,0.12);"' : "";
+                  return `<tr ${activeRow}>
+                    <td>
+                      <button type="button" class="btn-link" data-xc-cat-jump="${escapeHtml(c.category)}" data-xc-set-jump="union" style="background:none;border:0;color:var(--text-primary);font-weight:600;cursor:pointer;padding:0;text-align:left;">
+                        ${escapeHtml(c.category_label)}
+                      </button>
+                    </td>
+                    <td style="text-align:right;" class="mono">${c.db_count}</td>
+                    <td style="text-align:right;" class="mono">${c.xml_count}</td>
+                    <td style="text-align:right;">
+                      <button type="button" data-xc-cat-jump="${escapeHtml(c.category)}" data-xc-set-jump="intersection" style="background:none;border:0;color:var(--success,#10b981);font-weight:700;cursor:pointer;padding:2px 6px;" class="mono">${c.intersection}</button>
+                    </td>
+                    <td style="text-align:right;">
+                      <button type="button" data-xc-cat-jump="${escapeHtml(c.category)}" data-xc-set-jump="only_xml" style="background:none;border:0;color:${c.only_in_xml ? "var(--warning,#f59e0b)" : "var(--text-muted)"};font-weight:700;cursor:pointer;padding:2px 6px;" class="mono">${c.only_in_xml}</button>
+                    </td>
+                    <td style="text-align:right;">
+                      <button type="button" data-xc-cat-jump="${escapeHtml(c.category)}" data-xc-set-jump="only_db" style="background:none;border:0;color:${c.only_in_db ? "var(--danger,#ef4444)" : "var(--text-muted)"};font-weight:700;cursor:pointer;padding:2px 6px;" class="mono">${c.only_in_db}</button>
+                    </td>
+                    <td style="text-align:right;">
+                      <button type="button" data-xc-cat-jump="${escapeHtml(c.category)}" data-xc-set-jump="union" style="background:none;border:0;color:var(--text-primary);font-weight:600;cursor:pointer;padding:2px 6px;" class="mono">${c.union_count}</button>
+                    </td>
+                    <td style="text-align:right;" class="mono">${pct}%</td>
+                  </tr>`;
+                }).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tl-bar" style="flex-wrap:wrap; gap:10px; align-items:center;">
+          <div class="seg tl-seg">
+            <button type="button" data-xc-set="union" class="${st.setFilter === "union" ? "on" : ""}">∪ União (${res.total_union})</button>
+            <button type="button" data-xc-set="intersection" class="${st.setFilter === "intersection" ? "on" : ""}">∩ Interseção (${res.total_intersection})</button>
+            <button type="button" data-xc-set="only_xml" class="${st.setFilter === "only_xml" ? "on" : ""}">🟡 Só no XML (${res.total_only_xml})</button>
+            <button type="button" data-xc-set="only_db" class="${st.setFilter === "only_db" ? "on" : ""}">🔴 Só no Banco (${res.total_only_db})</button>
+          </div>
+          <select id="xc-cat-select" class="form-select" style="width:auto; min-width:190px; height:32px; padding:0 10px;">
+            <option value="all" ${st.catFilter === "all" ? "selected" : ""}>Todas as categorias</option>
+            ${res.categories.map((c) => `<option value="${escapeHtml(c.category)}" ${st.catFilter === c.category ? "selected" : ""}>${escapeHtml(c.category_label)} (∪ ${c.union_count})</option>`).join("")}
+          </select>
+          <input type="text" id="xc-search" class="form-input" value="${escapeHtml(st.query)}" placeholder="Filtrar por título, tipo, ano..." style="flex:1; min-width:180px; height:32px;" />
+        </div>
+
+        ${visibleOnlyXml.length > 0 ? `
+          <div class="tl-bar" style="flex-wrap:wrap; gap:10px; margin-top:8px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:8px 12px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+              <input type="checkbox" id="xc-select-all-xml" ${allVisibleXmlSelected ? "checked" : ""} />
+              Selecionar todos os ${visibleOnlyXml.length} item(ns) faltantes visíveis
+            </label>
+            <div style="flex:1"></div>
+            <button type="button" class="btn btn-primary btn-sm" id="xc-import-sel" ${st.selectedXmlIndices.size === 0 || st.importing ? "disabled" : ""}>
+              ${st.importing ? "⏳ Importando..." : `📥 Importar ${st.selectedXmlIndices.size} selecionado(s) para o Banco`}
+            </button>
+          </div>
+        ` : ""}
+
+        <div style="font-size:12px; color:var(--text-secondary); margin:8px 0 4px;">
+          Exibindo <b>${filtered.length}</b> registro(s)
+        </div>
+
+        <div class="tl-table" style="max-height: 460px;">
+          ${filtered.length ? `
+            <table class="data-table">
+              <thead>
+                <tr>
+                  ${visibleOnlyXml.length > 0 ? '<th style="width:34px;"></th>' : ""}
+                  <th style="width:128px;">Conjunto</th>
+                  <th style="width:72px;">Ano</th>
+                  <th style="width:165px;">Categoria</th>
+                  <th>Título / Descrição</th>
+                  <th style="width:92px; text-align:right;">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filtered.slice(0, 600).map((it) => {
+                  const badge = it.status === "intersection"
+                    ? '<span class="badge" style="background:rgba(16,185,129,0.16);color:#10b981;">∩ Em ambos</span>'
+                    : it.status === "only_xml"
+                      ? '<span class="badge" style="background:rgba(245,158,11,0.16);color:#f59e0b;">XML \\ BD</span>'
+                      : '<span class="badge" style="background:rgba(239,68,68,0.16);color:#ef4444;">BD \\ XML</span>';
+                  const chkCell = visibleOnlyXml.length > 0
+                    ? `<td>${it.status === "only_xml" && it.xml_item ? `<input type="checkbox" data-xc-xml-chk="${it._idx}" ${st.selectedXmlIndices.has(it._idx) ? "checked" : ""} />` : ""}</td>`
+                    : "";
+                  const diffsHtml = it.field_diffs?.length
+                    ? `<div class="tm-diff-block" style="margin-top:6px;">
+                        ${it.field_diffs.map((d) => `<div class="tm-diff-line"><b style="color:var(--text-secondary)">${escapeHtml(d.field_label)}:</b> <span class="tl-old">${escapeHtml(d.old_val)}</span> <span class="tl-arr">→</span> <span class="tl-new">${escapeHtml(d.new_val)}</span></div>`).join("")}
+                      </div>`
+                    : "";
+                  const actionsHtml = it.status === "only_xml" && it.xml_item
+                    ? `<button type="button" class="ibtn" data-xc-import-one="${it._idx}" title="Importar este registro do XML para o banco">📥</button>`
+                    : it.status === "only_db" && it.db_id != null
+                      ? `<button type="button" class="ibtn" data-xc-del-db="${it.db_id}" data-xc-del-cat="${escapeHtml(it.category)}" title="Excluir este registro do banco">🗑️</button>`
+                      : "";
+                  return `<tr>
+                    ${chkCell}
+                    <td>${badge}</td>
+                    <td class="mono">${it.ano || "—"}</td>
+                    <td>
+                      <div style="font-weight:600; font-size:12px;">${escapeHtml(it.category_label)}</div>
+                      ${it.tipo ? `<div style="font-size:11px; color:var(--text-secondary);">${escapeHtml(it.tipo)}</div>` : ""}
+                    </td>
+                    <td>
+                      <div style="font-weight:600;">${escapeHtml(it.titulo || "—")}</div>
+                      <div style="font-size:11.5px; color:var(--text-secondary); display:flex; gap:8px; flex-wrap:wrap; margin-top:2px;">
+                        ${it.extra ? `<span>${escapeHtml(it.extra)}</span>` : ""}
+                        ${it.db_id != null ? `<span class="mono">#${it.db_id}</span>` : ""}
+                        ${it.has_proof ? `<span style="color:#10b981;">📎 Comprovante</span>` : ""}
+                      </div>
+                      ${diffsHtml}
+                    </td>
+                    <td style="text-align:right; white-space:nowrap;">${actionsHtml}</td>
+                  </tr>`;
+                }).join("")}
+              </tbody>
+            </table>
+          ` : `<div class="tl-empty">Nenhum registro encontrado para este conjunto/filtro.</div>`}
+        </div>
+      </div>`
+    );
+
+    // Bind events
+    this.el.querySelectorAll("[data-xc-set]").forEach((el) =>
+      el.addEventListener("click", () => {
+        st.setFilter = el.dataset.xcSet;
+        this.toolCrossCheck();
+      })
+    );
+
+    this.el.querySelectorAll("[data-xc-cat-jump]").forEach((el) =>
+      el.addEventListener("click", () => {
+        st.catFilter = el.dataset.xcCatJump;
+        st.setFilter = el.dataset.xcSetJump || "union";
+        this.toolCrossCheck();
+      })
+    );
+
+    this.el.querySelector("#xc-cat-select")?.addEventListener("change", (e) => {
+      st.catFilter = e.target.value;
+      this.toolCrossCheck();
+    });
+
+    this.el.querySelector("#xc-search")?.addEventListener("input", (e) => {
+      st.query = e.target.value;
+      const pos = e.target.selectionStart;
+      this.toolCrossCheck();
+      const inp = this.el.querySelector("#xc-search");
+      if (inp) {
+        inp.focus();
+        if (pos != null) inp.setSelectionRange(pos, pos);
+      }
+    });
+
+    this.el.querySelector("#xc-recheck")?.addEventListener("click", () => runCheck(st.xmlPath));
+    this.el.querySelector("#xc-change-xml")?.addEventListener("click", () => {
+      st.result = null;
+      st.selectedXmlIndices = new Set();
+      this.toolCrossCheck();
+    });
+
+    const updateImportBtn = () => {
+      const btn = this.el.querySelector("#xc-import-sel");
+      if (btn) {
+        btn.disabled = st.selectedXmlIndices.size === 0 || st.importing;
+        btn.textContent = st.importing ? "⏳ Importando..." : `📥 Importar ${st.selectedXmlIndices.size} selecionado(s) para o Banco`;
+      }
+    };
+
+    this.el.querySelector("#xc-select-all-xml")?.addEventListener("change", (e) => {
+      for (const it of visibleOnlyXml) {
+        if (e.target.checked) st.selectedXmlIndices.add(it._idx);
+        else st.selectedXmlIndices.delete(it._idx);
+      }
+      this.el.querySelectorAll("[data-xc-xml-chk]").forEach((c) => {
+        c.checked = e.target.checked;
+      });
+      updateImportBtn();
+    });
+
+    this.el.querySelectorAll("[data-xc-xml-chk]").forEach((c) =>
+      c.addEventListener("change", () => {
+        const idx = Number(c.dataset.xcXmlChk);
+        if (c.checked) st.selectedXmlIndices.add(idx);
+        else st.selectedXmlIndices.delete(idx);
+        const selAll = this.el.querySelector("#xc-select-all-xml");
+        if (selAll) selAll.checked = visibleOnlyXml.length > 0 && visibleOnlyXml.every((it) => st.selectedXmlIndices.has(it._idx));
+        updateImportBtn();
+      })
+    );
+
+    this.el.querySelector("#xc-import-sel")?.addEventListener("click", async () => {
+      const chosen = [...st.selectedXmlIndices]
+        .map((i) => res.items[i]?.xml_item)
+        .filter(Boolean);
+      if (!chosen.length) return;
+      st.importing = true;
+      updateImportBtn();
+      try {
+        const n = await api.importLattesXml(chosen);
+        showToast(`${n} registro(s) importado(s) do XML para o banco!`, "success");
+        if (this.onChanged) await this.onChanged();
+        await runCheck(st.xmlPath);
+      } catch (e) {
+        showToast(`Erro ao importar: ${e}`, "error");
+      } finally {
+        st.importing = false;
+      }
+    });
+
+    this.el.querySelectorAll("[data-xc-import-one]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const item = res.items[Number(b.dataset.xcImportOne)]?.xml_item;
+        if (!item) return;
+        try {
+          await api.importLattesXml([item]);
+          showToast("Registro importado para o banco!", "success");
+          if (this.onChanged) await this.onChanged();
+          await runCheck(st.xmlPath);
+        } catch (e) {
+          showToast(`Erro ao importar: ${e}`, "error");
+        }
+      })
+    );
+
+    this.el.querySelectorAll("[data-xc-del-db]").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const id = Number(b.dataset.xcDelDb);
+        const cat = b.dataset.xcDelCat;
+        if (!window.confirm(`Excluir o registro #${id} de "${cat}" do banco de dados? (Arquivos em disco serão preservados)`)) return;
+        try {
+          await api.deleteRecord(cat, id, false);
+          showToast("Registro excluído do banco!", "success");
+          if (this.onChanged) await this.onChanged();
+          await runCheck(st.xmlPath);
+        } catch (e) {
+          showToast(`Erro ao excluir: ${e}`, "error");
+        }
+      })
+    );
+
+    this.el.querySelector("#xc-copy-report")?.addEventListener("click", async () => {
+      const lines = [
+        "=== CHECAGEM CRUZADA: BANCO DE DADOS × XML DO LATTES ===",
+        `XML: ${res.xml_name}${res.xml_date ? ` (${res.xml_date})` : ""}`,
+        `Data: ${new Date().toLocaleDateString("pt-BR")}`,
+        "",
+        `• União (BD ∪ XML): ${res.total_union}`,
+        `• Interseção (BD ∩ XML): ${res.total_intersection} (${covPct}%)`,
+        `• Só no XML (XML \\ BD — faltando no banco): ${res.total_only_xml}`,
+        `• Só no Banco (BD \\ XML — sobrando no banco): ${res.total_only_db}`,
+        "",
+        "--- RESUMO POR CATEGORIA ---",
+        ...res.categories.map(
+          (c) => `${c.category_label}: BD=${c.db_count} | XML=${c.xml_count} | ∩=${c.intersection} | XML\\BD=${c.only_in_xml} | BD\\XML=${c.only_in_db} | ∪=${c.union_count}`
+        ),
+      ];
+      const onlyXml = res.items.filter((i) => i.status === "only_xml");
+      if (onlyXml.length) {
+        lines.push("", "--- FALTANDO NO BANCO (XML \\ BD) ---");
+        for (const it of onlyXml) {
+          lines.push(`+ [${it.category_label}] (${it.ano || "s/ ano"}) ${it.titulo}`);
+        }
+      }
+      const onlyDb = res.items.filter((i) => i.status === "only_db");
+      if (onlyDb.length) {
+        lines.push("", "--- SOBRANDO NO BANCO (BD \\ XML) ---");
+        for (const it of onlyDb) {
+          lines.push(`- [${it.category_label}] #${it.db_id || "?"} (${it.ano || "s/ ano"}) ${it.titulo}`);
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(lines.join("\n"));
+        showToast("Relatório de checagem cruzada copiado!", "success", 3000);
       } catch {
         showToast("Erro ao copiar para a área de transferência", "error");
       }

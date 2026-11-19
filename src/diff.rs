@@ -99,9 +99,12 @@ struct GenericItem {
 
 impl GenericItem {
     fn from_xml(x: &XmlProduction) -> Self {
-        let cat = schema::normalize_category(&x.category)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| x.category.clone());
+        let raw_cat = schema::normalize_category(&x.category)
+            .unwrap_or(x.category.as_str());
+        let cat = match raw_cat {
+            "encargos" | "disciplinas" => "atuacao".to_string(),
+            other => other.to_string(),
+        };
         let nt = normalize_title(&x.titulo);
         let norm_key = format!("{}::{}::{}", cat, x.ano.unwrap_or(0), nt);
         Self {
@@ -371,4 +374,419 @@ pub fn compare_lattes_versions(
         modified,
         removed,
     })
+}
+
+// ==========================================
+// CHECAGEM CRUZADA: BANCO DE DADOS × XML LATTES
+// (Interseção, União, Diferenças por Categoria)
+// ==========================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossCheckCategorySummary {
+    pub category: String,
+    pub category_label: String,
+    pub db_count: usize,
+    pub xml_count: usize,
+    pub intersection: usize,
+    pub only_in_xml: usize,
+    pub only_in_db: usize,
+    pub union_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossCheckItem {
+    /// "intersection" (BD ∩ XML) | "only_xml" (XML \ BD) | "only_db" (BD \ XML)
+    pub status: String,
+    pub category: String,
+    pub category_label: String,
+    pub tipo: String,
+    pub ano: Option<i64>,
+    pub titulo: String,
+    pub extra: Option<String>,
+    pub db_id: Option<i64>,
+    pub has_proof: bool,
+    pub xml_item: Option<XmlProduction>,
+    pub field_diffs: Vec<DiffFieldChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossCheckResult {
+    pub xml_name: String,
+    pub xml_date: Option<String>,
+    pub total_db: usize,
+    pub total_xml: usize,
+    pub total_intersection: usize,
+    pub total_only_xml: usize,
+    pub total_only_db: usize,
+    pub total_union: usize,
+    pub categories: Vec<CrossCheckCategorySummary>,
+    pub items: Vec<CrossCheckItem>,
+}
+
+fn norm_doi(raw: Option<&str>) -> Option<String> {
+    let s = raw?.trim().to_ascii_lowercase();
+    let s = s
+        .strip_prefix("https://doi.org/")
+        .or_else(|| s.strip_prefix("http://doi.org/"))
+        .or_else(|| s.strip_prefix("doi:"))
+        .unwrap_or(&s)
+        .trim();
+    if s.starts_with("10.") && s.contains('/') {
+        Some(s.to_string())
+    } else {
+        None
+    }
+}
+
+fn candidate_norm_titles_db(r: &crate::db::models::RecordDto) -> Vec<String> {
+    let mut out = Vec::new();
+    for opt in [&r.titulo, &r.descricao, &r.disciplina, &r.instituicao] {
+        if let Some(s) = opt {
+            let nt = normalize_title(s);
+            if !nt.is_empty() && !out.contains(&nt) {
+                out.push(nt);
+            }
+        }
+    }
+    out
+}
+
+fn candidate_norm_titles_xml(x: &XmlProduction) -> Vec<String> {
+    let mut out = Vec::new();
+    for s in [
+        Some(x.titulo.as_str()),
+        x.descricao.as_deref(),
+        x.disciplina.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let nt = normalize_title(s);
+        if !nt.is_empty() && !out.contains(&nt) {
+            out.push(nt);
+        }
+    }
+    out
+}
+
+/// Realiza a checagem cruzada completa entre o banco SQLite atual e um arquivo XML do Lattes,
+/// calculando Interseção (BD ∩ XML), Diferença XML \ BD, Diferença BD \ XML e União (BD ∪ XML) por categoria.
+pub fn cross_check_db_vs_xml(conn: &Connection, xml_path: &Path) -> Result<CrossCheckResult, String> {
+    if !xml_path.is_file() {
+        return Err(format!("Arquivo XML '{}' não encontrado.", xml_path.display()));
+    }
+
+    let prof = parse_profile(xml_path).ok();
+    let xml_name = prof
+        .as_ref()
+        .map(|p| p.nome.clone())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            xml_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("XML Lattes")
+                .to_string()
+        });
+    let xml_date = prof.as_ref().map(|p| p.atualizacao.clone());
+
+    let xml_raw = parse_lattes_xml(xml_path).map_err(|e| format!("Erro ao ler XML do Lattes: {}", e))?;
+
+    // Agrupa itens do XML por categoria normalizada (encargos e disciplinas -> atuacao)
+    let mut xml_by_cat: HashMap<String, Vec<(XmlProduction, GenericItem, Vec<String>, Option<String>, HashSet<String>)>> =
+        HashMap::new();
+    for x in xml_raw {
+        let g = GenericItem::from_xml(&x);
+        let cands = candidate_norm_titles_xml(&x);
+        let doi = norm_doi(x.doi.as_deref());
+        let tris = crate::files::linker::trigrams(&g.titulo);
+        xml_by_cat
+            .entry(g.category.clone())
+            .or_default()
+            .push((x, g, cands, doi, tris));
+    }
+
+    // Carrega registros do banco atual por categoria
+    let db_cats = crate::tools::all_categories(conn);
+    let mut db_by_cat: HashMap<String, Vec<(crate::db::models::RecordDto, GenericItem, Vec<String>, Option<String>, HashSet<String>)>> =
+        HashMap::new();
+    for cat in &db_cats {
+        if let Ok(recs) = queries::get_records(conn, cat, None, None, None) {
+            let entry = db_by_cat.entry(cat.clone()).or_default();
+            for r in recs {
+                let g = GenericItem::from_db_record(cat, &r);
+                let cands = candidate_norm_titles_db(&r);
+                let doi = norm_doi(r.identifier.as_deref()).or_else(|| norm_doi(r.url.as_deref()));
+                let tris = crate::files::linker::trigrams(&g.titulo);
+                entry.push((r, g, cands, doi, tris));
+            }
+        }
+    }
+
+    // Ordem canônica das categorias
+    const ORDER: &[&str] = &[
+        "dadosgerais",
+        "formacao",
+        "atuacao",
+        "projetos",
+        "producoes",
+        "patentes",
+        "inovacao",
+        "educacao_popularizacao",
+        "eventos",
+        "orientacoes",
+        "bancas",
+    ];
+    let mut all_cat_keys: Vec<String> = Vec::new();
+    for &c in ORDER {
+        if db_by_cat.get(c).map(|v| !v.is_empty()).unwrap_or(false)
+            || xml_by_cat.get(c).map(|v| !v.is_empty()).unwrap_or(false)
+        {
+            all_cat_keys.push(c.to_string());
+        }
+    }
+    for c in db_by_cat.keys().chain(xml_by_cat.keys()) {
+        if !all_cat_keys.contains(c) {
+            all_cat_keys.push(c.clone());
+        }
+    }
+
+    let mut categories_summary = Vec::new();
+    let mut items = Vec::new();
+    let mut total_db = 0usize;
+    let mut total_xml = 0usize;
+    let mut total_intersection = 0usize;
+    let mut total_only_xml = 0usize;
+    let mut total_only_db = 0usize;
+
+    for cat in all_cat_keys {
+        let label = category_label(&cat);
+        let db_list = db_by_cat.remove(&cat).unwrap_or_default();
+        let xml_list = xml_by_cat.remove(&cat).unwrap_or_default();
+
+        let db_count = db_list.len();
+        let xml_count = xml_list.len();
+        let mut matched_db = vec![false; db_count];
+
+        let mut inter_count = 0usize;
+        let mut only_xml_count = 0usize;
+
+        for (x_raw, x_gen, x_cands, x_doi, x_tris) in xml_list {
+            let mut best_idx: Option<usize> = None;
+
+            // 1. Match por DOI exato
+            if let Some(ref xd) = x_doi {
+                best_idx = db_list
+                    .iter()
+                    .enumerate()
+                    .find(|(i, (_, _, _, db_doi, _))| !matched_db[*i] && db_doi.as_deref() == Some(xd.as_str()))
+                    .map(|(i, _)| i);
+            }
+
+            // 2. Match exato por (ano, título normalizado)
+            if best_idx.is_none() && !x_cands.is_empty() {
+                best_idx = db_list
+                    .iter()
+                    .enumerate()
+                    .find(|(i, (_, db_gen, db_cands, _, _))| {
+                        !matched_db[*i]
+                            && db_gen.ano == x_gen.ano
+                            && x_cands.iter().any(|xc| db_cands.contains(xc))
+                    })
+                    .map(|(i, _)| i);
+            }
+
+            // 3. Match exato por título normalizado (para categorias fora de atuacao, onde mesmo título em anos diferentes pode ser só ano ajustado)
+            if best_idx.is_none() && cat != "atuacao" && !x_cands.is_empty() {
+                best_idx = db_list
+                    .iter()
+                    .enumerate()
+                    .find(|(i, (_, _, db_cands, _, _))| {
+                        !matched_db[*i] && x_cands.iter().any(|xc| db_cands.contains(xc))
+                    })
+                    .map(|(i, _)| i);
+            }
+
+            // 4. Match por alta similaridade de trigramas (Dice >= 0.90)
+            if best_idx.is_none() && !x_tris.is_empty() {
+                let lx = x_tris.len() as f64;
+                let mut best_score = 0.0f64;
+                for (i, (_, db_gen, _, _, db_tris)) in db_list.iter().enumerate() {
+                    if matched_db[i] || db_tris.is_empty() {
+                        continue;
+                    }
+                    if cat == "atuacao" && db_gen.ano != x_gen.ano {
+                        continue;
+                    }
+                    let ld = db_tris.len() as f64;
+                    if lx.min(ld) / lx.max(ld).max(1.0) < 0.80 {
+                        continue;
+                    }
+                    let score = crate::files::linker::dice(&x_tris, db_tris);
+                    if score >= 0.90 && score > best_score {
+                        best_score = score;
+                        best_idx = Some(i);
+                    }
+                }
+            }
+
+            if let Some(idx) = best_idx {
+                matched_db[idx] = true;
+                inter_count += 1;
+                let (ref db_rec, ref db_gen, _, _, _) = db_list[idx];
+                let has_proof = db_rec.path.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false)
+                    || !db_rec.attachments.is_empty();
+                let diffs = db_gen.compare_fields(&x_gen);
+                items.push(CrossCheckItem {
+                    status: "intersection".to_string(),
+                    category: cat.clone(),
+                    category_label: label.clone(),
+                    tipo: if !db_gen.tipo.is_empty() { db_gen.tipo.clone() } else { x_gen.tipo.clone() },
+                    ano: db_gen.ano.or(x_gen.ano),
+                    titulo: if !db_gen.titulo.is_empty() { db_gen.titulo.clone() } else { x_gen.titulo.clone() },
+                    extra: db_gen.extra_summary().or_else(|| x_gen.extra_summary()),
+                    db_id: Some(db_rec.id),
+                    has_proof,
+                    xml_item: None,
+                    field_diffs: diffs,
+                });
+            } else {
+                only_xml_count += 1;
+                items.push(CrossCheckItem {
+                    status: "only_xml".to_string(),
+                    category: cat.clone(),
+                    category_label: label.clone(),
+                    tipo: x_gen.tipo.clone(),
+                    ano: x_gen.ano,
+                    titulo: x_gen.titulo.clone(),
+                    extra: x_gen.extra_summary(),
+                    db_id: None,
+                    has_proof: false,
+                    xml_item: Some(x_raw),
+                    field_diffs: Vec::new(),
+                });
+            }
+        }
+
+        let mut only_db_count = 0usize;
+        for (i, (db_rec, db_gen, _, _, _)) in db_list.into_iter().enumerate() {
+            if !matched_db[i] {
+                only_db_count += 1;
+                let has_proof = db_rec.path.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false)
+                    || !db_rec.attachments.is_empty();
+                items.push(CrossCheckItem {
+                    status: "only_db".to_string(),
+                    category: cat.clone(),
+                    category_label: label.clone(),
+                    tipo: db_gen.tipo.clone(),
+                    ano: db_gen.ano,
+                    titulo: db_gen.titulo.clone(),
+                    extra: db_gen.extra_summary(),
+                    db_id: Some(db_rec.id),
+                    has_proof,
+                    xml_item: None,
+                    field_diffs: Vec::new(),
+                });
+            }
+        }
+
+        let union_count = inter_count + only_xml_count + only_db_count;
+        total_db += db_count;
+        total_xml += xml_count;
+        total_intersection += inter_count;
+        total_only_xml += only_xml_count;
+        total_only_db += only_db_count;
+
+        categories_summary.push(CrossCheckCategorySummary {
+            category: cat,
+            category_label: label,
+            db_count,
+            xml_count,
+            intersection: inter_count,
+            only_in_xml: only_xml_count,
+            only_in_db: only_db_count,
+            union_count,
+        });
+    }
+
+    items.sort_by(|a, b| {
+        b.ano
+            .cmp(&a.ano)
+            .then_with(|| a.category.cmp(&b.category))
+            .then_with(|| a.titulo.cmp(&b.titulo))
+    });
+
+    let total_union = total_intersection + total_only_xml + total_only_db;
+
+    Ok(CrossCheckResult {
+        xml_name,
+        xml_date,
+        total_db,
+        total_xml,
+        total_intersection,
+        total_only_xml,
+        total_only_db,
+        total_union,
+        categories: categories_summary,
+        items,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn cross_check_computes_intersection_union_and_differences() {
+        let conn = crate::db::open_in_memory().unwrap();
+        // 1 registro igual ao XML (interseção) + 1 registro só no banco (only_db)
+        queries::insert_record(
+            &conn,
+            "producoes",
+            &json!({ "ano": 2024, "tipo": "Artigos completos", "titulo": "Artigo Compartilhado", "journal": "Nature", "identifier": "10.1000/abc" }),
+            None,
+            None,
+        )
+        .unwrap();
+        queries::insert_record(
+            &conn,
+            "producoes",
+            &json!({ "ano": 2023, "tipo": "Artigos completos", "titulo": "Artigo Apenas No Banco" }),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let xml_body = r#"<?xml version="1.0" encoding="UTF-8"?>
+<CURRICULO-VITAE DATA-ATUALIZACAO="18112026">
+  <DADOS-GERAIS NOME-COMPLETO="Pesquisador Teste" />
+  <PRODUCAO-BIBLIOGRAFICA>
+    <ARTIGOS-PUBLICADOS>
+      <ARTIGO-PUBLICADO>
+        <DADOS-BASICOS-DO-ARTIGO TITULO-DO-ARTIGO="Artigo Compartilhado" ANO-DO-ARTIGO="2024" DOI="10.1000/abc" />
+        <DETALHAMENTO-DO-ARTIGO TITULO-DO-PERIODICO-OU-REVISTA="Nature" />
+      </ARTIGO-PUBLICADO>
+      <ARTIGO-PUBLICADO>
+        <DADOS-BASICOS-DO-ARTIGO TITULO-DO-ARTIGO="Artigo Novo Apenas No XML" ANO-DO-ARTIGO="2025" />
+        <DETALHAMENTO-DO-ARTIGO TITULO-DO-PERIODICO-OU-REVISTA="Science" />
+      </ARTIGO-PUBLICADO>
+    </ARTIGOS-PUBLICADOS>
+  </PRODUCAO-BIBLIOGRAFICA>
+</CURRICULO-VITAE>"#;
+
+        let xml_path = std::env::temp_dir().join(format!("lattes_xcheck_{}.xml", uuid::Uuid::new_v4()));
+        std::fs::write(&xml_path, xml_body).unwrap();
+
+        let res = cross_check_db_vs_xml(&conn, &xml_path).unwrap();
+        let _ = std::fs::remove_file(&xml_path);
+
+        let prod = res.categories.iter().find(|c| c.category == "producoes").unwrap();
+        assert_eq!(prod.db_count, 2);
+        assert_eq!(prod.xml_count, 2);
+        assert_eq!(prod.intersection, 1);
+        assert_eq!(prod.only_in_xml, 1);
+        assert_eq!(prod.only_in_db, 1);
+        assert_eq!(prod.union_count, 3);
+    }
 }

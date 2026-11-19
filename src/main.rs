@@ -109,6 +109,7 @@ fn main() {
             commands::scan_vassoura,
             commands::apply_vassoura,
             commands::diff_lattes_xml,
+            commands::cross_check_lattes_xml,
             commands::get_scholar_config,
             commands::save_scholar_config,
             commands::sync_scholar_citations,

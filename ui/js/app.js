@@ -35,6 +35,7 @@ import { ReportBuilder, buildCategoryPreview } from "./components/reportBuilder.
 import { LinkerModal } from "./components/linker.js";
 import { ProofPickerModal } from "./components/proofPicker.js";
 import { FilterBar, matchesSearch } from "./components/filterBar.js";
+import { AppTour } from "./components/tour.js";
 import { applyTheme, easyClose } from "./theme.js";
 
 const GROUP_BY_CATEGORY = {
@@ -234,6 +235,7 @@ class App {
     this.homeContainer = document.getElementById("home-container");
     this.toolsContainer = document.getElementById("tools-container");
     this.aboutContainer = document.getElementById("about-container");
+    this.tour = new AppTour();
     this.homeView = new HomeView({
       container: this.homeContainer,
       onNavigateCategory: (cat) => this.switchCategory(cat),
@@ -876,6 +878,7 @@ class App {
     await this.loadCustomCategories();
     await Promise.all([this.loadStats(), this.loadMappings(), this.loadQualis()]);
     await this.showHome();
+    this.tour.maybeStartFirstRun();
   }
 
   bindEvents() {
@@ -898,6 +901,7 @@ class App {
     document.getElementById("nav-graficos")?.addEventListener("click", () => this.showCharts());
     document.getElementById("nav-configuracoes")?.addEventListener("click", () => this.showSettings());
     document.getElementById("nav-ferramentas")?.addEventListener("click", () => this.showTools());
+    document.getElementById("nav-tour")?.addEventListener("click", () => this.tour.start(0));
     document.getElementById("nav-sobre")?.addEventListener("click", () => this.showAbout());
     document.getElementById("btn-import-xml")?.addEventListener("click", () => this.xmlImport.open());
     document.getElementById("btn-batch-import")?.addEventListener("click", () => this.batchImport.open());

@@ -2206,6 +2206,15 @@ pub async fn diff_lattes_xml(
     crate::diff::compare_lattes_versions(&conn, Path::new(xml_path_new.trim()), old_buf.as_deref())
 }
 
+#[tauri::command]
+pub async fn cross_check_lattes_xml(
+    state: tauri::State<'_, AppState>,
+    xml_path: String,
+) -> Result<crate::diff::CrossCheckResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::diff::cross_check_db_vs_xml(&conn, Path::new(xml_path.trim()))
+}
+
 /// Restaura um backup. `restore_db`: substitui o banco (com cópia de segurança do atual em `backups/`);
 /// `restore_files`: extrai os comprovantes do zip; `overwrite`: substitui arquivos que já existem.
 #[tauri::command]

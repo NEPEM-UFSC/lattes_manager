@@ -531,6 +531,11 @@ export const api = {
       xmlPathOld: xmlPathOld || null,
       xml_path_old: xmlPathOld || null,
     }),
+  crossCheckLattesXml: (xmlPath) =>
+    invokeCommand("cross_check_lattes_xml", {
+      xmlPath,
+      xml_path: xmlPath,
+    }),
   verifyBackupIntegrity: (path) => invokeCommand("verify_backup_integrity", { path }),
 
   // Google Scholar (SerpApi)
