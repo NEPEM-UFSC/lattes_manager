@@ -536,6 +536,13 @@ export const api = {
       xmlPath,
       xml_path: xmlPath,
     }),
+  syncOpenAlexMetrics: (updateCitations = true) =>
+    invokeCommand("sync_openalex_metrics", {
+      updateCitations: Boolean(updateCitations),
+      update_citations: Boolean(updateCitations),
+    }),
+  syncOrcidWorks: (orcid) =>
+    invokeCommand("sync_orcid_works", { orcid }),
   verifyBackupIntegrity: (path) => invokeCommand("verify_backup_integrity", { path }),
 
   // Google Scholar (SerpApi)

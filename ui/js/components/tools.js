@@ -3,6 +3,8 @@
 import { api } from "../api.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast, renderTipoBadge } from "../utils.js";
 import { ProofPickerModal } from "./proofPicker.js";
+import { renderOpenAlexTool, renderOrcidSyncTool } from "./tools/academicTools.js";
+import { renderScoreCalculatorTool, renderBibExporterTool } from "./tools/scoreAndBibTools.js";
 
 // ---------- formatação de textos ----------
 const LOWER_PT = new Set(["a", "à", "ao", "aos", "as", "às", "com", "da", "das", "de", "do", "dos", "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para", "pela", "pelas", "pelo", "pelos", "por", "sem", "sob", "sobre", "um", "uma", "entre", "após", "contra", "y", "del", "la", "van", "von", "der", "di", "du", "le"]);
@@ -422,11 +424,14 @@ const TOOL_CLASSES = [
 const TOOLS = [
   // Sincronização & Comparação
   ["cross_check", "🔀", "Checagem Cruzada (BD × XML)", "Compare o banco de dados do software com o XML do Lattes por categoria: interseção (BD ∩ XML), união (BD ∪ XML), faltando no banco e sobrando no banco.", "sync"],
+  ["orcid_sync", "🆔", "Sincronizador ORCID (BD × ORCID)", "Consulte a API pública do ORCID, compare com suas produções locais e importe artigos faltantes com 1 clique.", "sync"],
   ["timemachine", "🕰️", "Lattes Time Machine (Comparador)", "Compare o cadastro atual com um novo XML do Lattes (ou compare dois XMLs) e veja todas as novidades, alterações e exclusões.", "sync"],
   ["scholar_unmatched", "🔎", "Artigos do Scholar ausentes no Lattes", "Compare suas publicações do Google Scholar com as do Lattes Manager e cadastre artigos faltantes com 1 clique.", "sync"],
   ["duplicatas", "👯", "Duplicatas e vínculos", "Abre o assistente que liga arquivos soltos aos registros e mostra possíveis registros duplicados.", "sync"],
 
   // Produções & Métricas
+  ["openalex_metrics", "📈", "Métricas OpenAlex (Gratuitas)", "Consulte citações, índice h, acesso aberto, ISSN e coautores diretamente pela API aberta da OpenAlex (sem chave paga).", "producoes"],
+  ["score_calculator", "🧮", "Simulador de Pontuação (Progressão / PQ)", "Calcule sua pontuação por interstício com baremas editáveis (CPPD/UFSC, PQ CNPq, Concursos) e exporte a planilha em Excel.", "producoes"],
   ["scholar", "🎓", "Citações Google Scholar (SerpApi)", "Extraia métricas (índice H, i10 e citações) e atualize os artigos publicados no banco de dados automaticamente.", "producoes"],
   ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref.", "producoes"],
   ["pdfs", "⚡", "Baixar PDFs pelos DOIs (lote)", "Itera sobre as produções sem comprovante (ex.: após importar XML), resolve os DOIs de acesso aberto e salva os PDFs na pasta de Produções.", "producoes"],
@@ -440,6 +445,7 @@ const TOOLS = [
   ["renomear", "🏷️", "Renomear comprovantes", "Renomeia os arquivos pelo título do registro: 001_titulo_do_trabalho.pdf (sem acentos, com _), atualizando os vínculos.", "arquivos"],
 
   // Padronização, Utilitários & Backup
+  ["bib_exporter", "📖", "Exportador Bibliográfico (BibTeX / RIS / ABNT)", "Exporte suas produções filtradas em BibTeX (.bib), RIS (.ris), ABNT ou Vancouver prontos para Zotero, Overleaf e relatórios.", "utilitarios"],
   ["padronizar", "✨", "Padronizar textos dos registros", "Corrige MAIÚSCULAS, espaços duplos e capitalização de nomes de alunos, títulos e periódicos — com prévia antes de aplicar.", "utilitarios"],
   ["formatar", "🔤", "Formatador de nomes e datas", "Cole nomes ou datas e converta: Nome Próprio, ABNT (OLIVOTO, T.), Vancouver, nome de arquivo, dd/mm/aaaa, ISO, por extenso.", "utilitarios"],
   ["backup", "🗄️", "Cofre Portátil de Comprovantes", "Exporte ou restaure um cofre único (.lattespack / .zip) com todos os registros, fotos e comprovantes em PDF, com validação SHA-256.", "utilitarios"],
@@ -472,7 +478,9 @@ export class ToolsView {
 
   isRunning(k) {
     const s = this.states[k];
-    return Boolean(s && (s.running || s.scholarSyncing || s.scanning || s.batchFindingDois));
+    return Boolean(
+      s && (s.running || s.scholarSyncing || s.scanning || s.batchFindingDois || s.openalexSyncing || s.orcidSyncing)
+    );
   }
 
   syncBackgroundBadge() {
@@ -601,6 +609,10 @@ export class ToolsView {
       invalid_proofs: () => this.toolInvalidProofs(),
       timemachine: () => this.toolTimeMachine(),
       cross_check: () => this.toolCrossCheck(),
+      orcid_sync: () => renderOrcidSyncTool(this),
+      openalex_metrics: () => renderOpenAlexTool(this),
+      score_calculator: () => renderScoreCalculatorTool(this),
+      bib_exporter: () => renderBibExporterTool(this),
       backup: () => this.toolBackup(),
       formatar: () => this.toolFormat(),
       padronizar: () => this.toolTidy(),

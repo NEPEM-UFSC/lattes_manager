@@ -110,6 +110,8 @@ fn main() {
             commands::apply_vassoura,
             commands::diff_lattes_xml,
             commands::cross_check_lattes_xml,
+            commands::sync_openalex_metrics,
+            commands::sync_orcid_works,
             commands::get_scholar_config,
             commands::save_scholar_config,
             commands::sync_scholar_citations,

@@ -205,6 +205,7 @@ export const DEFAULT_ATUACAO_MAPPINGS = [
   { description: "Direção", folder: "3_atuacao\\atuacao_profissional\\direção\\" },
   { description: "Encargos Graduação", folder: "3_atuacao\\atuacao_profissional\\encargos_graduação\\" },
   { description: "Encargos Pós-Graduação", folder: "3_atuacao\\atuacao_profissional\\encargos_pós\\" },
+  { description: "Encargos Administrativos", folder: "3_atuacao\\atuacao_profissional\\encargos_adm\\" },
 ];
 
 export const DEFAULT_INOVACAO_MAPPINGS = [

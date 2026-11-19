@@ -1426,6 +1426,10 @@ pub fn select_save_path(state: tauri::State<'_, AppState>, suggested_name: Strin
         Some("xlsx") => ("Salvar planilha do Excel", "Excel (*.xlsx)", "xlsx"),
         Some("html") => ("Salvar painel de indicadores", "Página HTML (*.html)", "html"),
         Some("csv") => ("Salvar CSV", "CSV (*.csv)", "csv"),
+        Some("bib") => ("Salvar arquivo BibTeX", "BibTeX (*.bib)", "bib"),
+        Some("ris") => ("Salvar arquivo RIS", "RIS (*.ris)", "ris"),
+        Some("txt") => ("Salvar referências em texto", "Texto (*.txt)", "txt"),
+        Some("json") => ("Salvar barema de pontuação", "JSON (*.json)", "json"),
         _ => ("Salvar comprovantes em PDF", "PDF (*.pdf)", "pdf"),
     };
     let picked = rfd::FileDialog::new()
@@ -2213,6 +2217,60 @@ pub async fn cross_check_lattes_xml(
 ) -> Result<crate::diff::CrossCheckResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::diff::cross_check_db_vs_xml(&conn, Path::new(xml_path.trim()))
+}
+
+#[tauri::command]
+pub async fn sync_openalex_metrics(
+    state: tauri::State<'_, AppState>,
+    update_citations: Option<bool>,
+) -> Result<crate::academic::OpenAlexSyncReport, String> {
+    let rows = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        crate::academic::load_producoes_with_doi(&conn)?
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    let dois: Vec<String> = rows
+        .iter()
+        .filter_map(|r| {
+            let d = r.doi.trim().to_ascii_lowercase();
+            if !d.is_empty() && seen.insert(d.clone()) {
+                Some(d)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let (parsed, errors) =
+        tauri::async_runtime::spawn_blocking(move || crate::academic::fetch_openalex_for_dois(&dois))
+            .await
+            .map_err(|e| format!("Falha ao consultar OpenAlex: {}", e))?;
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::academic::build_and_apply_openalex_report(
+        &conn,
+        &rows,
+        &parsed,
+        errors,
+        update_citations.unwrap_or(true),
+    )
+}
+
+#[tauri::command]
+pub async fn sync_orcid_works(
+    state: tauri::State<'_, AppState>,
+    orcid: String,
+) -> Result<crate::academic::OrcidSyncReport, String> {
+    let clean = crate::academic::clean_orcid(&orcid)
+        .ok_or_else(|| "ORCID inválido. Use o formato 0000-0000-0000-0000.".to_string())?;
+    let clean_clone = clean.clone();
+    let raw = tauri::async_runtime::spawn_blocking(move || crate::academic::fetch_orcid_works(&clean_clone))
+        .await
+        .map_err(|e| format!("Falha ao consultar ORCID: {}", e))??;
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::academic::compare_orcid_with_db(&conn, &clean, raw)
 }
 
 /// Restaura um backup. `restore_db`: substitui o banco (com cópia de segurança do atual em `backups/`);

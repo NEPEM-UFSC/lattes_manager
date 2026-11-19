@@ -191,6 +191,7 @@ pub const DEFAULT_ATUACAO_MAPPINGS: &[(&str, &str)] = &[
     ("Direção", r"3_atuacao\atuacao_profissional\direção\"),
     ("Encargos Graduação", r"3_atuacao\atuacao_profissional\encargos_graduação\"),
     ("Encargos Pós-Graduação", r"3_atuacao\atuacao_profissional\encargos_pós\"),
+    ("Encargos Administrativos", r"3_atuacao\atuacao_profissional\encargos_adm\"),
 ];
 
 pub const DEFAULT_INOVACAO_MAPPINGS: &[(&str, &str)] = &[
