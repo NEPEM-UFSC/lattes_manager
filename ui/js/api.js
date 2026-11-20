@@ -282,6 +282,20 @@ function mockHandler(cmd, args = {}) {
       mockState.settings[args.key] = args.value;
       return null;
 
+    case "scan_pendencias": {
+      const itens = [
+        { category: "producoes", id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, tipo: "Artigos completos", kind: "sem_doi", detalhe: null },
+        { category: "producoes", id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, tipo: "Artigos completos", kind: "sem_qualis", detalhe: null },
+        { category: "producoes", id: 102, titulo: "Índices multivariados para seleção", ano: 2023, tipo: "Artigos completos", kind: "arquivo_ausente", detalhe: "5_producoes\\artigos_completos\\002_indices.pdf" },
+        { category: "bancas", id: 7, titulo: "Banca de doutorado — Maria Silva", ano: 2022, tipo: "Doutorado", kind: "sem_comprovante", detalhe: null },
+        { category: "orientacoes", id: 12, titulo: "Registro #12", ano: null, tipo: null, kind: "sem_titulo", detalhe: null },
+        { category: "orientacoes", id: 12, titulo: "Registro #12", ano: null, tipo: null, kind: "sem_ano", detalhe: null },
+      ];
+      const por_tipo = {};
+      for (const it of itens) por_tipo[it.kind] = (por_tipo[it.kind] || 0) + 1;
+      return { total_registros: 48, registros_com_pendencia: 4, por_tipo, itens };
+    }
+
     default:
       console.warn(`[Mock] Unhandled command: ${cmd}`);
       return null;
@@ -289,7 +303,7 @@ function mockHandler(cmd, args = {}) {
 }
 
 // Comandos que não alteram registros; qualquer outro invalida o cache de get_all_records.
-const KEEPS_RECORDS = /^(ping|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
+const KEEPS_RECORDS = /^(ping|scan_pendencias|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
 let allRecordsCache = null;
 
 async function getAllRecordsCached() {
@@ -486,6 +500,7 @@ export const api = {
   previewFileRenames: () => invokeCommand("preview_file_renames"),
   applyFileRenames: (items) => invokeCommand("apply_file_renames", { items }),
   checkFiles: () => invokeCommand("check_files"),
+  scanPendencias: () => invokeCommand("scan_pendencias"),
   clearMissingLinks: (items) => invokeCommand("clear_missing_links", { items }),
   scanRootFolders: () => invokeCommand("scan_root_folders"),
   removeAuditedFolders: (relPaths, removeMappings = false, deleteUnlinkedFiles = false) =>

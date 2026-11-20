@@ -2124,6 +2124,14 @@ pub fn apply_file_renames(
 }
 
 #[tauri::command(async)]
+pub fn scan_pendencias(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::pendencias::Relatorio, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::pendencias::scan(&conn, &state.root_dir)
+}
+
+#[tauri::command(async)]
 pub fn check_files(state: tauri::State<'_, AppState>) -> Result<crate::tools::FileCheck, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::tools::check_files(&conn, &state.root_dir)

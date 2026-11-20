@@ -427,6 +427,9 @@ export class HomeView {
         case "tools":
           this.cb.onOpenTools?.();
           break;
+        case "pendencias":
+          this.cb.onOpenPendencias?.();
+          break;
         case "subfolders":
           this.cb.onOpenSubfolders?.();
           break;
@@ -972,6 +975,7 @@ export class HomeView {
           ? `<button type="button" class="hm-kpi-link" data-home-action="linker">🔗 Vincular ${fmtNum(pendingFiles)} sem comprovante →</button>`
           : ""
         }
+              <button type="button" class="hm-kpi-link" data-home-action="pendencias" id="hm-pend-link" hidden></button>
             </div>
 
             <div class="hm-kpi">
@@ -1391,5 +1395,17 @@ export class HomeView {
           <span>Ctrl+K busca registros · Ctrl+N cria novo registro</span>
         </footer>
       </div>`;
+    this.loadPendencias();
     }
+
+  /** Preenche o atalho do painel de pendências depois que a tela já apareceu. */
+  async loadPendencias() {
+    const rep = await api.scanPendencias().catch(() => null);
+    const link = this.el?.querySelector("#hm-pend-link");
+    if (!link || !rep) return;
+    const n = rep.registros_com_pendencia || 0;
+    if (n === 0) return;
+    link.textContent = `📋 ${fmtNum(n)} registro${n === 1 ? "" : "s"} com pendência →`;
+    link.hidden = false;
   }
+}

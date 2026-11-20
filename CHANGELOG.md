@@ -1,5 +1,13 @@
 # Histórico de versões
 
+## Não lançado
+
+### Funcionalidade
+- Painel de pendências (Ferramentas › Sincronização): lista os registros sem comprovante, com arquivo ausente no disco, artigos sem DOI ou Qualis e registros sem ano ou título, com atalho para abrir o registro ou a ferramenta que resolve. A tela inicial mostra quantos registros têm pendência.
+
+### Correções
+- Linux e macOS: vincular um arquivo pelo caminho absoluto e aplicar a Vassoura de Comprovantes voltaram a funcionar (antes, o caminho era tratado como relativo e a subpasta era criada com `\` no nome).
+
 ## 1.0.0
 
 Primeira versão pública.

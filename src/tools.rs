@@ -19,7 +19,7 @@ pub fn all_categories(conn: &Connection) -> Vec<String> {
     v
 }
 
-fn label_of(r: &crate::db::models::RecordDto) -> String {
+pub(crate) fn label_of(r: &crate::db::models::RecordDto) -> String {
     [&r.titulo, &r.descricao, &r.disciplina, &r.aluno, &r.tipo]
         .iter()
         .find_map(|x| x.as_ref().filter(|s| !s.trim().is_empty()).cloned())
