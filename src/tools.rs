@@ -11,7 +11,10 @@ use std::path::{Path, PathBuf};
 
 /// Todas as categorias (padrão + personalizadas).
 pub fn all_categories(conn: &Connection) -> Vec<String> {
-    let mut v: Vec<String> = schema::ENTITY_TABLES.iter().map(|s| s.to_string()).collect();
+    let mut v: Vec<String> = schema::ENTITY_TABLES
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     v.extend(crate::custom::keys(conn));
     v
 }
@@ -36,7 +39,9 @@ pub struct RenameItem {
 
 fn split_prefix(name: &str) -> (Option<String>, String) {
     match name.split_once('_') {
-        Some((a, b)) if a.len() >= 3 && a.chars().all(|c| c.is_ascii_digit()) => (Some(a.to_string()), b.to_string()),
+        Some((a, b)) if a.len() >= 3 && a.chars().all(|c| c.is_ascii_digit()) => {
+            (Some(a.to_string()), b.to_string())
+        }
         _ => (None, name.to_string()),
     }
 }
@@ -50,21 +55,40 @@ pub fn preview_renames(conn: &Connection, root: &Path) -> Result<Vec<RenameItem>
     for cat in all_categories(conn) {
         let recs = queries::get_records(conn, &cat, None, None, None).map_err(|e| e.to_string())?;
         for r in recs {
-            let Some(rel) = r.path.clone().filter(|p| !p.trim().is_empty()) else { continue };
+            let Some(rel) = r.path.clone().filter(|p| !p.trim().is_empty()) else {
+                continue;
+            };
             let full = crate::files::rel_join(root, &rel);
             if !full.is_file() {
                 continue;
             }
-            let Some(dir) = full.parent().map(Path::to_path_buf) else { continue };
+            let Some(dir) = full.parent().map(Path::to_path_buf) else {
+                continue;
+            };
             let name = full.file_name().unwrap().to_string_lossy().to_string();
-            let ext = full.extension().map(|e| format!(".{}", e.to_string_lossy().to_lowercase())).unwrap_or_default();
+            let ext = full
+                .extension()
+                .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
+                .unwrap_or_default();
             let json = serde_json::to_value(&r).unwrap_or(Value::Null);
-            let Some(base) = naming::record_base_name(&cat, &json) else { continue };
+            let Some(base) = naming::record_base_name(&cat, &json) else {
+                continue;
+            };
             let names = taken.entry(dir.clone()).or_insert_with(|| {
-                std::fs::read_dir(&dir).map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().to_lowercase()).collect()).unwrap_or_default()
+                std::fs::read_dir(&dir)
+                    .map(|rd| {
+                        rd.flatten()
+                            .map(|e| e.file_name().to_string_lossy().to_lowercase())
+                            .collect()
+                    })
+                    .unwrap_or_default()
             });
             let maxp = *max_prefix.entry(dir.clone()).or_insert_with(|| {
-                names.iter().filter_map(|n| split_prefix(n).0.and_then(|p| p.parse::<u32>().ok())).max().unwrap_or(0)
+                names
+                    .iter()
+                    .filter_map(|n| split_prefix(n).0.and_then(|p| p.parse::<u32>().ok()))
+                    .max()
+                    .unwrap_or(0)
             });
             let (prefix, _) = split_prefix(&name);
             let prefix = match prefix {
@@ -107,7 +131,14 @@ fn table_for(cat: &str) -> Option<(String, bool)> {
 }
 
 /// Atualiza file/path (e o identificador quando ele era o nome do arquivo) sem mexer na data.
-fn set_file(conn: &Connection, cat: &str, id: i64, old_file: Option<&str>, file: Option<&str>, path: Option<&str>) -> Result<(), String> {
+fn set_file(
+    conn: &Connection,
+    cat: &str,
+    id: i64,
+    old_file: Option<&str>,
+    file: Option<&str>,
+    path: Option<&str>,
+) -> Result<(), String> {
     let (table, custom) = table_for(cat).ok_or("categoria inválida")?;
     let extra = if custom { " AND category = ?6" } else { "" };
     let sql = format!(
@@ -142,18 +173,32 @@ pub fn apply_renames(conn: &Connection, root: &Path, items: &[RenameItem]) -> Ap
     let mut res = ApplyResult::default();
     for it in items {
         let r = (|| -> Result<(), String> {
-            let rec = queries::get_record_by_id(conn, &it.category, it.id).map_err(|e| e.to_string())?;
+            let rec =
+                queries::get_record_by_id(conn, &it.category, it.id).map_err(|e| e.to_string())?;
             if rec.path.as_deref() != Some(it.old_path.as_str()) {
                 return Err("o registro mudou desde a prévia".into());
             }
             let from = crate::files::rel_join(root, &it.old_path);
             let to = crate::files::rel_join(root, &it.new_path);
-            if to.exists() && !to.to_string_lossy().eq_ignore_ascii_case(&from.to_string_lossy()) {
+            if to.exists()
+                && !to
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&from.to_string_lossy())
+            {
                 return Err("já existe um arquivo com o novo nome".into());
             }
-            std::fs::rename(&from, &to).map_err(|e| format!("não foi possível renomear ({}) — o arquivo está aberto?", e))?;
+            std::fs::rename(&from, &to).map_err(|e| {
+                format!("não foi possível renomear ({}) — o arquivo está aberto?", e)
+            })?;
             let new_file = to.file_name().map(|n| n.to_string_lossy().to_string());
-            if let Err(e) = set_file(conn, &it.category, it.id, rec.file.as_deref(), new_file.as_deref(), Some(&it.new_path)) {
+            if let Err(e) = set_file(
+                conn,
+                &it.category,
+                it.id,
+                rec.file.as_deref(),
+                new_file.as_deref(),
+                Some(&it.new_path),
+            ) {
                 let _ = std::fs::rename(&to, &from); // desfaz
                 return Err(e);
             }
@@ -236,10 +281,16 @@ pub fn check_files(conn: &Connection, root: &Path) -> Result<FileCheck, String> 
     }
     for f in files {
         let low = f.to_lowercase();
-        if referenced.contains(&linker::norm_rel(&f)) || low.ends_with("desktop.ini") || low.ends_with("thumbs.db") || low.contains("\\~$") {
+        if referenced.contains(&linker::norm_rel(&f))
+            || low.ends_with("desktop.ini")
+            || low.ends_with("thumbs.db")
+            || low.contains("\\~$")
+        {
             continue;
         }
-        fc.orfaos_bytes += std::fs::metadata(crate::files::rel_join(root, &f)).map(|m| m.len()).unwrap_or(0);
+        fc.orfaos_bytes += std::fs::metadata(crate::files::rel_join(root, &f))
+            .map(|m| m.len())
+            .unwrap_or(0);
         fc.orfaos.push(f);
     }
     fc.orfaos.sort();
@@ -250,7 +301,8 @@ pub fn clear_missing(conn: &Connection, root: &Path, items: &[MissingFile]) -> A
     let mut res = ApplyResult::default();
     for it in items {
         if crate::files::rel_join(root, &it.path).is_file() {
-            res.erros.push(format!("{}: o arquivo existe — vínculo mantido", it.path));
+            res.erros
+                .push(format!("{}: o arquivo existe — vínculo mantido", it.path));
             continue;
         }
         let Some((table, custom)) = table_for(&it.category) else {
@@ -267,7 +319,11 @@ pub fn clear_missing(conn: &Connection, root: &Path, items: &[MissingFile]) -> A
             .and_then(|s| s.to_str())
             .map(String::from);
 
-        let att_cat = if custom { it.category.as_str() } else { table.as_str() };
+        let att_cat = if custom {
+            it.category.as_str()
+        } else {
+            table.as_str()
+        };
         // Verifica se sobrou algum outro anexo válido em record_attachments
         let remaining = crate::db::queries::get_attachments_for_record(conn, att_cat, it.id)
             .unwrap_or_default()
@@ -275,7 +331,14 @@ pub fn clear_missing(conn: &Connection, root: &Path, items: &[MissingFile]) -> A
             .find(|a| crate::files::rel_join(root, &a.path).is_file());
 
         let r = if let Some(att) = remaining {
-            set_file(conn, &it.category, it.id, old_file.as_deref(), Some(&att.file), Some(&att.path))
+            set_file(
+                conn,
+                &it.category,
+                it.id,
+                old_file.as_deref(),
+                Some(&att.file),
+                Some(&att.path),
+            )
         } else {
             set_file(conn, &it.category, it.id, old_file.as_deref(), None, None)
         };
@@ -299,10 +362,24 @@ pub struct BackupInfo {
 pub fn backup(conn: &Connection, root: &Path) -> Result<BackupInfo, String> {
     let dir = root.join("backups");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let target = dir.join(format!("lattes_{}.db", chrono::Local::now().format("%Y-%m-%d_%H%M%S")));
-    conn.execute("VACUUM INTO ?1", [target.to_string_lossy().to_string()]).map_err(|e| format!("Falha no backup: {}", e))?;
-    let total = std::fs::read_dir(&dir).map(|rd| rd.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "db")).count()).unwrap_or(1);
-    Ok(BackupInfo { bytes: std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0), path: target.to_string_lossy().to_string(), total })
+    let target = dir.join(format!(
+        "lattes_{}.db",
+        chrono::Local::now().format("%Y-%m-%d_%H%M%S")
+    ));
+    conn.execute("VACUUM INTO ?1", [target.to_string_lossy().to_string()])
+        .map_err(|e| format!("Falha no backup: {}", e))?;
+    let total = std::fs::read_dir(&dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.path().extension().is_some_and(|x| x == "db"))
+                .count()
+        })
+        .unwrap_or(1);
+    Ok(BackupInfo {
+        bytes: std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0),
+        path: target.to_string_lossy().to_string(),
+        total,
+    })
 }
 
 // ---------------- DOI dos comprovantes ----------------
@@ -310,7 +387,12 @@ pub fn backup(conn: &Connection, root: &Path) -> Result<BackupInfo, String> {
 /// DOI gravado dentro de um comprovante PDF (sem rede).
 /// `catch_unwind`: numa varredura em lote, um PDF malformado não pode derrubar o app.
 pub fn doi_in_pdf(bytes: &[u8]) -> Option<String> {
-    std::panic::catch_unwind(|| crate::metadata::extract_local(bytes).ok().and_then(|m| m.doi)).unwrap_or(None)
+    std::panic::catch_unwind(|| {
+        crate::metadata::extract_local(bytes)
+            .ok()
+            .and_then(|m| m.doi)
+    })
+    .unwrap_or(None)
 }
 
 // ---------------- Excel ----------------
@@ -327,12 +409,24 @@ pub struct Sheet {
 pub fn write_xlsx(path: &Path, sheets: &[Sheet]) -> Result<(), String> {
     use rust_xlsxwriter::{Color, Format, FormatBorder, Workbook};
     let mut wb = Workbook::new();
-    let head = Format::new().set_bold().set_font_color(Color::White).set_background_color(Color::RGB(0x4F46E5)).set_border_bottom(FormatBorder::Thin);
-    let title_fmt = Format::new().set_bold().set_font_size(14).set_font_color(Color::RGB(0x1E1B4B));
+    let head = Format::new()
+        .set_bold()
+        .set_font_color(Color::White)
+        .set_background_color(Color::RGB(0x4F46E5))
+        .set_border_bottom(FormatBorder::Thin);
+    let title_fmt = Format::new()
+        .set_bold()
+        .set_font_size(14)
+        .set_font_color(Color::RGB(0x1E1B4B));
     let mut used = HashSet::new();
     for sh in sheets {
         // nome de aba: até 31 caracteres, sem []:*?/\ e único
-        let mut name: String = sh.name.chars().filter(|c| !"[]:*?/\\".contains(*c)).take(31).collect();
+        let mut name: String = sh
+            .name
+            .chars()
+            .filter(|c| !"[]:*?/\\".contains(*c))
+            .take(31)
+            .collect();
         if name.trim().is_empty() {
             name = "Planilha".into();
         }
@@ -345,11 +439,13 @@ pub fn write_xlsx(path: &Path, sheets: &[Sheet]) -> Result<(), String> {
         ws.set_name(&name).map_err(|e| e.to_string())?;
         let mut r0: u32 = 0;
         if let Some(t) = &sh.title {
-            ws.write_with_format(0, 0, t.as_str(), &title_fmt).map_err(|e| e.to_string())?;
+            ws.write_with_format(0, 0, t.as_str(), &title_fmt)
+                .map_err(|e| e.to_string())?;
             r0 = 2;
         }
         for (c, h) in sh.columns.iter().enumerate() {
-            ws.write_with_format(r0, c as u16, h.as_str(), &head).map_err(|e| e.to_string())?;
+            ws.write_with_format(r0, c as u16, h.as_str(), &head)
+                .map_err(|e| e.to_string())?;
         }
         for (i, row) in sh.rows.iter().enumerate() {
             let r = r0 + 1 + i as u32;
@@ -357,17 +453,20 @@ pub fn write_xlsx(path: &Path, sheets: &[Sheet]) -> Result<(), String> {
                 let c = c as u16;
                 match v {
                     Value::Number(x) => {
-                        ws.write(r, c, x.as_f64().unwrap_or(0.0)).map_err(|e| e.to_string())?;
+                        ws.write(r, c, x.as_f64().unwrap_or(0.0))
+                            .map_err(|e| e.to_string())?;
                     }
                     Value::Null => {}
                     Value::String(s) => {
                         ws.write(r, c, s.as_str()).map_err(|e| e.to_string())?;
                     }
                     Value::Bool(b) => {
-                        ws.write(r, c, if *b { "sim" } else { "não" }).map_err(|e| e.to_string())?;
+                        ws.write(r, c, if *b { "sim" } else { "não" })
+                            .map_err(|e| e.to_string())?;
                     }
                     other => {
-                        ws.write(r, c, other.to_string()).map_err(|e| e.to_string())?;
+                        ws.write(r, c, other.to_string())
+                            .map_err(|e| e.to_string())?;
                     }
                 }
             }
@@ -375,18 +474,26 @@ pub fn write_xlsx(path: &Path, sheets: &[Sheet]) -> Result<(), String> {
         if !sh.columns.is_empty() {
             ws.set_freeze_panes(r0 + 1, 0).map_err(|e| e.to_string())?;
             let last_row = r0 + sh.rows.len().max(1) as u32;
-            ws.autofilter(r0, 0, last_row, sh.columns.len() as u16 - 1).map_err(|e| e.to_string())?;
+            ws.autofilter(r0, 0, last_row, sh.columns.len() as u16 - 1)
+                .map_err(|e| e.to_string())?;
         }
         ws.autofit();
         // colunas de texto longo (títulos) não passam de ~70 caracteres
         for c in 0..sh.columns.len() as u16 {
-            let longest = sh.rows.iter().filter_map(|r| r.get(c as usize)).map(|v| v.as_str().map(|s| s.chars().count()).unwrap_or(6)).max().unwrap_or(8);
+            let longest = sh
+                .rows
+                .iter()
+                .filter_map(|r| r.get(c as usize))
+                .map(|v| v.as_str().map(|s| s.chars().count()).unwrap_or(6))
+                .max()
+                .unwrap_or(8);
             if longest > 70 {
                 ws.set_column_width(c, 70).map_err(|e| e.to_string())?;
             }
         }
     }
-    wb.save(path).map_err(|e| format!("Falha ao salvar a planilha: {}", e))
+    wb.save(path)
+        .map_err(|e| format!("Falha ao salvar a planilha: {}", e))
 }
 
 // ---------------- Auditoria e Limpeza Recursiva de Pastas ----------------
@@ -425,7 +532,12 @@ pub struct RootFolderAudit {
 fn is_ignored_top_dir(name_lower: &str) -> bool {
     matches!(
         name_lower,
-        ".git" | ".pytest_cache" | "backups" | "perfil" | "system volume information" | "$recycle.bin"
+        ".git"
+            | ".pytest_cache"
+            | "backups"
+            | "perfil"
+            | "system volume information"
+            | "$recycle.bin"
     ) || name_lower.starts_with('.')
 }
 
@@ -442,7 +554,12 @@ fn infer_group_from_rel(rel_path: &str) -> String {
     match first.as_str() {
         s if s.starts_with("1_dados") => "Dados gerais",
         s if s.starts_with("2_formacao") || s == "formacao_academica" => "Formação",
-        s if s.starts_with("3_atuacao") || s.starts_with("12_atuacao") || s.starts_with("13_atuacao") => "Atuação",
+        s if s.starts_with("3_atuacao")
+            || s.starts_with("12_atuacao")
+            || s.starts_with("13_atuacao") =>
+        {
+            "Atuação"
+        }
         s if s.starts_with("4_projetos") => "Projetos",
         s if s.starts_with("5_producoes") => "Produções",
         s if s.starts_with("6_patentes") => "Patentes",
@@ -470,12 +587,19 @@ fn humanize_folder_name(rel_path: &str) -> String {
     }
 }
 
-fn collect_referenced_state(conn: &Connection) -> Result<(HashSet<String>, HashMap<String, usize>), String> {
+fn collect_referenced_state(
+    conn: &Connection,
+) -> Result<(HashSet<String>, HashMap<String, usize>), String> {
     let mut referenced_files = HashSet::new();
     let mut records_by_folder: HashMap<String, usize> = HashMap::new();
     for cat in all_categories(conn) {
         for r in queries::get_records(conn, &cat, None, None, None).map_err(|e| e.to_string())? {
-            if let Some(fld) = r.folder.as_deref().map(linker::norm_rel).filter(|s| !s.is_empty()) {
+            if let Some(fld) = r
+                .folder
+                .as_deref()
+                .map(linker::norm_rel)
+                .filter(|s| !s.is_empty())
+            {
                 *records_by_folder.entry(fld).or_insert(0) += 1;
             }
             if let Some(p) = r.path.as_deref().filter(|s| !s.trim().is_empty()) {
@@ -492,7 +616,9 @@ fn collect_referenced_state(conn: &Connection) -> Result<(HashSet<String>, HashM
 }
 
 fn count_tree_real_files(dir: &Path) -> usize {
-    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
     let mut count = 0usize;
     for entry in rd.flatten() {
         let p = entry.path();
@@ -509,7 +635,9 @@ fn count_tree_real_files(dir: &Path) -> usize {
 }
 
 fn walk_disk_dirs(dir: &Path, root: &Path, is_root: bool, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in rd.flatten() {
         let p = entry.path();
         if !p.is_dir() {
@@ -546,9 +674,16 @@ fn safe_rel_inside_root(root: &Path, rel: &str) -> Result<PathBuf, String> {
             _ => {}
         }
     }
-    let top = trimmed.split(['\\', '/']).next().unwrap_or("").to_lowercase();
+    let top = trimmed
+        .split(['\\', '/'])
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
     if is_ignored_top_dir(&top) {
-        return Err(format!("Pasta protegida do sistema não pode ser alterada: {}", rel));
+        return Err(format!(
+            "Pasta protegida do sistema não pode ser alterada: {}",
+            rel
+        ));
     }
     let full = crate::files::rel_join(root, trimmed);
     if full.exists() {
@@ -584,7 +719,9 @@ pub fn scan_root_folders(conn: &Connection, root: &Path) -> Result<RootFolderAud
     audit.total_disk_folders = disk_dirs.len();
 
     for dir_path in disk_dirs {
-        let Ok(rel) = dir_path.strip_prefix(root) else { continue };
+        let Ok(rel) = dir_path.strip_prefix(root) else {
+            continue;
+        };
         let rel_path = rel
             .to_string_lossy()
             .replace('/', "\\")
@@ -643,7 +780,9 @@ pub fn scan_root_folders(conn: &Connection, root: &Path) -> Result<RootFolderAud
 
         let item = AuditedFolderItem {
             rel_path,
-            abs_path: crate::strip_verbatim(&dir_path).to_string_lossy().to_string(),
+            abs_path: crate::strip_verbatim(&dir_path)
+                .to_string_lossy()
+                .to_string(),
             exists_on_disk: true,
             is_mapped,
             is_parent_of_mapped,
@@ -708,10 +847,18 @@ pub fn scan_root_folders(conn: &Connection, root: &Path) -> Result<RootFolderAud
         }
     }
 
-    audit.empty_folders.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
-    audit.unmapped_folders.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
-    audit.folders_with_unlinked_files.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
-    audit.missing_disk_folders.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    audit
+        .empty_folders
+        .sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    audit
+        .unmapped_folders
+        .sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    audit
+        .folders_with_unlinked_files
+        .sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    audit
+        .missing_disk_folders
+        .sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
 
     Ok(audit)
 }
@@ -722,7 +869,9 @@ fn dir_tree_safety_check(
     referenced: &HashSet<String>,
     delete_unlinked_files: bool,
 ) -> Result<(), String> {
-    let Ok(rd) = std::fs::read_dir(dir) else { return Ok(()) };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
     for entry in rd.flatten() {
         let p = entry.path();
         if p.is_dir() {
@@ -866,12 +1015,21 @@ mod tests {
         let dir = std::env::temp_dir().join("lattes_tools_test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("5_producoes").join("artigos")).unwrap();
-        let sheets = vec![Sheet { name: "Por ano".into(), title: Some("Resumo".into()), columns: vec!["Ano".into(), "Total".into()], rows: vec![vec![2024.into(), 3.into()], vec![2025.into(), Value::Null]] }];
+        let sheets = vec![Sheet {
+            name: "Por ano".into(),
+            title: Some("Resumo".into()),
+            columns: vec!["Ano".into(), "Total".into()],
+            rows: vec![vec![2024.into(), 3.into()], vec![2025.into(), Value::Null]],
+        }];
         write_xlsx(&dir.join("t.xlsx"), &sheets).unwrap();
         assert!(std::fs::metadata(dir.join("t.xlsx")).unwrap().len() > 1000);
 
         let conn = crate::db::open_in_memory().unwrap();
-        std::fs::write(crate::files::rel_join(&dir, "5_producoes\\artigos\\007_Artigo Final (v2).pdf"), b"%PDF").unwrap();
+        std::fs::write(
+            crate::files::rel_join(&dir, "5_producoes\\artigos\\007_Artigo Final (v2).pdf"),
+            b"%PDF",
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO producoes (titulo, file, path, identifier, folder) VALUES ('Seleção genômica em milho', '007_Artigo Final (v2).pdf', '5_producoes\\artigos\\007_Artigo Final (v2).pdf', '10.1/x', '5_producoes\\artigos')",
             [],
@@ -879,18 +1037,36 @@ mod tests {
         .unwrap();
         let items = preview_renames(&conn, &dir).unwrap();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].new_path, "5_producoes\\artigos\\007_selecao_genomica_em_milho.pdf");
+        assert_eq!(
+            items[0].new_path,
+            "5_producoes\\artigos\\007_selecao_genomica_em_milho.pdf"
+        );
         let r = apply_renames(&conn, &dir, &items);
         assert_eq!(r.ok, 1, "{:?}", r.erros);
-        assert!(crate::files::rel_join(&dir, "5_producoes\\artigos\\007_selecao_genomica_em_milho.pdf").is_file());
-        let (ident, path): (String, String) = conn.query_row("SELECT identifier, path FROM producoes", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert!(crate::files::rel_join(
+            &dir,
+            "5_producoes\\artigos\\007_selecao_genomica_em_milho.pdf"
+        )
+        .is_file());
+        let (ident, path): (String, String) = conn
+            .query_row("SELECT identifier, path FROM producoes", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
         assert_eq!(ident, "10.1/x"); // DOI preservado
         assert!(path.ends_with("007_selecao_genomica_em_milho.pdf"));
         assert!(preview_renames(&conn, &dir).unwrap().is_empty());
 
-        std::fs::write(crate::files::rel_join(&dir, "5_producoes\\artigos\\solto.pdf"), b"x").unwrap();
+        std::fs::write(
+            crate::files::rel_join(&dir, "5_producoes\\artigos\\solto.pdf"),
+            b"x",
+        )
+        .unwrap();
         let fc = check_files(&conn, &dir).unwrap();
-        assert_eq!(fc.orfaos, vec!["5_producoes\\artigos\\solto.pdf".to_string()]);
+        assert_eq!(
+            fc.orfaos,
+            vec!["5_producoes\\artigos\\solto.pdf".to_string()]
+        );
         assert!(fc.ausentes.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -918,39 +1094,87 @@ mod tests {
             [],
         ).unwrap();
 
-        std::fs::write(crate::files::rel_join(&dir, "5_producoes\\artigos_completos\\001_artigo.pdf"), b"%PDF").unwrap();
-        std::fs::write(crate::files::rel_join(&dir, "5_producoes\\artigos_completos\\solto.pdf"), b"%PDF").unwrap();
+        std::fs::write(
+            crate::files::rel_join(&dir, "5_producoes\\artigos_completos\\001_artigo.pdf"),
+            b"%PDF",
+        )
+        .unwrap();
+        std::fs::write(
+            crate::files::rel_join(&dir, "5_producoes\\artigos_completos\\solto.pdf"),
+            b"%PDF",
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO producoes (ano, titulo, file, path, folder) VALUES (2025, 'Artigo 1', '001_artigo.pdf', '5_producoes\\artigos_completos\\001_artigo.pdf', '5_producoes\\artigos_completos\\')",
             [],
         ).unwrap();
 
         let audit = scan_root_folders(&conn, &dir).unwrap();
-        assert!(audit.empty_folders.iter().any(|f| f.rel_path == r"6_patentes\teste"));
-        assert!(audit.empty_folders.iter().any(|f| f.rel_path == r"6_patentes\patentes"));
-        assert!(audit.unmapped_folders.iter().any(|f| f.rel_path == r"6_patentes\teste"));
-        assert!(!audit.unmapped_folders.iter().any(|f| f.rel_path == "backups"));
-        assert!(audit.folders_with_unlinked_files.iter().any(|f| f.rel_path == r"5_producoes\artigos_completos" && f.unlinked_files_count == 1));
-        assert!(audit.missing_disk_folders.iter().any(|f| f.rel_path == r"7_inovacao\produtos_tecnologicos"));
+        assert!(audit
+            .empty_folders
+            .iter()
+            .any(|f| f.rel_path == r"6_patentes\teste"));
+        assert!(audit
+            .empty_folders
+            .iter()
+            .any(|f| f.rel_path == r"6_patentes\patentes"));
+        assert!(audit
+            .unmapped_folders
+            .iter()
+            .any(|f| f.rel_path == r"6_patentes\teste"));
+        assert!(!audit
+            .unmapped_folders
+            .iter()
+            .any(|f| f.rel_path == "backups"));
+        assert!(
+            audit
+                .folders_with_unlinked_files
+                .iter()
+                .any(|f| f.rel_path == r"5_producoes\artigos_completos"
+                    && f.unlinked_files_count == 1)
+        );
+        assert!(audit
+            .missing_disk_folders
+            .iter()
+            .any(|f| f.rel_path == r"7_inovacao\produtos_tecnologicos"));
 
         // Safety: refuse deleting folder containing a linked file
-        let blocked = remove_audited_folders(&conn, &dir, &[r"5_producoes\artigos_completos".to_string()], false, true);
+        let blocked = remove_audited_folders(
+            &conn,
+            &dir,
+            &[r"5_producoes\artigos_completos".to_string()],
+            false,
+            true,
+        );
         assert_eq!(blocked.ok, 0);
         assert_eq!(blocked.erros.len(), 1);
-        assert!(crate::files::rel_join(&dir, r"5_producoes\artigos_completos\001_artigo.pdf").is_file());
+        assert!(
+            crate::files::rel_join(&dir, r"5_producoes\artigos_completos\001_artigo.pdf").is_file()
+        );
 
         // Remove empty unmapped folder
-        let removed = remove_audited_folders(&conn, &dir, &[r"6_patentes\teste".to_string()], false, false);
+        let removed = remove_audited_folders(
+            &conn,
+            &dir,
+            &[r"6_patentes\teste".to_string()],
+            false,
+            false,
+        );
         assert_eq!(removed.ok, 1, "{:?}", removed.erros);
         assert!(!crate::files::rel_join(&dir, r"6_patentes\teste").exists());
 
         // Delete orphan file safely
-        let del_orphan = delete_orphan_files(&conn, &dir, &[r"5_producoes\artigos_completos\solto.pdf".to_string()]);
+        let del_orphan = delete_orphan_files(
+            &conn,
+            &dir,
+            &[r"5_producoes\artigos_completos\solto.pdf".to_string()],
+        );
         assert_eq!(del_orphan.ok, 1, "{:?}", del_orphan.erros);
         assert!(!crate::files::rel_join(&dir, r"5_producoes\artigos_completos\solto.pdf").exists());
 
         // Create missing mapped folder on disk
-        let created = create_missing_mapped_folders(&dir, &[r"7_inovacao\produtos_tecnologicos".to_string()]);
+        let created =
+            create_missing_mapped_folders(&dir, &[r"7_inovacao\produtos_tecnologicos".to_string()]);
         assert_eq!(created.ok, 1, "{:?}", created.erros);
         assert!(crate::files::rel_join(&dir, r"7_inovacao\produtos_tecnologicos").is_dir());
 
@@ -967,13 +1191,22 @@ mod real {
             return;
         }
         let root = std::path::Path::new(r"d:\Desktop\UFSC\lattes");
-        let conn = rusqlite::Connection::open_with_flags(root.join("lattes.db"), rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let conn = rusqlite::Connection::open_with_flags(
+            root.join("lattes.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
         let items = super::preview_renames(&conn, root).unwrap();
         println!("renomear: {}", items.len());
         for it in items.iter().take(6) {
             println!("  {}  ->  {}", it.old_path, it.new_path);
         }
         let fc = super::check_files(&conn, root).unwrap();
-        println!("vinculados={} ausentes={} orfaos={}", fc.total_vinculados, fc.ausentes.len(), fc.orfaos.len());
+        println!(
+            "vinculados={} ausentes={} orfaos={}",
+            fc.total_vinculados,
+            fc.ausentes.len(),
+            fc.orfaos.len()
+        );
     }
 }

@@ -2,7 +2,9 @@
 //! ou entre um novo XML e a base de dados atual.
 
 use crate::db::{queries, schema};
-use crate::migration::lattes_xml::{normalize_title, parse_lattes_xml, parse_profile, XmlProduction};
+use crate::migration::lattes_xml::{
+    normalize_title, parse_lattes_xml, parse_profile, XmlProduction,
+};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -99,8 +101,7 @@ struct GenericItem {
 
 impl GenericItem {
     fn from_xml(x: &XmlProduction) -> Self {
-        let raw_cat = schema::normalize_category(&x.category)
-            .unwrap_or(x.category.as_str());
+        let raw_cat = schema::normalize_category(&x.category).unwrap_or(x.category.as_str());
         let cat = match raw_cat {
             "encargos" | "disciplinas" => "atuacao".to_string(),
             other => other.to_string(),
@@ -155,7 +156,8 @@ impl GenericItem {
     fn compare_fields(&self, other: &GenericItem) -> Vec<DiffFieldChange> {
         let mut changes = Vec::new();
 
-        if self.tipo.trim() != other.tipo.trim() && !self.tipo.is_empty() && !other.tipo.is_empty() {
+        if self.tipo.trim() != other.tipo.trim() && !self.tipo.is_empty() && !other.tipo.is_empty()
+        {
             changes.push(DiffFieldChange {
                 field: "tipo".into(),
                 field_label: "Tipo / Subcategoria".into(),
@@ -168,8 +170,14 @@ impl GenericItem {
             changes.push(DiffFieldChange {
                 field: "ano".into(),
                 field_label: "Ano".into(),
-                old_val: self.ano.map(|y| y.to_string()).unwrap_or_else(|| "—".into()),
-                new_val: other.ano.map(|y| y.to_string()).unwrap_or_else(|| "—".into()),
+                old_val: self
+                    .ano
+                    .map(|y| y.to_string())
+                    .unwrap_or_else(|| "—".into()),
+                new_val: other
+                    .ano
+                    .map(|y| y.to_string())
+                    .unwrap_or_else(|| "—".into()),
             });
         }
 
@@ -204,8 +212,14 @@ impl GenericItem {
             changes.push(DiffFieldChange {
                 field: "horas".into(),
                 field_label: "Carga Horária".into(),
-                old_val: self.horas.map(|h| format!("{}h", h)).unwrap_or_else(|| "—".into()),
-                new_val: other.horas.map(|h| format!("{}h", h)).unwrap_or_else(|| "—".into()),
+                old_val: self
+                    .horas
+                    .map(|h| format!("{}h", h))
+                    .unwrap_or_else(|| "—".into()),
+                new_val: other
+                    .horas
+                    .map(|h| format!("{}h", h))
+                    .unwrap_or_else(|| "—".into()),
             });
         }
 
@@ -220,51 +234,67 @@ pub fn compare_lattes_versions(
     xml_path_old: Option<&Path>,
 ) -> Result<LattesDiffResult, String> {
     if !xml_path_new.is_file() {
-        return Err(format!("Arquivo XML novo '{}' não encontrado.", xml_path_new.display()));
+        return Err(format!(
+            "Arquivo XML novo '{}' não encontrado.",
+            xml_path_new.display()
+        ));
     }
 
     // 1. Carrega o Novo XML (Target B)
     let prof_new = parse_profile(xml_path_new).ok();
-    let items_new_raw = parse_lattes_xml(xml_path_new).map_err(|e| format!("Erro ao ler XML novo: {}", e))?;
+    let items_new_raw =
+        parse_lattes_xml(xml_path_new).map_err(|e| format!("Erro ao ler XML novo: {}", e))?;
     let items_new: Vec<GenericItem> = items_new_raw.iter().map(GenericItem::from_xml).collect();
 
     // 2. Carrega a Base Antiga (Base A) — do arquivo antigo ou do banco SQLite
-    let (title_old, date_old, items_old): (String, Option<String>, Vec<GenericItem>) = match xml_path_old {
-        Some(old_path) => {
-            if !old_path.is_file() {
-                return Err(format!("Arquivo XML anterior '{}' não encontrado.", old_path.display()));
+    let (title_old, date_old, items_old): (String, Option<String>, Vec<GenericItem>) =
+        match xml_path_old {
+            Some(old_path) => {
+                if !old_path.is_file() {
+                    return Err(format!(
+                        "Arquivo XML anterior '{}' não encontrado.",
+                        old_path.display()
+                    ));
+                }
+                let prof_old = parse_profile(old_path).ok();
+                let items_old_raw = parse_lattes_xml(old_path)
+                    .map_err(|e| format!("Erro ao ler XML anterior: {}", e))?;
+                let items: Vec<GenericItem> =
+                    items_old_raw.iter().map(GenericItem::from_xml).collect();
+                let t = prof_old
+                    .as_ref()
+                    .map(|p| p.nome.clone())
+                    .unwrap_or_else(|| "Currículo Lattes (Versão Anterior)".into());
+                let d = prof_old.as_ref().map(|p| p.atualizacao.clone());
+                (t, d, items)
             }
-            let prof_old = parse_profile(old_path).ok();
-            let items_old_raw = parse_lattes_xml(old_path).map_err(|e| format!("Erro ao ler XML anterior: {}", e))?;
-            let items: Vec<GenericItem> = items_old_raw.iter().map(GenericItem::from_xml).collect();
-            let t = prof_old.as_ref().map(|p| p.nome.clone()).unwrap_or_else(|| "Currículo Lattes (Versão Anterior)".into());
-            let d = prof_old.as_ref().map(|p| p.atualizacao.clone());
-            (t, d, items)
-        }
-        None => {
-            // Do banco atual
-            let all_cats = crate::tools::all_categories(conn);
-            let mut items = Vec::new();
-            for cat in &all_cats {
-                if let Ok(recs) = queries::get_records(conn, cat, None, None, None) {
-                    for r in recs {
-                        items.push(GenericItem::from_db_record(cat, &r));
+            None => {
+                // Do banco atual
+                let all_cats = crate::tools::all_categories(conn);
+                let mut items = Vec::new();
+                for cat in &all_cats {
+                    if let Ok(recs) = queries::get_records(conn, cat, None, None, None) {
+                        for r in recs {
+                            items.push(GenericItem::from_db_record(cat, &r));
+                        }
                     }
                 }
-            }
-            let d: Option<String> = conn
+                let d: Option<String> = conn
                 .query_row(
                     "SELECT value FROM app_metadata WHERE key = 'lattes_atualizacao' OR key = 'settings.lattes_atualizacao'",
                     [],
                     |r| r.get(0),
                 )
                 .ok();
-            let d = d.or_else(|| Some(chrono::Local::now().format("%d/%m/%Y").to_string()));
-            ("Banco de Dados Atual".to_string(), d, items)
-        }
-    };
+                let d = d.or_else(|| Some(chrono::Local::now().format("%d/%m/%Y").to_string()));
+                ("Banco de Dados Atual".to_string(), d, items)
+            }
+        };
 
-    let title_new = prof_new.as_ref().map(|p| p.nome.clone()).unwrap_or_else(|| "Novo XML Lattes".into());
+    let title_new = prof_new
+        .as_ref()
+        .map(|p| p.nome.clone())
+        .unwrap_or_else(|| "Novo XML Lattes".into());
     let date_new = prof_new.as_ref().map(|p| p.atualizacao.clone());
 
     // 3. Monta índices por chave normalizada (categoria + ano + título)
@@ -291,7 +321,9 @@ pub fn compare_lattes_versions(
             .get(&it_new.norm_key)
             .or_else(|| old_by_title_cat.get(&(it_new.category.clone(), nt.clone())));
 
-        let stats = cat_stats.entry(it_new.category.clone()).or_insert((0, 0, 0, 0));
+        let stats = cat_stats
+            .entry(it_new.category.clone())
+            .or_insert((0, 0, 0, 0));
 
         if let Some(it_old) = maybe_old {
             matched_old_keys.insert(it_old.norm_key.clone());
@@ -327,7 +359,9 @@ pub fn compare_lattes_versions(
     let mut removed: Vec<DiffItem> = Vec::new();
     for (k, it_old) in &old_by_key {
         if !matched_old_keys.contains(k) {
-            let stats = cat_stats.entry(it_old.category.clone()).or_insert((0, 0, 0, 0));
+            let stats = cat_stats
+                .entry(it_old.category.clone())
+                .or_insert((0, 0, 0, 0));
             stats.2 += 1;
             removed.push(DiffItem {
                 category: it_old.category.clone(),
@@ -358,7 +392,9 @@ pub fn compare_lattes_versions(
         })
         .collect();
 
-    categories_summary.sort_by(|a, b| (b.added + b.modified + b.removed).cmp(&(a.added + a.modified + a.removed)));
+    categories_summary.sort_by(|a, b| {
+        (b.added + b.modified + b.removed).cmp(&(a.added + a.modified + a.removed))
+    });
 
     Ok(LattesDiffResult {
         title_old,
@@ -471,9 +507,15 @@ fn candidate_norm_titles_xml(x: &XmlProduction) -> Vec<String> {
 
 /// Realiza a checagem cruzada completa entre o banco SQLite atual e um arquivo XML do Lattes,
 /// calculando Interseção (BD ∩ XML), Diferença XML \ BD, Diferença BD \ XML e União (BD ∪ XML) por categoria.
-pub fn cross_check_db_vs_xml(conn: &Connection, xml_path: &Path) -> Result<CrossCheckResult, String> {
+pub fn cross_check_db_vs_xml(
+    conn: &Connection,
+    xml_path: &Path,
+) -> Result<CrossCheckResult, String> {
     if !xml_path.is_file() {
-        return Err(format!("Arquivo XML '{}' não encontrado.", xml_path.display()));
+        return Err(format!(
+            "Arquivo XML '{}' não encontrado.",
+            xml_path.display()
+        ));
     }
 
     let prof = parse_profile(xml_path).ok();
@@ -490,11 +532,20 @@ pub fn cross_check_db_vs_xml(conn: &Connection, xml_path: &Path) -> Result<Cross
         });
     let xml_date = prof.as_ref().map(|p| p.atualizacao.clone());
 
-    let xml_raw = parse_lattes_xml(xml_path).map_err(|e| format!("Erro ao ler XML do Lattes: {}", e))?;
+    let xml_raw =
+        parse_lattes_xml(xml_path).map_err(|e| format!("Erro ao ler XML do Lattes: {}", e))?;
 
     // Agrupa itens do XML por categoria normalizada (encargos e disciplinas -> atuacao)
-    let mut xml_by_cat: HashMap<String, Vec<(XmlProduction, GenericItem, Vec<String>, Option<String>, HashSet<String>)>> =
-        HashMap::new();
+    let mut xml_by_cat: HashMap<
+        String,
+        Vec<(
+            XmlProduction,
+            GenericItem,
+            Vec<String>,
+            Option<String>,
+            HashSet<String>,
+        )>,
+    > = HashMap::new();
     for x in xml_raw {
         let g = GenericItem::from_xml(&x);
         let cands = candidate_norm_titles_xml(&x);
@@ -508,8 +559,16 @@ pub fn cross_check_db_vs_xml(conn: &Connection, xml_path: &Path) -> Result<Cross
 
     // Carrega registros do banco atual por categoria
     let db_cats = crate::tools::all_categories(conn);
-    let mut db_by_cat: HashMap<String, Vec<(crate::db::models::RecordDto, GenericItem, Vec<String>, Option<String>, HashSet<String>)>> =
-        HashMap::new();
+    let mut db_by_cat: HashMap<
+        String,
+        Vec<(
+            crate::db::models::RecordDto,
+            GenericItem,
+            Vec<String>,
+            Option<String>,
+            HashSet<String>,
+        )>,
+    > = HashMap::new();
     for cat in &db_cats {
         if let Ok(recs) = queries::get_records(conn, cat, None, None, None) {
             let entry = db_by_cat.entry(cat.clone()).or_default();
@@ -579,7 +638,9 @@ pub fn cross_check_db_vs_xml(conn: &Connection, xml_path: &Path) -> Result<Cross
                 best_idx = db_list
                     .iter()
                     .enumerate()
-                    .find(|(i, (_, _, _, db_doi, _))| !matched_db[*i] && db_doi.as_deref() == Some(xd.as_str()))
+                    .find(|(i, (_, _, _, db_doi, _))| {
+                        !matched_db[*i] && db_doi.as_deref() == Some(xd.as_str())
+                    })
                     .map(|(i, _)| i);
             }
 
@@ -634,16 +695,28 @@ pub fn cross_check_db_vs_xml(conn: &Connection, xml_path: &Path) -> Result<Cross
                 matched_db[idx] = true;
                 inter_count += 1;
                 let (ref db_rec, ref db_gen, _, _, _) = db_list[idx];
-                let has_proof = db_rec.path.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false)
+                let has_proof = db_rec
+                    .path
+                    .as_deref()
+                    .map(|p| !p.trim().is_empty())
+                    .unwrap_or(false)
                     || !db_rec.attachments.is_empty();
                 let diffs = db_gen.compare_fields(&x_gen);
                 items.push(CrossCheckItem {
                     status: "intersection".to_string(),
                     category: cat.clone(),
                     category_label: label.clone(),
-                    tipo: if !db_gen.tipo.is_empty() { db_gen.tipo.clone() } else { x_gen.tipo.clone() },
+                    tipo: if !db_gen.tipo.is_empty() {
+                        db_gen.tipo.clone()
+                    } else {
+                        x_gen.tipo.clone()
+                    },
                     ano: db_gen.ano.or(x_gen.ano),
-                    titulo: if !db_gen.titulo.is_empty() { db_gen.titulo.clone() } else { x_gen.titulo.clone() },
+                    titulo: if !db_gen.titulo.is_empty() {
+                        db_gen.titulo.clone()
+                    } else {
+                        x_gen.titulo.clone()
+                    },
                     extra: db_gen.extra_summary().or_else(|| x_gen.extra_summary()),
                     db_id: Some(db_rec.id),
                     has_proof,
@@ -672,7 +745,11 @@ pub fn cross_check_db_vs_xml(conn: &Connection, xml_path: &Path) -> Result<Cross
         for (i, (db_rec, db_gen, _, _, _)) in db_list.into_iter().enumerate() {
             if !matched_db[i] {
                 only_db_count += 1;
-                let has_proof = db_rec.path.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false)
+                let has_proof = db_rec
+                    .path
+                    .as_deref()
+                    .map(|p| !p.trim().is_empty())
+                    .unwrap_or(false)
                     || !db_rec.attachments.is_empty();
                 items.push(CrossCheckItem {
                     status: "only_db".to_string(),
@@ -775,13 +852,18 @@ mod tests {
   </PRODUCAO-BIBLIOGRAFICA>
 </CURRICULO-VITAE>"#;
 
-        let xml_path = std::env::temp_dir().join(format!("lattes_xcheck_{}.xml", uuid::Uuid::new_v4()));
+        let xml_path =
+            std::env::temp_dir().join(format!("lattes_xcheck_{}.xml", uuid::Uuid::new_v4()));
         std::fs::write(&xml_path, xml_body).unwrap();
 
         let res = cross_check_db_vs_xml(&conn, &xml_path).unwrap();
         let _ = std::fs::remove_file(&xml_path);
 
-        let prod = res.categories.iter().find(|c| c.category == "producoes").unwrap();
+        let prod = res
+            .categories
+            .iter()
+            .find(|c| c.category == "producoes")
+            .unwrap();
         assert_eq!(prod.db_count, 2);
         assert_eq!(prod.xml_count, 2);
         assert_eq!(prod.intersection, 1);

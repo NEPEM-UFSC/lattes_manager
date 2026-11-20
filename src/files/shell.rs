@@ -15,13 +15,8 @@ pub fn format_reveal_arg(full_path: &Path) -> String {
 
 /// Opens a file or path in the Windows system default viewer.
 pub fn open_path(full_path: &Path) -> Result<(), String> {
-    opener::open(full_path).map_err(|e| {
-        format!(
-            "Failed to open path '{}': {}",
-            full_path.display(),
-            e
-        )
-    })
+    opener::open(full_path)
+        .map_err(|e| format!("Failed to open path '{}': {}", full_path.display(), e))
 }
 
 /// Highlights / selects a file in Windows Explorer using `explorer.exe /select,"<path>"`.
@@ -43,13 +38,7 @@ pub fn reveal_in_explorer(full_path: &Path) -> Result<(), String> {
         Command::new("explorer.exe")
             .raw_arg(arg)
             .spawn()
-            .map_err(|e| {
-                format!(
-                    "Failed to reveal '{}' in explorer: {}",
-                    clean_path,
-                    e
-                )
-            })?;
+            .map_err(|e| format!("Failed to reveal '{}' in explorer: {}", clean_path, e))?;
     }
 
     #[cfg(target_os = "macos")]
@@ -66,7 +55,8 @@ pub fn reveal_in_explorer(full_path: &Path) -> Result<(), String> {
     {
         // Linux: abre a pasta que contém o arquivo no gerenciador padrão
         let dir = full_path.parent().unwrap_or(full_path);
-        opener::open(dir).map_err(|e| format!("Failed to open folder '{}': {}", dir.display(), e))?;
+        opener::open(dir)
+            .map_err(|e| format!("Failed to open folder '{}': {}", dir.display(), e))?;
     }
 
     Ok(())
@@ -74,19 +64,17 @@ pub fn reveal_in_explorer(full_path: &Path) -> Result<(), String> {
 
 /// Opens a directory in Windows Explorer.
 pub fn open_folder(folder_path: &Path) -> Result<(), String> {
-    opener::open(folder_path).map_err(|e| {
-        format!(
-            "Failed to open folder '{}': {}",
-            folder_path.display(),
-            e
-        )
-    })
+    opener::open(folder_path)
+        .map_err(|e| format!("Failed to open folder '{}': {}", folder_path.display(), e))
 }
 
 /// Resolves a portable relative path against `root_dir` into an absolute PathBuf.
 /// Normalizes leading slashes and canonicalizes if target exists on disk.
 pub fn resolve_relative_path(root_dir: &Path, rel_path: &str) -> PathBuf {
-    let clean_rel = rel_path.trim().trim_start_matches('\\').trim_start_matches('/');
+    let clean_rel = rel_path
+        .trim()
+        .trim_start_matches('\\')
+        .trim_start_matches('/');
     let joined = crate::files::rel_join(root_dir, clean_rel);
 
     if let Ok(c) = joined.canonicalize() {
@@ -109,7 +97,10 @@ mod tests {
         let root = Path::new(r"d:\Desktop\UFSC\lattes");
         let rel = r"5_producoes\artigos_completos\001_paper.pdf";
         let resolved = resolve_relative_path(root, rel);
-        assert!(resolved.ends_with(crate::files::rel_join(Path::new(""), r"5_producoes\artigos_completos\001_paper.pdf")));
+        assert!(resolved.ends_with(crate::files::rel_join(
+            Path::new(""),
+            r"5_producoes\artigos_completos\001_paper.pdf"
+        )));
     }
 
     #[test]
@@ -117,6 +108,9 @@ mod tests {
         let root = Path::new(r"d:\Desktop\UFSC\lattes");
         let rel = r"\11_bancas\doutorado\005_ata.pdf";
         let resolved = resolve_relative_path(root, rel);
-        assert!(resolved.ends_with(crate::files::rel_join(Path::new(""), r"11_bancas\doutorado\005_ata.pdf")));
+        assert!(resolved.ends_with(crate::files::rel_join(
+            Path::new(""),
+            r"11_bancas\doutorado\005_ata.pdf"
+        )));
     }
 }

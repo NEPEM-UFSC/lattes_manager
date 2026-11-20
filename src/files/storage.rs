@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
-use serde::{Deserialize, Serialize};
 
 use super::naming;
 
@@ -39,8 +39,12 @@ pub fn compute_relative_path(path: &Path, root_dir: &Path) -> String {
 
     // 3. Fallback: normalize slashes and relativize via migration path normalizer
     let path_str = path.to_string_lossy().to_string();
-    crate::migration::calamine_importer::relativize_path(Some(&path_str))
-        .unwrap_or_else(|| path_str.replace('/', "\\").trim_start_matches('\\').to_string())
+    crate::migration::calamine_importer::relativize_path(Some(&path_str)).unwrap_or_else(|| {
+        path_str
+            .replace('/', "\\")
+            .trim_start_matches('\\')
+            .to_string()
+    })
 }
 
 /// Ingests a file proof into the managed directory structure:
@@ -66,7 +70,10 @@ pub fn save_attached_file_as(
     base_name: Option<&str>,
 ) -> Result<RelativeAttachment, String> {
     if !source_path.exists() {
-        return Err(format!("Source path '{}' does not exist", source_path.display()));
+        return Err(format!(
+            "Source path '{}' does not exist",
+            source_path.display()
+        ));
     }
 
     let _lock = STORAGE_LOCK
@@ -79,7 +86,10 @@ pub fn save_attached_file_as(
         .unwrap_or_else(|| "arquivo".to_string());
     let orig_name = match base_name.filter(|b| !b.trim().is_empty()) {
         Some(b) => {
-            let ext = source_path.extension().map(|e| format!(".{}", e.to_string_lossy().to_lowercase())).unwrap_or_default();
+            let ext = source_path
+                .extension()
+                .map(|e| format!(".{}", e.to_string_lossy().to_lowercase()))
+                .unwrap_or_default();
             format!("{}{}", b.trim(), ext)
         }
         None => src_name,
@@ -178,7 +188,8 @@ mod tests {
             f.write_all(b"second file content").unwrap();
         }
 
-        let attachment_2 = save_attached_file(&source_file_2, &target_subfolder, &base_dir).unwrap();
+        let attachment_2 =
+            save_attached_file(&source_file_2, &target_subfolder, &base_dir).unwrap();
         assert_eq!(attachment_2.filename, "002_outro_artigo.pdf");
         assert_eq!(
             attachment_2.relative_path,

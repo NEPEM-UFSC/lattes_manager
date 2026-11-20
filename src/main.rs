@@ -6,7 +6,8 @@ use lattes_app::AppState;
 fn main() {
     // Pasta de dados: configurada em Configurações › Pasta de dados, ou detectada
     let (root_dir, _from_config) = lattes_app::config::resolve_data_dir();
-    let canonical_root = lattes_app::strip_verbatim(&std::fs::canonicalize(&root_dir).unwrap_or(root_dir));
+    let canonical_root =
+        lattes_app::strip_verbatim(&std::fs::canonicalize(&root_dir).unwrap_or(root_dir));
     let db_path = canonical_root.join("lattes.db");
 
     let conn = db::init_db(&db_path).expect("Failed to initialize SQLite database");
@@ -18,7 +19,8 @@ fn main() {
         .setup(move |app| {
             use tauri::Manager;
             // Visualizador interno: libera apenas a pasta do currículo no asset protocol
-            app.asset_protocol_scope().allow_directory(&scope_root, true)?;
+            app.asset_protocol_scope()
+                .allow_directory(&scope_root, true)?;
             // índice de textos dos comprovantes em segundo plano (classificação de documentos)
             let handle = app.handle().clone();
             std::thread::spawn(move || {

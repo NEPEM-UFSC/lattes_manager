@@ -1,19 +1,19 @@
+pub mod academic;
 pub mod backup;
+pub mod classify;
 pub mod commands;
 pub mod config;
-pub mod metadata;
-pub mod doi;
 pub mod custom;
-pub mod classify;
-pub mod tools;
 pub mod db;
-pub mod files;
-pub mod migration;
-pub mod vassoura;
 pub mod diff;
-pub mod scholar;
-pub mod academic;
+pub mod doi;
+pub mod files;
+pub mod metadata;
+pub mod migration;
 pub mod pdf_compress;
+pub mod scholar;
+pub mod tools;
+pub mod vassoura;
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};

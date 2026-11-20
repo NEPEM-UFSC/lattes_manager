@@ -39,7 +39,14 @@ pub struct XmlProduction {
 }
 
 impl XmlProduction {
-    fn new(category: &str, tipo: &str, folder: &str, ano: Option<i64>, titulo: String, origem: &str) -> Self {
+    fn new(
+        category: &str,
+        tipo: &str,
+        folder: &str,
+        ano: Option<i64>,
+        titulo: String,
+        origem: &str,
+    ) -> Self {
         Self {
             tipo: tipo.to_string(),
             folder: folder.to_string(),
@@ -62,99 +69,367 @@ impl XmlProduction {
 
 /// (elemento XML, tipo no app, pasta padrão) para a categoria `producoes`.
 const PRODUC_KINDS: &[(&str, &str, &str)] = &[
-    ("ARTIGO-PUBLICADO", "Artigos completos", "5_producoes\\artigos_completos\\"),
-    ("ARTIGO-ACEITO-PARA-PUBLICACAO", "Artigos aceitos", "5_producoes\\artigos_aceitos\\"),
-    ("TRABALHO-EM-EVENTOS", "Resumos simples", "5_producoes\\resumos_simples\\"),
-    ("LIVRO-PUBLICADO-OU-ORGANIZADO", "Livros", "5_producoes\\livros\\"),
-    ("CAPITULO-DE-LIVRO-PUBLICADO", "Capítulos de livros", "5_producoes\\capítulos\\"),
-    ("TEXTO-EM-JORNAL-OU-REVISTA", "Textos em jornais/revistas", "5_producoes\\textos_jornais\\"),
-    ("APRESENTACAO-DE-TRABALHO", "Trabalhos/palestras", "5_producoes\\trabalho_palestra\\"),
-    ("CURSO-DE-CURTA-DURACAO-MINISTRADO", "Cursos", "5_producoes\\cursos_ministrados\\"),
-    ("DESENVOLVIMENTO-DE-MATERIAL-DIDATICO-OU-INSTRUCIONAL", "Material didático", "5_producoes\\material_didatico\\"),
-    ("PROGRAMA-DE-RADIO-OU-TV", "Programas de rádio/TV", "5_producoes\\radio_tv\\"),
-    ("MIDIA-SOCIAL-WEBSITE-BLOG", "Mídias sociais/blog", "5_producoes\\midias_sociais\\"),
-    ("PROCESSOS-OU-TECNICAS", "Processos ou técnicas", "5_producoes\\processos_tecnicas\\"),
-    ("PRODUTO-TECNOLOGICO", "Produtos tecnológicos", "5_producoes\\produtos_tecnologicos\\"),
-    ("TRABALHO-TECNICO", "Trabalhos técnicos", "5_producoes\\trabalhos_tecnicos\\"),
-    ("RELATORIO-DE-PESQUISA", "Relatórios de pesquisa", "5_producoes\\relatorios_pesquisa\\"),
-    ("CARTA-MAPA-OU-SIMILAR", "Cartas, mapas ou similares", "5_producoes\\cartas_mapas\\"),
+    (
+        "ARTIGO-PUBLICADO",
+        "Artigos completos",
+        "5_producoes\\artigos_completos\\",
+    ),
+    (
+        "ARTIGO-ACEITO-PARA-PUBLICACAO",
+        "Artigos aceitos",
+        "5_producoes\\artigos_aceitos\\",
+    ),
+    (
+        "TRABALHO-EM-EVENTOS",
+        "Resumos simples",
+        "5_producoes\\resumos_simples\\",
+    ),
+    (
+        "LIVRO-PUBLICADO-OU-ORGANIZADO",
+        "Livros",
+        "5_producoes\\livros\\",
+    ),
+    (
+        "CAPITULO-DE-LIVRO-PUBLICADO",
+        "Capítulos de livros",
+        "5_producoes\\capítulos\\",
+    ),
+    (
+        "TEXTO-EM-JORNAL-OU-REVISTA",
+        "Textos em jornais/revistas",
+        "5_producoes\\textos_jornais\\",
+    ),
+    (
+        "APRESENTACAO-DE-TRABALHO",
+        "Trabalhos/palestras",
+        "5_producoes\\trabalho_palestra\\",
+    ),
+    (
+        "CURSO-DE-CURTA-DURACAO-MINISTRADO",
+        "Cursos",
+        "5_producoes\\cursos_ministrados\\",
+    ),
+    (
+        "DESENVOLVIMENTO-DE-MATERIAL-DIDATICO-OU-INSTRUCIONAL",
+        "Material didático",
+        "5_producoes\\material_didatico\\",
+    ),
+    (
+        "PROGRAMA-DE-RADIO-OU-TV",
+        "Programas de rádio/TV",
+        "5_producoes\\radio_tv\\",
+    ),
+    (
+        "MIDIA-SOCIAL-WEBSITE-BLOG",
+        "Mídias sociais/blog",
+        "5_producoes\\midias_sociais\\",
+    ),
+    (
+        "PROCESSOS-OU-TECNICAS",
+        "Processos ou técnicas",
+        "5_producoes\\processos_tecnicas\\",
+    ),
+    (
+        "PRODUTO-TECNOLOGICO",
+        "Produtos tecnológicos",
+        "5_producoes\\produtos_tecnologicos\\",
+    ),
+    (
+        "TRABALHO-TECNICO",
+        "Trabalhos técnicos",
+        "5_producoes\\trabalhos_tecnicos\\",
+    ),
+    (
+        "RELATORIO-DE-PESQUISA",
+        "Relatórios de pesquisa",
+        "5_producoes\\relatorios_pesquisa\\",
+    ),
+    (
+        "CARTA-MAPA-OU-SIMILAR",
+        "Cartas, mapas ou similares",
+        "5_producoes\\cartas_mapas\\",
+    ),
     ("EDITORACAO", "Editoração", "5_producoes\\editoracao\\"),
-    ("MANUTENCAO-DE-OBRA-ARTISTICA", "Manutenção de obra artística", "5_producoes\\manutencao_obra\\"),
+    (
+        "MANUTENCAO-DE-OBRA-ARTISTICA",
+        "Manutenção de obra artística",
+        "5_producoes\\manutencao_obra\\",
+    ),
     ("MAQUETE", "Maquetes", "5_producoes\\maquetes\\"),
-    ("PREFACIO-POSFACIO", "Prefácios e posfácios", "5_producoes\\prefacios\\"),
+    (
+        "PREFACIO-POSFACIO",
+        "Prefácios e posfácios",
+        "5_producoes\\prefacios\\",
+    ),
     ("TRADUCAO", "Traduções", "5_producoes\\traducoes\\"),
-    ("PARTITURA-MUSICAL", "Partituras musicais", "5_producoes\\partituras\\"),
-    ("OUTRA-PRODUCAO-BIBLIOGRAFICA", "Outras produções bibliográficas", "5_producoes\\outras_bibliograficas\\"),
-    ("OUTRA-PRODUCAO-TECNICA", "Outras produções técnicas", "5_producoes\\outras_tecnicas\\"),
-    ("APRESENTACAO-DE-OBRA-ARTISTICA", "Produção artística/cultural", "5_producoes\\artistica_cultural\\"),
-    ("MUSICA", "Produção artística/cultural", "5_producoes\\artistica_cultural\\"),
-    ("ARTES-CENICAS", "Produção artística/cultural", "5_producoes\\artistica_cultural\\"),
-    ("ARTES-VISUAIS", "Produção artística/cultural", "5_producoes\\artistica_cultural\\"),
-    ("OUTRA-PRODUCAO-ARTISTICA-CULTURAL", "Produção artística/cultural", "5_producoes\\artistica_cultural\\"),
+    (
+        "PARTITURA-MUSICAL",
+        "Partituras musicais",
+        "5_producoes\\partituras\\",
+    ),
+    (
+        "OUTRA-PRODUCAO-BIBLIOGRAFICA",
+        "Outras produções bibliográficas",
+        "5_producoes\\outras_bibliograficas\\",
+    ),
+    (
+        "OUTRA-PRODUCAO-TECNICA",
+        "Outras produções técnicas",
+        "5_producoes\\outras_tecnicas\\",
+    ),
+    (
+        "APRESENTACAO-DE-OBRA-ARTISTICA",
+        "Produção artística/cultural",
+        "5_producoes\\artistica_cultural\\",
+    ),
+    (
+        "MUSICA",
+        "Produção artística/cultural",
+        "5_producoes\\artistica_cultural\\",
+    ),
+    (
+        "ARTES-CENICAS",
+        "Produção artística/cultural",
+        "5_producoes\\artistica_cultural\\",
+    ),
+    (
+        "ARTES-VISUAIS",
+        "Produção artística/cultural",
+        "5_producoes\\artistica_cultural\\",
+    ),
+    (
+        "OUTRA-PRODUCAO-ARTISTICA-CULTURAL",
+        "Produção artística/cultural",
+        "5_producoes\\artistica_cultural\\",
+    ),
 ];
 
 const ORIENT_KINDS: &[(&str, &str, &str)] = &[
-    ("ORIENTACOES-CONCLUIDAS-PARA-MESTRADO", "Dissertação de mestrado", "10_orientacoes\\orientacoes_concluidas\\dissertação\\"),
-    ("ORIENTACOES-CONCLUIDAS-PARA-DOUTORADO", "Tese de doutorado", "10_orientacoes\\orientacoes_concluidas\\tese\\"),
-    ("ORIENTACOES-CONCLUIDAS-PARA-POS-DOUTORADO", "Supervisão de pós-doutorado", "10_orientacoes\\orientacoes_concluidas\\pos_doc\\"),
-    ("OUTRAS-ORIENTACOES-CONCLUIDAS", "Orientação de outra natureza", "10_orientacoes\\orientacoes_concluidas\\outras\\"),
-    ("ORIENTACAO-EM-ANDAMENTO-DE-MESTRADO", "Dissertação de mestrado", "10_orientacoes\\orientacoes_em_andamento\\dissertação\\"),
-    ("ORIENTACAO-EM-ANDAMENTO-DE-DOUTORADO", "Tese de doutorado", "10_orientacoes\\orientacoes_em_andamento\\tese\\"),
-    ("ORIENTACAO-EM-ANDAMENTO-DE-POS-DOUTORADO", "Supervisão de pós-doutorado", "10_orientacoes\\orientacoes_em_andamento\\pos_doc\\"),
-    ("ORIENTACAO-EM-ANDAMENTO-DE-GRADUACAO", "Trabalho de conclusão de curso", "10_orientacoes\\orientacoes_em_andamento\\graduação\\"),
-    ("ORIENTACAO-EM-ANDAMENTO-DE-INICIACAO-CIENTIFICA", "Iniciação Científica", "10_orientacoes\\orientacoes_em_andamento\\ic\\"),
-    ("ORIENTACAO-EM-ANDAMENTO-DE-APERFEICOAMENTO-ESPECIALIZACAO", "Especialização", "10_orientacoes\\orientacoes_em_andamento\\especializacao\\"),
+    (
+        "ORIENTACOES-CONCLUIDAS-PARA-MESTRADO",
+        "Dissertação de mestrado",
+        "10_orientacoes\\orientacoes_concluidas\\dissertação\\",
+    ),
+    (
+        "ORIENTACOES-CONCLUIDAS-PARA-DOUTORADO",
+        "Tese de doutorado",
+        "10_orientacoes\\orientacoes_concluidas\\tese\\",
+    ),
+    (
+        "ORIENTACOES-CONCLUIDAS-PARA-POS-DOUTORADO",
+        "Supervisão de pós-doutorado",
+        "10_orientacoes\\orientacoes_concluidas\\pos_doc\\",
+    ),
+    (
+        "OUTRAS-ORIENTACOES-CONCLUIDAS",
+        "Orientação de outra natureza",
+        "10_orientacoes\\orientacoes_concluidas\\outras\\",
+    ),
+    (
+        "ORIENTACAO-EM-ANDAMENTO-DE-MESTRADO",
+        "Dissertação de mestrado",
+        "10_orientacoes\\orientacoes_em_andamento\\dissertação\\",
+    ),
+    (
+        "ORIENTACAO-EM-ANDAMENTO-DE-DOUTORADO",
+        "Tese de doutorado",
+        "10_orientacoes\\orientacoes_em_andamento\\tese\\",
+    ),
+    (
+        "ORIENTACAO-EM-ANDAMENTO-DE-POS-DOUTORADO",
+        "Supervisão de pós-doutorado",
+        "10_orientacoes\\orientacoes_em_andamento\\pos_doc\\",
+    ),
+    (
+        "ORIENTACAO-EM-ANDAMENTO-DE-GRADUACAO",
+        "Trabalho de conclusão de curso",
+        "10_orientacoes\\orientacoes_em_andamento\\graduação\\",
+    ),
+    (
+        "ORIENTACAO-EM-ANDAMENTO-DE-INICIACAO-CIENTIFICA",
+        "Iniciação Científica",
+        "10_orientacoes\\orientacoes_em_andamento\\ic\\",
+    ),
+    (
+        "ORIENTACAO-EM-ANDAMENTO-DE-APERFEICOAMENTO-ESPECIALIZACAO",
+        "Especialização",
+        "10_orientacoes\\orientacoes_em_andamento\\especializacao\\",
+    ),
 ];
 
 const BANCA_KINDS: &[(&str, &str, &str)] = &[
-    ("PARTICIPACAO-EM-BANCA-DE-GRADUACAO", "Graduação", "11_bancas\\graduação\\"),
-    ("PARTICIPACAO-EM-BANCA-DE-MESTRADO", "Mestrado", "11_bancas\\mestrado\\"),
-    ("PARTICIPACAO-EM-BANCA-DE-DOUTORADO", "Doutorado", "11_bancas\\doutorado\\"),
-    ("PARTICIPACAO-EM-BANCA-DE-EXAME-QUALIFICACAO", "Qualificação de doutorado", "11_bancas\\quali_doutorado\\"),
-    ("PARTICIPACAO-EM-BANCA-DE-APERFEICOAMENTO-ESPECIALIZACAO", "Especialização", "11_bancas\\especializacao\\"),
-    ("BANCA-JULGADORA-PARA-CONCURSO-PUBLICO", "Concurso público", "11_bancas\\concurso\\"),
-    ("BANCA-JULGADORA-PARA-PROFESSOR-TITULAR", "Comissão julgadora", "11_bancas\\julgadora\\"),
-    ("BANCA-JULGADORA-PARA-LIVRE-DOCENCIA", "Comissão julgadora", "11_bancas\\julgadora\\"),
-    ("BANCA-JULGADORA-PARA-AVALIACAO-CURSOS", "Comissão julgadora", "11_bancas\\julgadora\\"),
-    ("OUTRAS-BANCAS-JULGADORAS", "Comissão julgadora", "11_bancas\\julgadora\\"),
+    (
+        "PARTICIPACAO-EM-BANCA-DE-GRADUACAO",
+        "Graduação",
+        "11_bancas\\graduação\\",
+    ),
+    (
+        "PARTICIPACAO-EM-BANCA-DE-MESTRADO",
+        "Mestrado",
+        "11_bancas\\mestrado\\",
+    ),
+    (
+        "PARTICIPACAO-EM-BANCA-DE-DOUTORADO",
+        "Doutorado",
+        "11_bancas\\doutorado\\",
+    ),
+    (
+        "PARTICIPACAO-EM-BANCA-DE-EXAME-QUALIFICACAO",
+        "Qualificação de doutorado",
+        "11_bancas\\quali_doutorado\\",
+    ),
+    (
+        "PARTICIPACAO-EM-BANCA-DE-APERFEICOAMENTO-ESPECIALIZACAO",
+        "Especialização",
+        "11_bancas\\especializacao\\",
+    ),
+    (
+        "BANCA-JULGADORA-PARA-CONCURSO-PUBLICO",
+        "Concurso público",
+        "11_bancas\\concurso\\",
+    ),
+    (
+        "BANCA-JULGADORA-PARA-PROFESSOR-TITULAR",
+        "Comissão julgadora",
+        "11_bancas\\julgadora\\",
+    ),
+    (
+        "BANCA-JULGADORA-PARA-LIVRE-DOCENCIA",
+        "Comissão julgadora",
+        "11_bancas\\julgadora\\",
+    ),
+    (
+        "BANCA-JULGADORA-PARA-AVALIACAO-CURSOS",
+        "Comissão julgadora",
+        "11_bancas\\julgadora\\",
+    ),
+    (
+        "OUTRAS-BANCAS-JULGADORAS",
+        "Comissão julgadora",
+        "11_bancas\\julgadora\\",
+    ),
 ];
 
 const EVENTO_KINDS: &[(&str, &str, &str)] = &[
-    ("PARTICIPACAO-EM-CONGRESSO", "Participação em eventos", "9_eventos\\participacao_eventos\\"),
-    ("PARTICIPACAO-EM-SIMPOSIO", "Participação em eventos", "9_eventos\\participacao_eventos\\"),
-    ("PARTICIPACAO-EM-SEMINARIO", "Participação em eventos", "9_eventos\\participacao_eventos\\"),
-    ("PARTICIPACAO-EM-ENCONTRO", "Participação em eventos", "9_eventos\\participacao_eventos\\"),
-    ("PARTICIPACAO-EM-OFICINA", "Participação em eventos", "9_eventos\\participacao_eventos\\"),
-    ("PARTICIPACAO-EM-OLIMPIADA", "Participação em eventos", "9_eventos\\participacao_eventos\\"),
-    ("PARTICIPACAO-EM-EXPOSICAO", "Participação em eventos", "9_eventos\\participacao_eventos\\"),
-    ("OUTRAS-PARTICIPACOES-EM-EVENTOS-CONGRESSOS", "Participação em eventos", "9_eventos\\participacao_eventos\\"),
-    ("ORGANIZACAO-DE-EVENTO", "Organização de eventos", "9_eventos\\organizacao_eventos\\"),
+    (
+        "PARTICIPACAO-EM-CONGRESSO",
+        "Participação em eventos",
+        "9_eventos\\participacao_eventos\\",
+    ),
+    (
+        "PARTICIPACAO-EM-SIMPOSIO",
+        "Participação em eventos",
+        "9_eventos\\participacao_eventos\\",
+    ),
+    (
+        "PARTICIPACAO-EM-SEMINARIO",
+        "Participação em eventos",
+        "9_eventos\\participacao_eventos\\",
+    ),
+    (
+        "PARTICIPACAO-EM-ENCONTRO",
+        "Participação em eventos",
+        "9_eventos\\participacao_eventos\\",
+    ),
+    (
+        "PARTICIPACAO-EM-OFICINA",
+        "Participação em eventos",
+        "9_eventos\\participacao_eventos\\",
+    ),
+    (
+        "PARTICIPACAO-EM-OLIMPIADA",
+        "Participação em eventos",
+        "9_eventos\\participacao_eventos\\",
+    ),
+    (
+        "PARTICIPACAO-EM-EXPOSICAO",
+        "Participação em eventos",
+        "9_eventos\\participacao_eventos\\",
+    ),
+    (
+        "OUTRAS-PARTICIPACOES-EM-EVENTOS-CONGRESSOS",
+        "Participação em eventos",
+        "9_eventos\\participacao_eventos\\",
+    ),
+    (
+        "ORGANIZACAO-DE-EVENTO",
+        "Organização de eventos",
+        "9_eventos\\organizacao_eventos\\",
+    ),
 ];
 
 const PATENTE_KINDS: &[(&str, &str, &str)] = &[
-    ("SOFTWARE", "Programas de computador", "6_patentes\\programas_computador\\"),
+    (
+        "SOFTWARE",
+        "Programas de computador",
+        "6_patentes\\programas_computador\\",
+    ),
     ("PATENTE", "Patentes", "6_patentes\\patentes\\"),
-    ("CULTIVAR-REGISTRADA", "Cultivar registrada", "6_patentes\\cultivar_registrada\\"),
-    ("CULTIVAR-PROTEGIDA", "Cultivar protegida", "6_patentes\\cultivar_protegida\\"),
-    ("DESENHO-INDUSTRIAL", "Desenho industrial", "6_patentes\\desenho_industrial\\"),
+    (
+        "CULTIVAR-REGISTRADA",
+        "Cultivar registrada",
+        "6_patentes\\cultivar_registrada\\",
+    ),
+    (
+        "CULTIVAR-PROTEGIDA",
+        "Cultivar protegida",
+        "6_patentes\\cultivar_protegida\\",
+    ),
+    (
+        "DESENHO-INDUSTRIAL",
+        "Desenho industrial",
+        "6_patentes\\desenho_industrial\\",
+    ),
     ("MARCA", "Marca", "6_patentes\\marcas\\"),
-    ("TOPOGRAFIA-DE-CIRCUITO-INTEGRADO", "Topografia de circuito integrado", "6_patentes\\topografia\\"),
+    (
+        "TOPOGRAFIA-DE-CIRCUITO-INTEGRADO",
+        "Topografia de circuito integrado",
+        "6_patentes\\topografia\\",
+    ),
 ];
 
 const FORMACAO_ACAD_KINDS: &[(&str, &str, &str)] = &[
     ("GRADUACAO", "Graduação", "2_formacao\\graduacao\\"),
-    ("ESPECIALIZACAO", "Especialização", "2_formacao\\especializacao\\"),
+    (
+        "ESPECIALIZACAO",
+        "Especialização",
+        "2_formacao\\especializacao\\",
+    ),
     ("MESTRADO", "Mestrado", "2_formacao\\mestrado\\"),
-    ("MESTRADO-PROFISSIONALIZANTE", "Mestrado profissionalizante", "2_formacao\\mestrado\\"),
+    (
+        "MESTRADO-PROFISSIONALIZANTE",
+        "Mestrado profissionalizante",
+        "2_formacao\\mestrado\\",
+    ),
     ("DOUTORADO", "Doutorado", "2_formacao\\doutorado\\"),
-    ("POS-DOUTORADO", "Pós-doutorado", "2_formacao\\pos_doutorado\\"),
-    ("LIVRE-DOCENCIA", "Livre-docência", "2_formacao\\livre_docencia\\"),
-    ("CURSO-TECNICO-PROFISSIONALIZANTE", "Curso técnico", "2_formacao\\tecnico\\"),
+    (
+        "POS-DOUTORADO",
+        "Pós-doutorado",
+        "2_formacao\\pos_doutorado\\",
+    ),
+    (
+        "LIVRE-DOCENCIA",
+        "Livre-docência",
+        "2_formacao\\livre_docencia\\",
+    ),
+    (
+        "CURSO-TECNICO-PROFISSIONALIZANTE",
+        "Curso técnico",
+        "2_formacao\\tecnico\\",
+    ),
 ];
 
 const FORMACAO_COMP_KINDS: &[(&str, &str, &str)] = &[
-    ("FORMACAO-COMPLEMENTAR-DE-EXTENSAO-UNIVERSITARIA", "Extensão universitária", "2_formacao\\formacao_complementar\\"),
-    ("FORMACAO-COMPLEMENTAR-CURSO-DE-CURTA-DURACAO", "Curso de curta duração", "2_formacao\\formacao_complementar\\"),
+    (
+        "FORMACAO-COMPLEMENTAR-DE-EXTENSAO-UNIVERSITARIA",
+        "Extensão universitária",
+        "2_formacao\\formacao_complementar\\",
+    ),
+    (
+        "FORMACAO-COMPLEMENTAR-CURSO-DE-CURTA-DURACAO",
+        "Curso de curta duração",
+        "2_formacao\\formacao_complementar\\",
+    ),
     ("MBA", "MBA", "2_formacao\\formacao_complementar\\"),
     ("OUTROS", "Cursos e treinamentos", "2_formacao\\cursos\\"),
 ];
@@ -211,11 +486,7 @@ const YEAR_KEYS: &[&str] = &[
     "ANO-DE-INICIO",
 ];
 
-const URL_KEYS: &[&str] = &[
-    "HOME-PAGE-DO-TRABALHO",
-    "HOME-PAGE",
-    "HOME-PAGE-DO-EVENTO",
-];
+const URL_KEYS: &[&str] = &["HOME-PAGE-DO-TRABALHO", "HOME-PAGE", "HOME-PAGE-DO-EVENTO"];
 
 /// Normaliza título para comparação de duplicatas (minúsculo, apenas alfanuméricos sem acento).
 pub fn normalize_title(s: &str) -> String {
@@ -317,7 +588,11 @@ fn first_attr(map: &HashMap<String, String>, keys: &[&str]) -> Option<String> {
 }
 
 fn clean_xml_url(raw: &str) -> Option<String> {
-    let s = raw.trim().trim_start_matches('[').trim_end_matches(']').trim();
+    let s = raw
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
     if s.is_empty() {
         return None;
     }
@@ -325,7 +600,10 @@ fn clean_xml_url(raw: &str) -> Option<String> {
     let s = s
         .strip_prefix("http://https://")
         .map(|r| format!("https://{}", r))
-        .or_else(|| s.strip_prefix("http://http://").map(|r| format!("http://{}", r)))
+        .or_else(|| {
+            s.strip_prefix("http://http://")
+                .map(|r| format!("http://{}", r))
+        })
         .unwrap_or_else(|| s.to_string());
     let lower = s.to_ascii_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
@@ -362,7 +640,11 @@ fn pick_doi_fallback(basic: &HashMap<String, String>) -> Option<String> {
     }
     for k in URL_KEYS {
         if let Some(raw) = basic.get(*k) {
-            let s = raw.trim().trim_start_matches('[').trim_end_matches(']').trim();
+            let s = raw
+                .trim()
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .trim();
             if let Some(rest) = s.strip_prefix("doi:").or_else(|| s.strip_prefix("DOI:")) {
                 let d = rest.trim();
                 if !d.is_empty() {
@@ -557,17 +839,35 @@ fn lookup_kind(elem: &str) -> Option<(&'static str, &'static str, &'static str, 
 fn outras_orientacoes_tipo(natureza: &str) -> (&'static str, &'static str) {
     let n = natureza.to_ascii_uppercase();
     if n.contains("APERFEICOAMENTO") || n.contains("ESPECIALIZACAO") || n.contains("MONOGRAFIA") {
-        ("Especialização", "10_orientacoes\\orientacoes_concluidas\\especializacao\\")
+        (
+            "Especialização",
+            "10_orientacoes\\orientacoes_concluidas\\especializacao\\",
+        )
     } else if n.contains("INICIACAO") {
-        ("Iniciação Científica", "10_orientacoes\\orientacoes_concluidas\\ic\\")
+        (
+            "Iniciação Científica",
+            "10_orientacoes\\orientacoes_concluidas\\ic\\",
+        )
     } else if n.contains("GRADUACAO") || n.contains("TRABALHO_DE_CONCLUSAO_DE_CURSO") {
-        ("Trabalho de conclusão de curso", "10_orientacoes\\orientacoes_concluidas\\graduação\\")
+        (
+            "Trabalho de conclusão de curso",
+            "10_orientacoes\\orientacoes_concluidas\\graduação\\",
+        )
     } else if n.contains("MONITORIA") {
-        ("Monitoria", "10_orientacoes\\orientacoes_concluidas\\monitoria\\")
+        (
+            "Monitoria",
+            "10_orientacoes\\orientacoes_concluidas\\monitoria\\",
+        )
     } else if n.contains("ESTAGIO") {
-        ("Estágio", "10_orientacoes\\orientacoes_concluidas\\estágio\\")
+        (
+            "Estágio",
+            "10_orientacoes\\orientacoes_concluidas\\estágio\\",
+        )
     } else {
-        ("Orientação de outra natureza", "10_orientacoes\\orientacoes_concluidas\\outras\\")
+        (
+            "Orientação de outra natureza",
+            "10_orientacoes\\orientacoes_concluidas\\outras\\",
+        )
     }
 }
 
@@ -588,9 +888,12 @@ impl Builder {
         let mut tipo = self.tipo;
         let mut folder = self.folder;
         let ano = pick_year(&self.basic, &self.detail).or_else(|| {
-            first_attr(&self.registro, &["DATA-PEDIDO-DE-DEPOSITO", "DATA-DE-CONCESSAO"])
-                .filter(|s| s.len() >= 4)
-                .and_then(|s| parse_year_str(&s[s.len() - 4..]))
+            first_attr(
+                &self.registro,
+                &["DATA-PEDIDO-DE-DEPOSITO", "DATA-DE-CONCESSAO"],
+            )
+            .filter(|s| s.len() >= 4)
+            .and_then(|s| parse_year_str(&s[s.len() - 4..]))
         });
         let url = pick_url(&self.basic, &self.detail);
 
@@ -615,7 +918,14 @@ impl Builder {
                     .filter_map(|k| self.detail.get(*k).or_else(|| self.basic.get(*k)))
                     .find(|v| !v.is_empty())
                     .cloned();
-                let mut item = XmlProduction::new("producoes", tipo, folder, ano, clean_text(&titulo), self.elem);
+                let mut item = XmlProduction::new(
+                    "producoes",
+                    tipo,
+                    folder,
+                    ano,
+                    clean_text(&titulo),
+                    self.elem,
+                );
                 item.journal = journal.map(|j| clean_text(&j));
                 item.doi = pick_doi_fallback(&self.basic);
                 item.url = url;
@@ -629,26 +939,45 @@ impl Builder {
                     folder = f;
                 }
                 let aluno = first_attr(&self.detail, &["NOME-DO-ORIENTADO", "NOME-DO-ORIENTANDO"])
-                    .or_else(|| first_attr(&self.basic, &["NOME-DO-ORIENTADO", "NOME-DO-ORIENTANDO"]))
+                    .or_else(|| {
+                        first_attr(&self.basic, &["NOME-DO-ORIENTADO", "NOME-DO-ORIENTANDO"])
+                    })
                     .map(|a| clean_text(&a));
                 let raw_titulo = pick_title(&self.basic, &self.detail)
-                    .or_else(|| first_attr(&self.extra, &["DESCRICAO-INFORMACOES-ADICIONAIS", "DESCRICAO-INFORMACOES-ADICIONAIS-INGLES"]))
+                    .or_else(|| {
+                        first_attr(
+                            &self.extra,
+                            &[
+                                "DESCRICAO-INFORMACOES-ADICIONAIS",
+                                "DESCRICAO-INFORMACOES-ADICIONAIS-INGLES",
+                            ],
+                        )
+                    })
                     .or_else(|| aluno.as_ref().map(|a| format!("{} — {}", tipo, a)))?;
                 let titulo = clean_text(&raw_titulo);
                 if titulo.is_empty() {
                     return None;
                 }
-                let mut item = XmlProduction::new("orientacoes", tipo, folder, ano, titulo, self.elem);
+                let mut item =
+                    XmlProduction::new("orientacoes", tipo, folder, ano, titulo, self.elem);
                 item.aluno = aluno;
-                item.curso = first_attr(&self.detail, &["NOME-DO-CURSO", "NOME-CURSO"]).map(|c| clean_text(&c));
-                item.journal = first_attr(&self.detail, &["NOME-DA-INSTITUICAO", "NOME-INSTITUICAO"]).map(|j| clean_text(&j));
+                item.curso = first_attr(&self.detail, &["NOME-DO-CURSO", "NOME-CURSO"])
+                    .map(|c| clean_text(&c));
+                item.journal =
+                    first_attr(&self.detail, &["NOME-DA-INSTITUICAO", "NOME-INSTITUICAO"])
+                        .map(|j| clean_text(&j));
                 item.doi = pick_doi_fallback(&self.basic);
                 item.url = url;
                 Some(item)
             }
             "bancas" => {
                 if self.elem == "PARTICIPACAO-EM-BANCA-DE-EXAME-QUALIFICACAO" {
-                    let nat = self.basic.get("NATUREZA").map(|s| s.as_str()).unwrap_or("").to_ascii_uppercase();
+                    let nat = self
+                        .basic
+                        .get("NATUREZA")
+                        .map(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_ascii_uppercase();
                     if nat.contains("MESTRADO") {
                         tipo = "Qualificação de mestrado";
                         folder = "11_bancas\\quali_mestrado\\";
@@ -664,11 +993,19 @@ impl Builder {
                 let candidato = first_attr(&self.detail, &["NOME-DO-CANDIDATO"])
                     .or_else(|| first_attr(&self.basic, &["NOME-DO-CANDIDATO"]));
                 let inst = first_attr(&self.detail, &["NOME-INSTITUICAO", "NOME-DA-INSTITUICAO"]);
-                let aluno = candidato.clone().or_else(|| inst.clone()).map(|a| clean_text(&a));
+                let aluno = candidato
+                    .clone()
+                    .or_else(|| inst.clone())
+                    .map(|a| clean_text(&a));
                 let mut item = XmlProduction::new("bancas", tipo, folder, ano, titulo, self.elem);
                 item.aluno = aluno;
-                item.curso = first_attr(&self.detail, &["NOME-CURSO", "NOME-DO-CURSO"]).map(|c| clean_text(&c));
-                item.journal = if candidato.is_some() { inst.map(|j| clean_text(&j)) } else { None };
+                item.curso = first_attr(&self.detail, &["NOME-CURSO", "NOME-DO-CURSO"])
+                    .map(|c| clean_text(&c));
+                item.journal = if candidato.is_some() {
+                    inst.map(|j| clean_text(&j))
+                } else {
+                    None
+                };
                 item.doi = pick_doi_fallback(&self.basic);
                 item.url = url;
                 Some(item)
@@ -678,11 +1015,24 @@ impl Builder {
                 if text.is_empty() {
                     return None;
                 }
-                let evento = first_attr(&self.detail, &["NOME-DO-EVENTO", "NOME-DO-EVENTO-INGLES"]).map(|e| clean_text(&e));
+                let evento = first_attr(&self.detail, &["NOME-DO-EVENTO", "NOME-DO-EVENTO-INGLES"])
+                    .map(|e| clean_text(&e));
                 let journal = evento
                     .filter(|e| !e.eq_ignore_ascii_case(&text))
-                    .or_else(|| first_attr(&self.detail, &["INSTITUICAO-PROMOTORA", "CIDADE-DO-EVENTO", "CIDADE", "NOME-INSTITUICAO"]).map(|j| clean_text(&j)));
-                let mut item = XmlProduction::new("eventos", tipo, folder, ano, text.clone(), self.elem);
+                    .or_else(|| {
+                        first_attr(
+                            &self.detail,
+                            &[
+                                "INSTITUICAO-PROMOTORA",
+                                "CIDADE-DO-EVENTO",
+                                "CIDADE",
+                                "NOME-INSTITUICAO",
+                            ],
+                        )
+                        .map(|j| clean_text(&j))
+                    });
+                let mut item =
+                    XmlProduction::new("eventos", tipo, folder, ano, text.clone(), self.elem);
                 item.descricao = Some(text);
                 item.journal = journal;
                 item.doi = pick_doi_fallback(&self.basic);
@@ -699,13 +1049,21 @@ impl Builder {
                 }
                 let reg_num = first_attr(
                     &self.registro,
-                    &["CODIGO-DO-REGISTRO-OU-PATENTE", "NUMERO-DO-REGISTRO", "NUMERO-DEPOSITO-PCT"],
+                    &[
+                        "CODIGO-DO-REGISTRO-OU-PATENTE",
+                        "NUMERO-DO-REGISTRO",
+                        "NUMERO-DEPOSITO-PCT",
+                    ],
                 );
                 let doi = pick_doi_fallback(&self.basic).or(reg_num);
-                let journal = first_attr(&self.registro, &["INSTITUICAO-DEPOSITO-REGISTRO", "NOME-DO-DEPOSITANTE"])
-                    .or_else(|| first_attr(&self.detail, &["INSTITUICAO-FINANCIADORA", "FINALIDADE"]))
-                    .map(|j| clean_text(&j));
-                let mut item = XmlProduction::new("patentes", tipo, folder, ano, text.clone(), self.elem);
+                let journal = first_attr(
+                    &self.registro,
+                    &["INSTITUICAO-DEPOSITO-REGISTRO", "NOME-DO-DEPOSITANTE"],
+                )
+                .or_else(|| first_attr(&self.detail, &["INSTITUICAO-FINANCIADORA", "FINALIDADE"]))
+                .map(|j| clean_text(&j));
+                let mut item =
+                    XmlProduction::new("patentes", tipo, folder, ano, text.clone(), self.elem);
                 item.descricao = Some(text);
                 item.doi = doi;
                 item.journal = journal;
@@ -727,22 +1085,37 @@ struct EnsinoCtx {
 
 fn ensino_tipo_folder(tipo_ensino: &str) -> (&'static str, &'static str) {
     let t = tipo_ensino.to_ascii_uppercase();
-    if t.contains("POS") || t.contains("MESTRADO") || t.contains("DOUTORADO") || t.contains("ESPECIALIZACAO") {
-        ("Encargos Pós-Graduação", "3_atuacao\\atuacao_profissional\\encargos_pós\\")
+    if t.contains("POS")
+        || t.contains("MESTRADO")
+        || t.contains("DOUTORADO")
+        || t.contains("ESPECIALIZACAO")
+    {
+        (
+            "Encargos Pós-Graduação",
+            "3_atuacao\\atuacao_profissional\\encargos_pós\\",
+        )
     } else {
-        ("Encargos Graduação", "3_atuacao\\atuacao_profissional\\encargos_graduação\\")
+        (
+            "Encargos Graduação",
+            "3_atuacao\\atuacao_profissional\\encargos_graduação\\",
+        )
     }
 }
 
-fn parse_formacao_elem(elem: &str, attrs: &HashMap<String, String>, in_comp: bool) -> Option<XmlProduction> {
-    let (tipo, folder, is_comp) = if let Some(&(_, t, f)) = FORMACAO_ACAD_KINDS.iter().find(|(k, _, _)| *k == elem) {
-        (t, f, false)
-    } else if in_comp {
-        let &(_, t, f) = FORMACAO_COMP_KINDS.iter().find(|(k, _, _)| *k == elem)?;
-        (t, f, true)
-    } else {
-        return None;
-    };
+fn parse_formacao_elem(
+    elem: &str,
+    attrs: &HashMap<String, String>,
+    in_comp: bool,
+) -> Option<XmlProduction> {
+    let (tipo, folder, is_comp) =
+        if let Some(&(_, t, f)) = FORMACAO_ACAD_KINDS.iter().find(|(k, _, _)| *k == elem) {
+            (t, f, false)
+        } else if in_comp {
+            let &(_, t, f) = FORMACAO_COMP_KINDS.iter().find(|(k, _, _)| *k == elem)?;
+            (t, f, true)
+        } else {
+            return None;
+        };
 
     let course = first_attr(
         attrs,
@@ -761,10 +1134,19 @@ fn parse_formacao_elem(elem: &str, attrs: &HashMap<String, String>, in_comp: boo
     if desc.is_empty() {
         return None;
     }
-    let ano = first_attr(attrs, &["ANO-DE-CONCLUSAO", "ANO-DE-OBTENCAO-DO-TITULO", "ANO-DE-INICIO"])
-        .and_then(|s| parse_year_str(&s));
+    let ano = first_attr(
+        attrs,
+        &[
+            "ANO-DE-CONCLUSAO",
+            "ANO-DE-OBTENCAO-DO-TITULO",
+            "ANO-DE-INICIO",
+        ],
+    )
+    .and_then(|s| parse_year_str(&s));
     let horas = if is_comp {
-        first_attr(attrs, &["CARGA-HORARIA"]).and_then(|s| s.parse::<i64>().ok()).filter(|&h| h > 0)
+        first_attr(attrs, &["CARGA-HORARIA"])
+            .and_then(|s| s.parse::<i64>().ok())
+            .filter(|&h| h > 0)
     } else {
         None
     };
@@ -777,7 +1159,10 @@ fn parse_formacao_elem(elem: &str, attrs: &HashMap<String, String>, in_comp: boo
     Some(item)
 }
 
-fn parse_direcao_elem(attrs: &HashMap<String, String>, ap_inst: Option<&str>) -> Option<XmlProduction> {
+fn parse_direcao_elem(
+    attrs: &HashMap<String, String>,
+    ap_inst: Option<&str>,
+) -> Option<XmlProduction> {
     let cargo = first_attr(attrs, &["CARGO-OU-FUNCAO", "CARGO-OU-FUNCAO-INGLES"]);
     let orgao = first_attr(attrs, &["NOME-ORGAO"]);
     let desc = clean_text(&join_non_empty(cargo.clone(), orgao.clone())?);
@@ -786,16 +1171,29 @@ fn parse_direcao_elem(attrs: &HashMap<String, String>, ap_inst: Option<&str>) ->
     }
     let lower = cargo.as_deref().unwrap_or(&desc).to_ascii_lowercase();
     let (tipo, folder) = if lower.contains("coorden") {
-        ("Coordenação", "3_atuacao\\atuacao_profissional\\coordenação\\")
+        (
+            "Coordenação",
+            "3_atuacao\\atuacao_profissional\\coordenação\\",
+        )
     } else if lower.contains("chefe") || lower.contains("chefia") {
         ("Chefia", "3_atuacao\\atuacao_profissional\\chefia\\")
     } else if lower.contains("supervis") {
-        ("Supervisão", "3_atuacao\\atuacao_profissional\\supervisão\\")
+        (
+            "Supervisão",
+            "3_atuacao\\atuacao_profissional\\supervisão\\",
+        )
     } else {
         ("Direção", "3_atuacao\\atuacao_profissional\\direção\\")
     };
     let ano = first_attr(attrs, &["ANO-INICIO", "ANO-FIM"]).and_then(|s| parse_year_str(&s));
-    let mut item = XmlProduction::new("encargos", tipo, folder, ano, desc.clone(), "DIRECAO-E-ADMINISTRACAO");
+    let mut item = XmlProduction::new(
+        "encargos",
+        tipo,
+        folder,
+        ano,
+        desc.clone(),
+        "DIRECAO-E-ADMINISTRACAO",
+    );
     item.descricao = Some(desc.clone());
     item.horas = extract_hours_hint(&desc);
     item.journal = ap_inst
@@ -805,7 +1203,10 @@ fn parse_direcao_elem(attrs: &HashMap<String, String>, ap_inst: Option<&str>) ->
     Some(item)
 }
 
-fn parse_conselho_elem(attrs: &HashMap<String, String>, ap_inst: Option<&str>) -> Option<XmlProduction> {
+fn parse_conselho_elem(
+    attrs: &HashMap<String, String>,
+    ap_inst: Option<&str>,
+) -> Option<XmlProduction> {
     let spec = first_attr(attrs, &["ESPECIFICACAO"]);
     let orgao = first_attr(attrs, &["NOME-ORGAO"]);
     let desc = clean_text(&join_non_empty(spec, orgao.clone())?);
@@ -840,14 +1241,25 @@ fn parse_projeto_elem(
     if nome.is_empty() {
         return None;
     }
-    let nat = attrs.get("NATUREZA").map(|s| s.as_str()).unwrap_or("").to_ascii_uppercase();
+    let nat = attrs
+        .get("NATUREZA")
+        .map(|s| s.as_str())
+        .unwrap_or("")
+        .to_ascii_uppercase();
     let (tipo, folder) = match nat.as_str() {
         "EXTENSAO" => ("Projetos de extensão", "4_projetos\\projetos_extensão\\"),
         "ENSINO" => ("Projetos de ensino", "4_projetos\\projetos_ensino\\"),
         _ => ("Projetos de pesquisa", "4_projetos\\projetos_pesquisa\\"),
     };
     let ano = first_attr(attrs, &["ANO-INICIO", "ANO-FIM"]).and_then(|s| parse_year_str(&s));
-    let mut item = XmlProduction::new("projetos", tipo, folder, ano, nome.clone(), "PROJETO-DE-PESQUISA");
+    let mut item = XmlProduction::new(
+        "projetos",
+        tipo,
+        folder,
+        ano,
+        nome.clone(),
+        "PROJETO-DE-PESQUISA",
+    );
     item.descricao = Some(nome);
     item.journal = ap_inst
         .or(proj_orgao)
@@ -857,7 +1269,13 @@ fn parse_projeto_elem(
 }
 
 fn parse_premio_elem(attrs: &HashMap<String, String>) -> Option<XmlProduction> {
-    let premio = first_attr(attrs, &["NOME-DO-PREMIO-OU-TITULO", "NOME-DO-PREMIO-OU-TITULO-INGLES"])?;
+    let premio = first_attr(
+        attrs,
+        &[
+            "NOME-DO-PREMIO-OU-TITULO",
+            "NOME-DO-PREMIO-OU-TITULO-INGLES",
+        ],
+    )?;
     let ent = first_attr(attrs, &["NOME-DA-ENTIDADE-PROMOTORA"]);
     let desc = clean_text(&join_non_empty(Some(premio), ent.clone())?);
     if desc.is_empty() {
@@ -882,7 +1300,14 @@ fn emit_disciplina(ctx: &EnsinoCtx, raw_name: &str) -> Option<XmlProduction> {
     if disc.is_empty() {
         return None;
     }
-    let mut item = XmlProduction::new("disciplinas", ctx.tipo, ctx.folder, ctx.ano, disc.clone(), "ENSINO");
+    let mut item = XmlProduction::new(
+        "disciplinas",
+        ctx.tipo,
+        ctx.folder,
+        ctx.ano,
+        disc.clone(),
+        "ENSINO",
+    );
     item.disciplina = Some(disc.clone());
     item.curso = ctx.curso.clone();
     item.horas = extract_hours_hint(&disc);
@@ -968,7 +1393,10 @@ fn parse_dadosgerais_elem(
             if let Some(inst) = attrs.get("NOME-INSTITUICAO-EMPRESA") {
                 let cl_inst = clean_text(inst);
                 if !cl_inst.trim().is_empty() {
-                    let logr = attrs.get("LOGRADOURO-COMPLEMENTO").cloned().unwrap_or_default();
+                    let logr = attrs
+                        .get("LOGRADOURO-COMPLEMENTO")
+                        .cloned()
+                        .unwrap_or_default();
                     let cid = attrs.get("CIDADE").cloned().unwrap_or_default();
                     let uf = attrs.get("UF").cloned().unwrap_or_default();
                     let email = attrs.get("E-MAIL").cloned().unwrap_or_default();
@@ -997,9 +1425,18 @@ fn parse_dadosgerais_elem(
         }
         "IDIOMA" => {
             if let Some(d) = attrs.get("DESCRICAO-DO-IDIOMA") {
-                let leitura = attrs.get("PROFICIENCIA-DE-LEITURA").cloned().unwrap_or_default();
-                let fala = attrs.get("PROFICIENCIA-DE-FALA").cloned().unwrap_or_default();
-                let escrita = attrs.get("PROFICIENCIA-DE-ESCRITA").cloned().unwrap_or_default();
+                let leitura = attrs
+                    .get("PROFICIENCIA-DE-LEITURA")
+                    .cloned()
+                    .unwrap_or_default();
+                let fala = attrs
+                    .get("PROFICIENCIA-DE-FALA")
+                    .cloned()
+                    .unwrap_or_default();
+                let escrita = attrs
+                    .get("PROFICIENCIA-DE-ESCRITA")
+                    .cloned()
+                    .unwrap_or_default();
                 let desc = format!("Leitura: {}, Fala: {}, Escrita: {}", leitura, fala, escrita);
                 let mut item = XmlProduction::new(
                     "dadosgerais",
@@ -1020,10 +1457,13 @@ fn parse_dadosgerais_elem(
 
 /// Faz o parse do XML Lattes e retorna todos os itens encontrados (sem marcar duplicatas).
 pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("Falha ao ler '{}': {}", path.display(), e))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("Falha ao ler '{}': {}", path.display(), e))?;
     let text = decode_bytes(&bytes);
     if !text.contains("CURRICULO-VITAE") {
-        return Err("O arquivo não parece ser um XML do Currículo Lattes (CURRICULO-VITAE ausente)".into());
+        return Err(
+            "O arquivo não parece ser um XML do Currículo Lattes (CURRICULO-VITAE ausente)".into(),
+        );
     }
     let mut reader = Reader::from_str(&text);
     let mut stack: Vec<String> = Vec::new();
@@ -1082,13 +1522,19 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                             proj_orgao = first_attr(&a, &["NOME-ORGAO"]);
                         }
                         "ENSINO" => {
-                            let (tipo, folder) = ensino_tipo_folder(a.get("TIPO-ENSINO").map(|s| s.as_str()).unwrap_or(""));
+                            let (tipo, folder) = ensino_tipo_folder(
+                                a.get("TIPO-ENSINO").map(|s| s.as_str()).unwrap_or(""),
+                            );
                             ensino = Some(EnsinoCtx {
                                 tipo,
                                 folder,
-                                ano: first_attr(&a, &["ANO-INICIO", "ANO-FIM"]).and_then(|s| parse_year_str(&s)),
+                                ano: first_attr(&a, &["ANO-INICIO", "ANO-FIM"])
+                                    .and_then(|s| parse_year_str(&s)),
                                 curso: first_attr(&a, &["NOME-CURSO"]).map(|c| clean_text(&c)),
-                                instituicao: ap_inst.as_deref().map(clean_text).filter(|s| !s.is_empty()),
+                                instituicao: ap_inst
+                                    .as_deref()
+                                    .map(clean_text)
+                                    .filter(|s| !s.is_empty()),
                             });
                         }
                         "DISCIPLINA" if ensino.is_some() => {
@@ -1105,7 +1551,9 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                             }
                         }
                         "PROJETO-DE-PESQUISA" => {
-                            if let Some(it) = parse_projeto_elem(&a, proj_orgao.as_deref(), ap_inst.as_deref()) {
+                            if let Some(it) =
+                                parse_projeto_elem(&a, proj_orgao.as_deref(), ap_inst.as_deref())
+                            {
                                 out.push(it);
                             }
                         }
@@ -1166,7 +1614,9 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                             }
                         }
                         "PROJETO-DE-PESQUISA" => {
-                            if let Some(it) = parse_projeto_elem(&a, proj_orgao.as_deref(), ap_inst.as_deref()) {
+                            if let Some(it) =
+                                parse_projeto_elem(&a, proj_orgao.as_deref(), ap_inst.as_deref())
+                            {
                                 out.push(it);
                             }
                         }
@@ -1234,7 +1684,13 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                 stack.pop();
             }
             Ok(Event::Eof) => break,
-            Err(e) => return Err(format!("XML inválido na posição {}: {}", reader.buffer_position(), e)),
+            Err(e) => {
+                return Err(format!(
+                    "XML inválido na posição {}: {}",
+                    reader.buffer_position(),
+                    e
+                ))
+            }
             _ => {}
         }
     }
@@ -1293,7 +1749,8 @@ struct VinculoCandidate {
 
 /// Lê nome, ID, ORCID, vínculos, data de atualização e resumo do CV do XML Lattes.
 pub fn parse_profile(path: &Path) -> Result<LattesProfile, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("Falha ao ler '{}': {}", path.display(), e))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| format!("Falha ao ler '{}': {}", path.display(), e))?;
     let text = decode_bytes(&bytes);
     let mut reader = Reader::from_str(&text);
     let mut p = LattesProfile::default();
@@ -1330,7 +1787,9 @@ pub fn parse_profile(path: &Path) -> Result<LattesProfile, String> {
         }
     }
     if p.nome.is_empty() {
-        return Err("O arquivo não parece ser um XML do Currículo Lattes (DADOS-GERAIS ausente)".into());
+        return Err(
+            "O arquivo não parece ser um XML do Currículo Lattes (DADOS-GERAIS ausente)".into(),
+        );
     }
     if let Some(v) = best_vinculo {
         p.cargo = v.cargo;
@@ -1362,7 +1821,11 @@ fn handle_profile_element(
             p.orcid = g("ORCID-ID");
             p.nacionalidade = g("PAIS-DE-NACIONALIDADE");
             let (cid, uf) = (g("CIDADE-NASCIMENTO"), g("UF-NASCIMENTO"));
-            p.naturalidade = [cid, uf].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" – ");
+            p.naturalidade = [cid, uf]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" – ");
             p.data_nascimento = fmt_ddmmyyyy(&g("DATA-NASCIMENTO"));
             let cpf = g("CPF");
             p.cpf = if cpf.len() == 11 && cpf.chars().all(|c| c.is_ascii_digit()) {
@@ -1371,8 +1834,18 @@ fn handle_profile_element(
                 cpf
             };
             let rg = g("NUMERO-IDENTIDADE");
-            let org = [g("ORGAO-EMISSOR"), g("UF-ORGAO-EMISSOR")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/");
-            p.rg = if rg.is_empty() { rg } else if org.is_empty() { rg } else { format!("{} {}", rg, org) };
+            let org = [g("ORGAO-EMISSOR"), g("UF-ORGAO-EMISSOR")]
+                .into_iter()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join("/");
+            p.rg = if rg.is_empty() {
+                rg
+            } else if org.is_empty() {
+                rg
+            } else {
+                format!("{} {}", rg, org)
+            };
         }
         "ENDERECO-PROFISSIONAL" if p.instituicao.is_empty() => {
             p.instituicao = g("NOME-INSTITUICAO-EMPRESA");
@@ -1384,36 +1857,68 @@ fn handle_profile_element(
             let tel = g("TELEFONE");
             if !tel.is_empty() {
                 let ddd = g("DDD");
-                p.telefone = if ddd.is_empty() { tel } else { format!("({}) {}", ddd, tel) };
+                p.telefone = if ddd.is_empty() {
+                    tel
+                } else {
+                    format!("({}) {}", ddd, tel)
+                };
             }
             let cep = g("CEP");
-            let cep = if cep.len() == 8 { format!("{}-{}", &cep[..5], &cep[5..]) } else { cep };
-            let cidade = [g("CIDADE"), g("UF")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("/");
-            p.endereco = [g("LOGRADOURO-COMPLEMENTO"), g("BAIRRO"), cidade, if cep.is_empty() { cep } else { format!("CEP {}", cep) }]
+            let cep = if cep.len() == 8 {
+                format!("{}-{}", &cep[..5], &cep[5..])
+            } else {
+                cep
+            };
+            let cidade = [g("CIDADE"), g("UF")]
                 .into_iter()
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
-                .join(", ");
+                .join("/");
+            p.endereco = [
+                g("LOGRADOURO-COMPLEMENTO"),
+                g("BAIRRO"),
+                cidade,
+                if cep.is_empty() {
+                    cep
+                } else {
+                    format!("CEP {}", cep)
+                },
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ");
         }
         "ENDERECO" => {
             if let Some(el) = a.get("ELETRONICO") {
                 let mails: Vec<String> = el
                     .split(';')
-                    .filter_map(|x| x.split_once(':').map(|(_, m)| m.trim().to_string()).or_else(|| Some(x.trim().to_string())))
+                    .filter_map(|x| {
+                        x.split_once(':')
+                            .map(|(_, m)| m.trim().to_string())
+                            .or_else(|| Some(x.trim().to_string()))
+                    })
                     .filter(|m| m.contains('@'))
                     .collect();
                 if p.email.is_empty() {
                     p.email = mails.first().cloned().unwrap_or_default();
                 }
-                p.email_alt = mails.into_iter().find(|m| *m != p.email).unwrap_or_default();
+                p.email_alt = mails
+                    .into_iter()
+                    .find(|m| *m != p.email)
+                    .unwrap_or_default();
             }
         }
         "AREA-DE-ATUACAO" if p.area.is_empty() => {
-            p.area = [g("NOME-DA-AREA-DO-CONHECIMENTO"), g("NOME-DA-SUB-AREA-DO-CONHECIMENTO"), g("NOME-DA-ESPECIALIDADE")]
-                .into_iter()
-                .filter(|s| !s.is_empty())
-                .collect::<Vec<_>>()
-                .join(" › ");
+            p.area = [
+                g("NOME-DA-AREA-DO-CONHECIMENTO"),
+                g("NOME-DA-SUB-AREA-DO-CONHECIMENTO"),
+                g("NOME-DA-ESPECIALIDADE"),
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" › ");
         }
         "RESUMO-CV" => {
             p.resumo = g("TEXTO-RESUMO-CV-RH");
@@ -1432,7 +1937,8 @@ fn handle_profile_element(
                     String::new()
                 };
                 if !cargo.is_empty() {
-                    let same_inst = !p.instituicao.is_empty() && ap_inst.eq_ignore_ascii_case(&p.instituicao);
+                    let same_inst =
+                        !p.instituicao.is_empty() && ap_inst.eq_ignore_ascii_case(&p.instituicao);
                     let ano_ini = g("ANO-INICIO").parse::<i64>().unwrap_or(0);
                     let score = (current, same_inst, emp, ano_ini);
                     let replace = best_vinculo.as_ref().map_or(true, |b| score > b.score);
@@ -1449,7 +1955,12 @@ fn handle_profile_element(
                             (true, false) => ano,
                             _ => String::new(),
                         };
-                        *best_vinculo = Some(VinculoCandidate { score, cargo, regime, admissao });
+                        *best_vinculo = Some(VinculoCandidate {
+                            score,
+                            cargo,
+                            regime,
+                            admissao,
+                        });
                     }
                 }
             }
@@ -1533,7 +2044,9 @@ impl MultiTitleIndex {
             .prepare("SELECT COALESCE(titulo, descricao), ano FROM atuacao WHERE COALESCE(titulo, descricao) IS NOT NULL")
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?)))
+            .query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?))
+            })
             .map_err(|e| e.to_string())?;
         for (d, ano) in rows.flatten() {
             let key = normalize_title(&d);
@@ -1542,7 +2055,10 @@ impl MultiTitleIndex {
             }
         }
 
-        Ok(Self { by_cat, disciplinas })
+        Ok(Self {
+            by_cat,
+            disciplinas,
+        })
     }
 
     fn seen_or_insert(&mut self, it: &XmlProduction) -> bool {
@@ -1577,13 +2093,20 @@ pub fn preview(conn: &Connection, path: &Path) -> Result<Vec<XmlProduction>, Str
             it.folder = f.clone();
         }
     }
-    items.sort_by(|a, b| b.ano.cmp(&a.ano).then(a.category.cmp(&b.category)).then(a.tipo.cmp(&b.tipo)));
+    items.sort_by(|a, b| {
+        b.ano
+            .cmp(&a.ano)
+            .then(a.category.cmp(&b.category))
+            .then(a.tipo.cmp(&b.tipo))
+    });
     Ok(items)
 }
 
 fn mapping_folders(conn: &Connection) -> HashMap<(String, String), String> {
     let mut m = HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT category_group, description, folder FROM subfolder_mappings") {
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT category_group, description, folder FROM subfolder_mappings")
+    {
         if let Ok(rows) = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -1601,7 +2124,11 @@ fn mapping_folders(conn: &Connection) -> HashMap<(String, String), String> {
 
 /// Insere os itens selecionados nas suas respectivas categorias. Cria mapeamentos de subpasta para tipos novos.
 /// Retorna a quantidade inserida.
-pub fn import_items(conn: &mut Connection, root_dir: &Path, items: &[XmlProduction]) -> Result<usize, String> {
+pub fn import_items(
+    conn: &mut Connection,
+    root_dir: &Path,
+    items: &[XmlProduction],
+) -> Result<usize, String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     let mut folders = mapping_folders(&tx);
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -1722,7 +2249,10 @@ mod tests {
 
     #[test]
     fn normalizes_titles() {
-        assert_eq!(normalize_title("Efeitos de Fungicidas, na Soja!"), normalize_title("efeitos de fungicidas na soja"));
+        assert_eq!(
+            normalize_title("Efeitos de Fungicidas, na Soja!"),
+            normalize_title("efeitos de fungicidas na soja")
+        );
         assert_eq!(normalize_title("Ação"), "acao");
     }
 
@@ -1733,11 +2263,28 @@ mod tests {
             return;
         }
         let items = parse_lattes_xml(p).unwrap();
-        assert!(items.iter().filter(|i| i.tipo == "Artigos completos").count() >= 100);
+        assert!(
+            items
+                .iter()
+                .filter(|i| i.tipo == "Artigos completos")
+                .count()
+                >= 100
+        );
         assert!(items.iter().all(|i| !i.titulo.is_empty()));
         assert!(items.iter().any(|i| i.titulo.contains("Fungicidas")));
         let cats: HashSet<&str> = items.iter().map(|i| i.category.as_str()).collect();
-        for expected in ["producoes", "formacao", "orientacoes", "bancas", "eventos", "disciplinas", "projetos", "patentes", "encargos", "dadosgerais"] {
+        for expected in [
+            "producoes",
+            "formacao",
+            "orientacoes",
+            "bancas",
+            "eventos",
+            "disciplinas",
+            "projetos",
+            "patentes",
+            "encargos",
+            "dadosgerais",
+        ] {
             assert!(cats.contains(expected), "categoria ausente: {}", expected);
         }
     }
@@ -1757,7 +2304,11 @@ mod tests {
         assert_eq!(prof.email, "tiago.olivoto@ufsc.br");
         assert_eq!(prof.instituicao, "Universidade Federal de Santa Catarina");
         assert!(prof.unidade.contains("Agrárias"), "{}", prof.unidade);
-        assert!(prof.endereco.contains("Florianópolis/SC"), "{}", prof.endereco);
+        assert!(
+            prof.endereco.contains("Florianópolis/SC"),
+            "{}",
+            prof.endereco
+        );
         assert!(prof.area.starts_with("Agronomia"), "{}", prof.area);
         assert!(prof.email_alt.contains('@') && prof.email_alt != prof.email);
         assert_eq!(prof.telefone, "(48) 37215327");
@@ -1769,9 +2320,18 @@ mod tests {
 
     #[test]
     fn cleans_html_from_titles() {
-        assert_eq!(clean_text("strawberry (Fragaria x ananassa)</i> production"), "strawberry (Fragaria x ananassa) production");
-        assert_eq!(clean_text("Gower&#146;s algorithm"), "Gower\u{2019}s algorithm");
-        assert_eq!(clean_text("<i>Solanum  melongena</i> L."), "Solanum melongena L.");
+        assert_eq!(
+            clean_text("strawberry (Fragaria x ananassa)</i> production"),
+            "strawberry (Fragaria x ananassa) production"
+        );
+        assert_eq!(
+            clean_text("Gower&#146;s algorithm"),
+            "Gower\u{2019}s algorithm"
+        );
+        assert_eq!(
+            clean_text("<i>Solanum  melongena</i> L."),
+            "Solanum melongena L."
+        );
     }
 
     #[test]
@@ -1787,12 +2347,17 @@ mod tests {
         if !p.exists() || !db.exists() {
             return;
         }
-        let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let conn =
+            Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         let items = preview(&conn, p).unwrap();
         let mut by: std::collections::BTreeMap<String, (usize, usize)> = Default::default();
         for i in &items {
             let e = by.entry(i.tipo.clone()).or_default();
-            if i.duplicate { e.1 += 1 } else { e.0 += 1 }
+            if i.duplicate {
+                e.1 += 1
+            } else {
+                e.0 += 1
+            }
         }
         println!("total={} -> {:?}", items.len(), by);
     }
@@ -1822,7 +2387,10 @@ mod tests {
 </CURRICULO-VITAE>"#;
         let p = write_temp_xml("orcid_bug.xml", xml);
         let prof = parse_profile(&p).unwrap();
-        assert_eq!(prof.orcid, "", "ORCID de coautor não deve vazar para o perfil");
+        assert_eq!(
+            prof.orcid, "",
+            "ORCID de coautor não deve vazar para o perfil"
+        );
         assert_eq!(prof.departamento, "Depto Fitotecnia");
         assert_eq!(prof.cargo, "Professor Titular");
         assert_eq!(prof.regime, "40");
@@ -1932,18 +2500,33 @@ mod tests {
 
         let items = preview(&conn, &p).unwrap();
         assert!(items.iter().all(|i| !i.titulo.is_empty()));
-        assert!(!items.iter().any(|i| i.titulo.contains("Ignorado Fora")), "OUTROS fora de FORMACAO-COMPLEMENTAR não deve ser importado");
-        assert!(!items.iter().any(|i| i.titulo.contains("Escola Municipal")), "Ensino fundamental deve ser ignorado");
+        assert!(
+            !items.iter().any(|i| i.titulo.contains("Ignorado Fora")),
+            "OUTROS fora de FORMACAO-COMPLEMENTAR não deve ser importado"
+        );
+        assert!(
+            !items.iter().any(|i| i.titulo.contains("Escola Municipal")),
+            "Ensino fundamental deve ser ignorado"
+        );
 
         // Verificar URL e fallback de inglês e DOI
-        let eng = items.iter().find(|i| i.titulo == "English Only Title").unwrap();
+        let eng = items
+            .iter()
+            .find(|i| i.titulo == "English Only Title")
+            .unwrap();
         assert_eq!(eng.url.as_deref(), Some("https://example.org/paper"));
-        let doi_hp = items.iter().find(|i| i.titulo == "Artigo com DOI no HomePage").unwrap();
+        let doi_hp = items
+            .iter()
+            .find(|i| i.titulo == "Artigo com DOI no HomePage")
+            .unwrap();
         assert_eq!(doi_hp.url, None);
         assert_eq!(doi_hp.doi.as_deref(), Some("10.1000/abc"));
 
         // Disciplinas em anos diferentes (2022 vs 2023) não são duplicatas; repetida em 2023 é duplicata
-        let discs: Vec<&XmlProduction> = items.iter().filter(|i| i.category == "disciplinas").collect();
+        let discs: Vec<&XmlProduction> = items
+            .iter()
+            .filter(|i| i.category == "disciplinas")
+            .collect();
         assert_eq!(discs.len(), 3);
         assert_eq!(discs.iter().filter(|d| !d.duplicate).count(), 2);
         assert_eq!(discs.iter().filter(|d| d.duplicate).count(), 1);
@@ -1955,18 +2538,33 @@ mod tests {
         assert_eq!(sw.doi.as_deref(), Some("BR5120240001"));
 
         // Evento sem TITULO usando NOME-DO-EVENTO
-        assert!(items.iter().any(|i| i.category == "eventos" && i.titulo == "Congresso Brasileiro"));
+        assert!(items
+            .iter()
+            .any(|i| i.category == "eventos" && i.titulo == "Congresso Brasileiro"));
 
         // Importar não-duplicados
         let root_dir = std::env::temp_dir().join("lattes_xml_import_root");
         let _ = std::fs::create_dir_all(&root_dir);
-        let to_import: Vec<XmlProduction> = items.iter().filter(|i| !i.duplicate).cloned().collect();
+        let to_import: Vec<XmlProduction> =
+            items.iter().filter(|i| !i.duplicate).cloned().collect();
         let inserted = import_items(&mut conn, &root_dir, &to_import).unwrap();
         assert_eq!(inserted, to_import.len());
 
         // Verificar inserção nas tabelas de produções do XML (encargos e disciplinas vão para atuacao)
-        for tbl in ["dadosgerais", "formacao", "atuacao", "projetos", "producoes", "patentes", "eventos", "orientacoes", "bancas"] {
-            let cnt: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", tbl), [], |r| r.get(0)).unwrap();
+        for tbl in [
+            "dadosgerais",
+            "formacao",
+            "atuacao",
+            "projetos",
+            "producoes",
+            "patentes",
+            "eventos",
+            "orientacoes",
+            "bancas",
+        ] {
+            let cnt: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {}", tbl), [], |r| r.get(0))
+                .unwrap();
             assert!(cnt >= 1, "tabela {} deveria ter >= 1 registro", tbl);
         }
 

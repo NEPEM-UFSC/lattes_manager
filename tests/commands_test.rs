@@ -93,19 +93,15 @@ fn test_get_records_and_filtering() {
     assert_eq!(filtered_search[0].id, rec1.id);
 
     // 3. Filter by year
-    let filtered_year = commands::get_records_impl(&db, "producoes", None, Some(2023), None).unwrap();
+    let filtered_year =
+        commands::get_records_impl(&db, "producoes", None, Some(2023), None).unwrap();
     assert_eq!(filtered_year.len(), 1);
     assert_eq!(filtered_year[0].ano, Some(2023));
 
     // 4. Filter by tipo
-    let filtered_tipo = commands::get_records_impl(
-        &db,
-        "producoes",
-        None,
-        None,
-        Some("Artigos completos"),
-    )
-    .unwrap();
+    let filtered_tipo =
+        commands::get_records_impl(&db, "producoes", None, None, Some("Artigos completos"))
+            .unwrap();
     assert_eq!(filtered_tipo.len(), 1);
     assert_eq!(filtered_tipo[0].tipo.as_deref(), Some("Artigos completos"));
 
@@ -147,7 +143,10 @@ fn test_create_record_with_file_attachment_and_sequential_naming() {
     assert_eq!(rec.category, "bancas");
     assert_eq!(rec.ano, Some(2026));
     assert_eq!(rec.aluno.as_deref(), Some("Maria Silva"));
-    assert_eq!(rec.file.as_deref(), Some("001_maria_silva_modelagem_computacional_avancada.pdf"));
+    assert_eq!(
+        rec.file.as_deref(),
+        Some("001_maria_silva_modelagem_computacional_avancada.pdf")
+    );
     assert_eq!(
         rec.path.as_deref(),
         Some(r"11_bancas\doutorado\001_maria_silva_modelagem_computacional_avancada.pdf")
@@ -180,7 +179,10 @@ fn test_create_record_with_file_attachment_and_sequential_naming() {
     )
     .expect("Failed to create second record");
 
-    assert_eq!(rec2.file.as_deref(), Some("002_joao_santos_segunda_tese.pdf"));
+    assert_eq!(
+        rec2.file.as_deref(),
+        Some("002_joao_santos_segunda_tese.pdf")
+    );
     assert_eq!(
         rec2.path.as_deref(),
         Some(r"11_bancas\doutorado\002_joao_santos_segunda_tese.pdf")
@@ -243,7 +245,10 @@ fn test_update_record_and_file_replacement() {
         Some("Projeto de Inovação 2025 - Fase 2")
     );
     assert_eq!(updated.attachments.len(), 2);
-    assert_eq!(updated.attachments[1].file, "002_projeto_de_inovacao_2025_fase_2.pdf");
+    assert_eq!(
+        updated.attachments[1].file,
+        "002_projeto_de_inovacao_2025_fase_2.pdf"
+    );
     assert_eq!(
         updated.attachments[1].path,
         r"4_projetos\pesquisa\002_projeto_de_inovacao_2025_fase_2.pdf"
@@ -287,7 +292,10 @@ fn test_delete_record_retention_vs_removal() {
 
     commands::delete_record_impl(&db, root_path, "dadosgerais", rec_soft.id, false)
         .expect("Soft delete");
-    assert!(soft_path.exists(), "File must be retained when delete_file=false");
+    assert!(
+        soft_path.exists(),
+        "File must be retained when delete_file=false"
+    );
 
     let list_soft = commands::get_records_impl(&db, "dadosgerais", None, None, None).unwrap();
     assert_eq!(list_soft.len(), 0, "Record must be deleted from DB");
@@ -316,7 +324,10 @@ fn test_delete_record_retention_vs_removal() {
 
     commands::delete_record_impl(&db, root_path, "dadosgerais", rec_hard.id, true)
         .expect("Hard delete");
-    assert!(!hard_path.exists(), "File must be removed when delete_file=true");
+    assert!(
+        !hard_path.exists(),
+        "File must be removed when delete_file=true"
+    );
 }
 
 #[test]
@@ -351,11 +362,12 @@ fn test_subfolder_mappings_and_stats() {
     // 2. Get mappings
     let all_maps = commands::get_subfolder_mappings_impl(&db, None).unwrap();
     assert!(all_maps.len() >= 2);
-    assert!(all_maps.iter().any(|m| m.description == "Artigos Internacionais"));
+    assert!(all_maps
+        .iter()
+        .any(|m| m.description == "Artigos Internacionais"));
     assert!(all_maps.iter().any(|m| m.description == "Mestrado"));
 
-    let producoes_maps =
-        commands::get_subfolder_mappings_impl(&db, Some("Produções")).unwrap();
+    let producoes_maps = commands::get_subfolder_mappings_impl(&db, Some("Produções")).unwrap();
     assert_eq!(producoes_maps.len(), 1);
     assert_eq!(producoes_maps[0].description, "Artigos Internacionais");
 
@@ -418,14 +430,25 @@ fn test_paths_cannot_escape_root() {
     // open_folder não cria pastas fora da raiz
     let _ = commands::open_folder_impl(&root, "../criada_fora");
     assert!(!base.path().join("criada_fora").exists());
-    assert_eq!(lattes_app::files::rel_join(&root, r"..\..\a\..\b"), root.join("a").join("b"));
+    assert_eq!(
+        lattes_app::files::rel_join(&root, r"..\..\a\..\b"),
+        root.join("a").join("b")
+    );
 }
 
 #[test]
 fn test_search_ignores_accents_and_case() {
     let db = setup_test_db();
     let root = TempDir::new("accents");
-    commands::create_record_impl(&db, root.path(), "formacao", &json!({ "ano": 2020, "tipo": "Curso", "descricao": "FORMAÇÃO EM AVALIAÇÃO" }), None, None).unwrap();
+    commands::create_record_impl(
+        &db,
+        root.path(),
+        "formacao",
+        &json!({ "ano": 2020, "tipo": "Curso", "descricao": "FORMAÇÃO EM AVALIAÇÃO" }),
+        None,
+        None,
+    )
+    .unwrap();
     for q in ["formacao", "FORMAÇÃO", "avaliação", "Avaliacao"] {
         let found = commands::get_records_impl(&db, "formacao", Some(q), None, None).unwrap();
         assert_eq!(found.len(), 1, "busca por '{}'", q);
@@ -436,9 +459,15 @@ fn test_search_ignores_accents_and_case() {
 fn test_schema_migrations_reach_latest_and_are_idempotent() {
     let conn = Connection::open_in_memory().unwrap();
     schema::create_tables(&conn).unwrap();
-    assert_eq!(schema::schema_version(&conn).unwrap(), schema::MIGRATIONS.len());
+    assert_eq!(
+        schema::schema_version(&conn).unwrap(),
+        schema::MIGRATIONS.len()
+    );
     schema::create_tables(&conn).unwrap();
-    assert_eq!(schema::schema_version(&conn).unwrap(), schema::MIGRATIONS.len());
+    assert_eq!(
+        schema::schema_version(&conn).unwrap(),
+        schema::MIGRATIONS.len()
+    );
     let idx: i64 = conn
         .query_row("SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_producoes_ano_tipo'", [], |r| r.get(0))
         .unwrap();
@@ -457,14 +486,23 @@ fn test_profile_photo_validates_and_replaces() {
 
     let png = base.path().join("a.png");
     fs::write(&png, b"\x89PNG\r\n\x1a\nresto").unwrap();
-    assert_eq!(commands::set_profile_photo_impl(&root, &png).unwrap(), "perfil/foto_perfil.png");
+    assert_eq!(
+        commands::set_profile_photo_impl(&root, &png).unwrap(),
+        "perfil/foto_perfil.png"
+    );
 
     // JPEG com extensão errada: vale o conteúdo, e a foto anterior sai
     let jpg = base.path().join("b.png");
     fs::write(&jpg, [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]).unwrap();
-    assert_eq!(commands::set_profile_photo_impl(&root, &jpg).unwrap(), "perfil/foto_perfil.jpg");
+    assert_eq!(
+        commands::set_profile_photo_impl(&root, &jpg).unwrap(),
+        "perfil/foto_perfil.jpg"
+    );
     assert!(!root.join("perfil/foto_perfil.png").exists());
-    assert_eq!(commands::profile_photo_impl(&root).as_deref(), Some("perfil/foto_perfil.jpg"));
+    assert_eq!(
+        commands::profile_photo_impl(&root).as_deref(),
+        Some("perfil/foto_perfil.jpg")
+    );
     assert!(commands::resolve_inside_root(&root, "perfil/foto_perfil.jpg").is_ok());
 
     commands::remove_profile_photo_impl(&root).unwrap();
@@ -476,27 +514,96 @@ fn test_record_url_roundtrip_and_validation() {
     let db = setup_test_db();
     let root = TempDir::new("url");
 
-    let r = commands::create_record_impl(&db, root.path(), "eventos", &json!({ "ano": 2024, "tipo": "Congresso", "descricao": "Evento X" }), None, None).unwrap();
+    let r = commands::create_record_impl(
+        &db,
+        root.path(),
+        "eventos",
+        &json!({ "ano": 2024, "tipo": "Congresso", "descricao": "Evento X" }),
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(r.url, None, "URL é vazia por padrão");
 
-    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": "www.evento.org/anais" }), None, None).unwrap();
+    let r = commands::update_record_impl(
+        &db,
+        root.path(),
+        "eventos",
+        r.id,
+        &json!({ "url": "www.evento.org/anais" }),
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(r.url.as_deref(), Some("https://www.evento.org/anais"));
-    assert_eq!(r.descricao.as_deref(), Some("Evento X"), "outros campos preservados");
+    assert_eq!(
+        r.descricao.as_deref(),
+        Some("Evento X"),
+        "outros campos preservados"
+    );
 
     // atualização sem a chave "url" não apaga o link
-    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "descricao": "Evento Y" }), None, None).unwrap();
+    let r = commands::update_record_impl(
+        &db,
+        root.path(),
+        "eventos",
+        r.id,
+        &json!({ "descricao": "Evento Y" }),
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(r.url.as_deref(), Some("https://www.evento.org/anais"));
     let listed = commands::get_records_impl(&db, "eventos", None, None, None).unwrap();
-    assert_eq!(listed[0].url.as_deref(), Some("https://www.evento.org/anais"));
+    assert_eq!(
+        listed[0].url.as_deref(),
+        Some("https://www.evento.org/anais")
+    );
 
     // vazio remove; esquemas perigosos são recusados
-    let r = commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": "  " }), None, None).unwrap();
+    let r = commands::update_record_impl(
+        &db,
+        root.path(),
+        "eventos",
+        r.id,
+        &json!({ "url": "  " }),
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(r.url, None);
-    for bad in ["javascript:alert(1)", "file:///C:/x", "mailto:a@b.com", "http://semponto", "https://a b.com"] {
-        assert!(commands::update_record_impl(&db, root.path(), "eventos", r.id, &json!({ "url": bad }), None, None).is_err(), "{}", bad);
+    for bad in [
+        "javascript:alert(1)",
+        "file:///C:/x",
+        "mailto:a@b.com",
+        "http://semponto",
+        "https://a b.com",
+    ] {
+        assert!(
+            commands::update_record_impl(
+                &db,
+                root.path(),
+                "eventos",
+                r.id,
+                &json!({ "url": bad }),
+                None,
+                None
+            )
+            .is_err(),
+            "{}",
+            bad
+        );
     }
 
-    let p = commands::create_record_impl(&db, root.path(), "producoes", &json!({ "ano": 2025, "titulo": "Artigo", "url": "10.1016/j.x.2025.1" }), None, None).unwrap();
+    let p = commands::create_record_impl(
+        &db,
+        root.path(),
+        "producoes",
+        &json!({ "ano": 2025, "titulo": "Artigo", "url": "10.1016/j.x.2025.1" }),
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(p.url.as_deref(), Some("https://doi.org/10.1016/j.x.2025.1"));
 }
 
@@ -506,9 +613,25 @@ fn test_custom_category_record_url() {
     let root = TempDir::new("url_custom");
     let cat = {
         let conn = db.lock().unwrap();
-        lattes_app::custom::save_category(&conn, root.path(), lattes_app::custom::CustomCategory { name: "Prêmios".into(), ..Default::default() }).unwrap()
+        lattes_app::custom::save_category(
+            &conn,
+            root.path(),
+            lattes_app::custom::CustomCategory {
+                name: "Prêmios".into(),
+                ..Default::default()
+            },
+        )
+        .unwrap()
     };
-    let r = commands::create_record_impl(&db, root.path(), &cat.key, &json!({ "ano": 2023, "titulo": "Prêmio", "url": "https://premio.org" }), None, None).unwrap();
+    let r = commands::create_record_impl(
+        &db,
+        root.path(),
+        &cat.key,
+        &json!({ "ano": 2023, "titulo": "Prêmio", "url": "https://premio.org" }),
+        None,
+        None,
+    )
+    .unwrap();
     assert_eq!(r.url.as_deref(), Some("https://premio.org"));
     let listed = commands::get_records_impl(&db, &cat.key, None, None, None).unwrap();
     assert_eq!(listed[0].url.as_deref(), Some("https://premio.org"));
@@ -534,7 +657,10 @@ fn test_shell_paths_absolute_inside_root_and_saved_files() {
     let abs_out = outside.to_string_lossy().to_string();
     assert!(commands::resolve_for_shell(&st, &abs_out).is_err());
     st.remember_saved(&outside);
-    assert_eq!(commands::resolve_for_shell(&st, &abs_out).unwrap(), lattes_app::real_path(&outside));
+    assert_eq!(
+        commands::resolve_for_shell(&st, &abs_out).unwrap(),
+        lattes_app::real_path(&outside)
+    );
 
     // outro arquivo fora da pasta continua barrado
     let other = base.path().join("alheio.pdf");

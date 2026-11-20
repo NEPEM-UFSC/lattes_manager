@@ -15,12 +15,19 @@ fn table_of(category: &str) -> Option<&'static str> {
 
 /// Preenche `url` nos registros: mantida como fallback quando `url` ainda não foi carregada.
 pub fn fill_urls(conn: &Connection, category: &str, recs: &mut [RecordDto]) -> Result<()> {
-    let Some(table) = table_of(category) else { return Ok(()) };
+    let Some(table) = table_of(category) else {
+        return Ok(());
+    };
     if recs.is_empty() || recs.iter().all(|r| r.url.is_some()) {
         return Ok(());
     }
-    let mut st = conn.prepare(&format!("SELECT id, url FROM {} WHERE url IS NOT NULL AND url <> ''", table))?;
-    let urls: HashMap<i64, String> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_>>()?;
+    let mut st = conn.prepare(&format!(
+        "SELECT id, url FROM {} WHERE url IS NOT NULL AND url <> ''",
+        table
+    ))?;
+    let urls: HashMap<i64, String> = st
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_>>()?;
     for r in recs.iter_mut() {
         if r.url.is_none() {
             r.url = urls.get(&r.id).cloned();
@@ -35,7 +42,10 @@ fn store_url(conn: &Connection, category: &str, id: i64, data: &Value) -> Result
         return Ok(());
     }
     let table = table_of(category).ok_or(rusqlite::Error::InvalidQuery)?;
-    conn.execute(&format!("UPDATE {} SET url = ?1 WHERE id = ?2", table), params![json_str(data, "url"), id])?;
+    conn.execute(
+        &format!("UPDATE {} SET url = ?1 WHERE id = ?2", table),
+        params![json_str(data, "url"), id],
+    )?;
     Ok(())
 }
 
@@ -53,19 +63,58 @@ pub fn get_records(
     let table = normalize_category(category).ok_or(rusqlite::Error::InvalidQuery)?;
 
     let mut out: Vec<RecordDto> = match table {
-        "dadosgerais" => list_dadosgerais(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "formacao" => list_formacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "atuacao" => list_atuacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "inovacao" => list_inovacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "educacao_popularizacao" => list_educacao_popularizacao(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "encargos" => list_encargos(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "disciplinas" => list_disciplinas(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "projetos" => list_projetos(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "producoes" => list_producoes(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "patentes" => list_patentes(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "eventos" => list_eventos(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "orientacoes" => list_orientacoes(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
-        "bancas" => list_bancas(conn, search, year, tipo)?.into_iter().map(Into::into).collect(),
+        "dadosgerais" => list_dadosgerais(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "formacao" => list_formacao(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "atuacao" => list_atuacao(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "inovacao" => list_inovacao(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "educacao_popularizacao" => list_educacao_popularizacao(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "encargos" => list_encargos(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "disciplinas" => list_disciplinas(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "projetos" => list_projetos(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "producoes" => list_producoes(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "patentes" => list_patentes(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "eventos" => list_eventos(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "orientacoes" => list_orientacoes(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        "bancas" => list_bancas(conn, search, year, tipo)?
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         _ => vec![],
     };
     populate_attachments_for_records(conn, table, &mut out)?;
@@ -243,7 +292,10 @@ pub fn list_educacao_popularizacao(
 
     let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_slice.as_slice(), EducacaoPopularizacaoRecord::from_row)?;
+    let rows = stmt.query_map(
+        params_slice.as_slice(),
+        EducacaoPopularizacaoRecord::from_row,
+    )?;
     rows.collect()
 }
 
@@ -299,7 +351,9 @@ pub fn list_disciplinas(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (fold(disciplina) LIKE ? OR fold(curso) LIKE ? OR fold(identifier) LIKE ?)");
+            sql.push_str(
+                " AND (fold(disciplina) LIKE ? OR fold(curso) LIKE ? OR fold(identifier) LIKE ?)",
+            );
             let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
@@ -366,7 +420,9 @@ pub fn list_producoes(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (fold(titulo) LIKE ? OR fold(journal) LIKE ? OR fold(identifier) LIKE ?)");
+            sql.push_str(
+                " AND (fold(titulo) LIKE ? OR fold(journal) LIKE ? OR fold(identifier) LIKE ?)",
+            );
             let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
@@ -466,7 +522,9 @@ pub fn list_orientacoes(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (fold(aluno) LIKE ? OR fold(titulo) LIKE ? OR fold(identifier) LIKE ?)");
+            sql.push_str(
+                " AND (fold(aluno) LIKE ? OR fold(titulo) LIKE ? OR fold(identifier) LIKE ?)",
+            );
             let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
@@ -500,7 +558,9 @@ pub fn list_bancas(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (fold(aluno) LIKE ? OR fold(titulo) LIKE ? OR fold(identifier) LIKE ?)");
+            sql.push_str(
+                " AND (fold(aluno) LIKE ? OR fold(titulo) LIKE ? OR fold(identifier) LIKE ?)",
+            );
             let pattern = format!("%{}%", crate::db::fold(s.trim()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
@@ -516,7 +576,10 @@ pub fn list_bancas(
 }
 
 /// Subfolder mapping queries
-pub fn get_subfolder_mappings(conn: &Connection, group: Option<&str>) -> Result<Vec<SubfolderMapping>> {
+pub fn get_subfolder_mappings(
+    conn: &Connection,
+    group: Option<&str>,
+) -> Result<Vec<SubfolderMapping>> {
     if let Some(g) = group {
         let mut stmt = conn.prepare("SELECT id, category_group, description, folder, created_at FROM subfolder_mappings WHERE category_group = ? ORDER BY description ASC")?;
         let rows = stmt.query_map(params![g], SubfolderMapping::from_row)?;
@@ -528,7 +591,12 @@ pub fn get_subfolder_mappings(conn: &Connection, group: Option<&str>) -> Result<
     }
 }
 
-pub fn add_subfolder_mapping(conn: &Connection, group: &str, description: &str, folder: &str) -> Result<SubfolderMapping> {
+pub fn add_subfolder_mapping(
+    conn: &Connection,
+    group: &str,
+    description: &str,
+    folder: &str,
+) -> Result<SubfolderMapping> {
     if let Ok(existing) = conn.query_row(
         "SELECT id, category_group, description, created_at FROM subfolder_mappings WHERE fold(category_group) = fold(?1) AND fold(description) = fold(?2) ORDER BY id ASC LIMIT 1",
         params![group, description],
@@ -595,7 +663,8 @@ pub fn get_app_stats(conn: &Connection, db_path: &str) -> Result<AppStatsDto> {
         with_file.insert(key, wf);
     }
 
-    let total_mappings: i64 = conn.query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0))?;
+    let total_mappings: i64 =
+        conn.query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0))?;
 
     Ok(AppStatsDto {
         total_records,
@@ -645,79 +714,92 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM dadosgerais WHERE id = ?1",
             )?;
-            stmt.query_row([id], DadosGeraisRecord::from_row).map(Into::into)?
+            stmt.query_row([id], DadosGeraisRecord::from_row)
+                .map(Into::into)?
         }
         "formacao" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM formacao WHERE id = ?1",
             )?;
-            stmt.query_row([id], FormacaoRecord::from_row).map(Into::into)?
+            stmt.query_row([id], FormacaoRecord::from_row)
+                .map(Into::into)?
         }
         "atuacao" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url FROM atuacao WHERE id = ?1",
             )?;
-            stmt.query_row([id], AtuacaoRecord::from_row).map(Into::into)?
+            stmt.query_row([id], AtuacaoRecord::from_row)
+                .map(Into::into)?
         }
         "encargos" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM encargos WHERE id = ?1",
             )?;
-            stmt.query_row([id], EncargosRecord::from_row).map(Into::into)?
+            stmt.query_row([id], EncargosRecord::from_row)
+                .map(Into::into)?
         }
         "disciplinas" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, curso, identifier, file, folder, disciplina, horas, alunos, log, path, url FROM disciplinas WHERE id = ?1",
             )?;
-            stmt.query_row([id], DisciplinasRecord::from_row).map(Into::into)?
+            stmt.query_row([id], DisciplinasRecord::from_row)
+                .map(Into::into)?
         }
         "projetos" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM projetos WHERE id = ?1",
             )?;
-            stmt.query_row([id], ProjetosRecord::from_row).map(Into::into)?
+            stmt.query_row([id], ProjetosRecord::from_row)
+                .map(Into::into)?
         }
         "producoes" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url, citations FROM producoes WHERE id = ?1",
             )?;
-            stmt.query_row([id], ProducoesRecord::from_row).map(Into::into)?
+            stmt.query_row([id], ProducoesRecord::from_row)
+                .map(Into::into)?
         }
         "patentes" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM patentes WHERE id = ?1",
             )?;
-            stmt.query_row([id], PatentesRecord::from_row).map(Into::into)?
+            stmt.query_row([id], PatentesRecord::from_row)
+                .map(Into::into)?
         }
         "inovacao" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, titulo, instituicao, descricao, identifier, file, folder, log, path, url FROM inovacao WHERE id = ?1",
             )?;
-            stmt.query_row([id], InovacaoRecord::from_row).map(Into::into)?
+            stmt.query_row([id], InovacaoRecord::from_row)
+                .map(Into::into)?
         }
         "educacao_popularizacao" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, titulo, instituicao, descricao, identifier, file, folder, log, path, url FROM educacao_popularizacao WHERE id = ?1",
             )?;
-            stmt.query_row([id], EducacaoPopularizacaoRecord::from_row).map(Into::into)?
+            stmt.query_row([id], EducacaoPopularizacaoRecord::from_row)
+                .map(Into::into)?
         }
         "eventos" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM eventos WHERE id = ?1",
             )?;
-            stmt.query_row([id], EventosRecord::from_row).map(Into::into)?
+            stmt.query_row([id], EventosRecord::from_row)
+                .map(Into::into)?
         }
         "orientacoes" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM orientacoes WHERE id = ?1",
             )?;
-            stmt.query_row([id], OrientacoesRecord::from_row).map(Into::into)?
+            stmt.query_row([id], OrientacoesRecord::from_row)
+                .map(Into::into)?
         }
         "bancas" => {
             let mut stmt = conn.prepare(
                 "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM bancas WHERE id = ?1",
             )?;
-            stmt.query_row([id], BancasRecord::from_row).map(Into::into)?
+            stmt.query_row([id], BancasRecord::from_row)
+                .map(Into::into)?
         }
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
@@ -757,7 +839,8 @@ pub fn insert_record(
     let file = attached_file.or_else(|| json_str(data, "file"));
     let path = attached_path.or_else(|| json_str(data, "path"));
     let identifier = json_str(data, "identifier").or_else(|| file.clone());
-    let log = json_str(data, "log").or_else(|| Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()));
+    let log = json_str(data, "log")
+        .or_else(|| Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()));
 
     match table {
         "dadosgerais" | "projetos" | "patentes" | "eventos" => {
@@ -880,7 +963,14 @@ pub fn update_record(
     new_attached_path: Option<String>,
 ) -> Result<RecordDto> {
     if crate::custom::is_custom(category) {
-        crate::custom::update(conn, category, id, data, new_attached_file, new_attached_path)?;
+        crate::custom::update(
+            conn,
+            category,
+            id,
+            data,
+            new_attached_file,
+            new_attached_path,
+        )?;
         store_url(conn, category, id, data)?;
         return get_record_by_id(conn, category, id);
     }
@@ -1037,18 +1127,42 @@ pub fn update_record(
             )?;
         }
         "inovacao" => {
-            let titulo = if data.get("titulo").is_some() { json_str(data, "titulo") } else { existing.titulo };
-            let instituicao = if data.get("instituicao").is_some() { json_str(data, "instituicao") } else { existing.instituicao };
-            let descricao = if data.get("descricao").is_some() { json_str(data, "descricao") } else { existing.descricao };
+            let titulo = if data.get("titulo").is_some() {
+                json_str(data, "titulo")
+            } else {
+                existing.titulo
+            };
+            let instituicao = if data.get("instituicao").is_some() {
+                json_str(data, "instituicao")
+            } else {
+                existing.instituicao
+            };
+            let descricao = if data.get("descricao").is_some() {
+                json_str(data, "descricao")
+            } else {
+                existing.descricao
+            };
             conn.execute(
                 "UPDATE inovacao SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, titulo = ?6, instituicao = ?7, descricao = ?8, log = ?9, path = ?10 WHERE id = ?11",
                 params![ano, tipo, identifier, file, folder, titulo, instituicao, descricao, log, path, id],
             )?;
         }
         "educacao_popularizacao" => {
-            let titulo = if data.get("titulo").is_some() { json_str(data, "titulo") } else { existing.titulo };
-            let instituicao = if data.get("instituicao").is_some() { json_str(data, "instituicao") } else { existing.instituicao };
-            let descricao = if data.get("descricao").is_some() { json_str(data, "descricao") } else { existing.descricao };
+            let titulo = if data.get("titulo").is_some() {
+                json_str(data, "titulo")
+            } else {
+                existing.titulo
+            };
+            let instituicao = if data.get("instituicao").is_some() {
+                json_str(data, "instituicao")
+            } else {
+                existing.instituicao
+            };
+            let descricao = if data.get("descricao").is_some() {
+                json_str(data, "descricao")
+            } else {
+                existing.descricao
+            };
             conn.execute(
                 "UPDATE educacao_popularizacao SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, titulo = ?6, instituicao = ?7, descricao = ?8, log = ?9, path = ?10 WHERE id = ?11",
                 params![ano, tipo, identifier, file, folder, titulo, instituicao, descricao, log, path, id],
@@ -1172,14 +1286,17 @@ pub fn populate_attachments_for_records(
         let folder: Option<String> = row.get(4)?;
         let description: Option<String> = row.get(5)?;
         let ord: i64 = row.get(6)?;
-        Ok((record_id, AttachmentDto {
-            id: Some(id),
-            file,
-            path,
-            folder,
-            description,
-            ord: Some(ord),
-        }))
+        Ok((
+            record_id,
+            AttachmentDto {
+                id: Some(id),
+                file,
+                path,
+                folder,
+                description,
+                ord: Some(ord),
+            },
+        ))
     })?;
 
     for r in rows.flatten() {
@@ -1260,7 +1377,10 @@ pub fn sync_record_attachments(
 
     if let Some(tbl) = normalize_category(category) {
         let _ = conn.execute(
-            &format!("UPDATE {} SET file = ?1, path = ?2, folder = ?3 WHERE id = ?4", tbl),
+            &format!(
+                "UPDATE {} SET file = ?1, path = ?2, folder = ?3 WHERE id = ?4",
+                tbl
+            ),
             params![first_file, first_path, first_folder, record_id],
         );
     } else if crate::custom::is_custom(category) {
@@ -1291,7 +1411,19 @@ pub fn cleanup_external_attachments(conn: &Connection) -> Result<()> {
     );
 
     // Corrige linha principal caso tenha ficado com caminho absoluto
-    for cat in &["formacao", "dadosgerais", "atuacao", "projetos", "producoes", "patentes", "inovacao", "educacao_popularizacao", "eventos", "orientacoes", "bancas"] {
+    for cat in &[
+        "formacao",
+        "dadosgerais",
+        "atuacao",
+        "projetos",
+        "producoes",
+        "patentes",
+        "inovacao",
+        "educacao_popularizacao",
+        "eventos",
+        "orientacoes",
+        "bancas",
+    ] {
         let _ = conn.execute(
             &format!(
                 "UPDATE {cat} SET 

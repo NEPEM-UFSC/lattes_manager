@@ -179,38 +179,92 @@ pub const ENTITY_TABLES: &[&str] = &[
 pub const DEFAULT_ATUACAO_MAPPINGS: &[(&str, &str)] = &[
     ("Atuação profissional", r"3_atuacao\atuacao_profissional\"),
     ("Linhas de pesquisa", r"3_atuacao\linhas_de_pesquisa\"),
-    ("Membro de corpo editorial", r"3_atuacao\membro_de_corpo_editorial\"),
-    ("Membro de comitê de assessoramento", r"3_atuacao\membro_de_comite_de_assessoramento\"),
+    (
+        "Membro de corpo editorial",
+        r"3_atuacao\membro_de_corpo_editorial\",
+    ),
+    (
+        "Membro de comitê de assessoramento",
+        r"3_atuacao\membro_de_comite_de_assessoramento\",
+    ),
     ("Revisor de periódico", r"3_atuacao\revisor_de_periodico\"),
-    ("Revisor de projeto de agência de fomento", r"3_atuacao\revisor_de_projeto_de_agencia_de_fomento\"),
+    (
+        "Revisor de projeto de agência de fomento",
+        r"3_atuacao\revisor_de_projeto_de_agencia_de_fomento\",
+    ),
     ("Áreas de atuação", r"3_atuacao\areas_de_atuacao\"),
     ("Comissão", r"3_atuacao\atuacao_profissional\comissão\"),
     ("Supervisão", r"3_atuacao\atuacao_profissional\supervisão\"),
-    ("Coordenação", r"3_atuacao\atuacao_profissional\coordenação\"),
+    (
+        "Coordenação",
+        r"3_atuacao\atuacao_profissional\coordenação\",
+    ),
     ("Chefia", r"3_atuacao\atuacao_profissional\chefia\"),
     ("Direção", r"3_atuacao\atuacao_profissional\direção\"),
-    ("Encargos Graduação", r"3_atuacao\atuacao_profissional\encargos_graduação\"),
-    ("Encargos Pós-Graduação", r"3_atuacao\atuacao_profissional\encargos_pós\"),
-    ("Encargos Administrativos", r"3_atuacao\atuacao_profissional\encargos_adm\"),
+    (
+        "Encargos Graduação",
+        r"3_atuacao\atuacao_profissional\encargos_graduação\",
+    ),
+    (
+        "Encargos Pós-Graduação",
+        r"3_atuacao\atuacao_profissional\encargos_pós\",
+    ),
+    (
+        "Encargos Administrativos",
+        r"3_atuacao\atuacao_profissional\encargos_adm\",
+    ),
 ];
 
 pub const DEFAULT_INOVACAO_MAPPINGS: &[(&str, &str)] = &[
     ("Projetos de inovação", r"7_inovacao\projetos_de_inovacao\"),
-    ("Produtos tecnológicos", r"7_inovacao\produtos_tecnologicos\"),
-    ("Processos ou técnicas", r"7_inovacao\processos_ou_tecnicas\"),
-    ("Transferência de tecnologia", r"7_inovacao\transferencia_de_tecnologia\"),
+    (
+        "Produtos tecnológicos",
+        r"7_inovacao\produtos_tecnologicos\",
+    ),
+    (
+        "Processos ou técnicas",
+        r"7_inovacao\processos_ou_tecnicas\",
+    ),
+    (
+        "Transferência de tecnologia",
+        r"7_inovacao\transferencia_de_tecnologia\",
+    ),
     ("Spin-offs e startups", r"7_inovacao\spin_offs_e_startups\"),
-    ("Outras produções de inovação", r"7_inovacao\outras_inovacoes\"),
+    (
+        "Outras produções de inovação",
+        r"7_inovacao\outras_inovacoes\",
+    ),
 ];
 
 pub const DEFAULT_EDUCACAO_MAPPINGS: &[(&str, &str)] = &[
-    ("Artigos de divulgação científica", r"8_educacao\divulgacao_cientifica\"),
-    ("Livros e capítulos de divulgação", r"8_educacao\livros_divulgacao\"),
-    ("Material didático ou instrucional", r"8_educacao\material_didatico\"),
-    ("Mídias sociais, websites e blogs", r"8_educacao\midias_sociais_e_websites\"),
-    ("Cursos de curta duração ministrados", r"8_educacao\cursos_de_extensao\"),
-    ("Eventos de popularização de C&T", r"8_educacao\eventos_de_popularizacao\"),
-    ("Outras produções de divulgação", r"8_educacao\outras_producoes\"),
+    (
+        "Artigos de divulgação científica",
+        r"8_educacao\divulgacao_cientifica\",
+    ),
+    (
+        "Livros e capítulos de divulgação",
+        r"8_educacao\livros_divulgacao\",
+    ),
+    (
+        "Material didático ou instrucional",
+        r"8_educacao\material_didatico\",
+    ),
+    (
+        "Mídias sociais, websites e blogs",
+        r"8_educacao\midias_sociais_e_websites\",
+    ),
+    (
+        "Cursos de curta duração ministrados",
+        r"8_educacao\cursos_de_extensao\",
+    ),
+    (
+        "Eventos de popularização de C&T",
+        r"8_educacao\eventos_de_popularizacao\",
+    ),
+    (
+        "Outras produções de divulgação",
+        r"8_educacao\outras_producoes\",
+    ),
 ];
 
 pub fn normalize_category(category: &str) -> Option<&'static str> {
@@ -223,7 +277,12 @@ pub fn normalize_category(category: &str) -> Option<&'static str> {
         "producoes" | "produções" => Some("producoes"),
         "patentes" => Some("patentes"),
         "inovacao" | "inovação" => Some("inovacao"),
-        "educacao_popularizacao" | "educacao" | "educação" | "educação e popularização de c&t" | "educação e popularização" | "popularizacao" => Some("educacao_popularizacao"),
+        "educacao_popularizacao"
+        | "educacao"
+        | "educação"
+        | "educação e popularização de c&t"
+        | "educação e popularização"
+        | "popularizacao" => Some("educacao_popularizacao"),
         "eventos" => Some("eventos"),
         "orientacoes" | "orientações" => Some("orientacoes"),
         "bancas" => Some("bancas"),
@@ -364,8 +423,14 @@ FROM custom_records WHERE category = 'x_atuacao'
 "#,
         [],
     );
-    let _ = conn.execute("UPDATE record_attachments SET category = 'atuacao' WHERE category = 'x_atuacao'", []);
-    let _ = conn.execute("DELETE FROM custom_records WHERE category = 'x_atuacao'", []);
+    let _ = conn.execute(
+        "UPDATE record_attachments SET category = 'atuacao' WHERE category = 'x_atuacao'",
+        [],
+    );
+    let _ = conn.execute(
+        "DELETE FROM custom_records WHERE category = 'x_atuacao'",
+        [],
+    );
     let _ = conn.execute("DELETE FROM custom_categories WHERE key = 'x_atuacao'", []);
 
     // Remove todas as tabelas legadas mantendo somente os dados atuais do app
@@ -551,7 +616,8 @@ FROM custom_records WHERE category = 'x_atuacao'
 }
 
 pub fn schema_version(conn: &Connection) -> Result<usize> {
-    conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0)).map(|v| v.max(0) as usize)
+    conn.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+        .map(|v| v.max(0) as usize)
 }
 
 fn migrate(conn: &Connection, existing: bool) -> Result<()> {
@@ -577,13 +643,24 @@ fn migrate(conn: &Connection, existing: bool) -> Result<()> {
 
 /// Cópia do banco em `backups/` antes de alterar o esquema. Falhar aqui não impede a migração.
 fn snapshot_before_migration(conn: &Connection, from: usize) {
-    let Some(db) = conn.path().filter(|p| !p.is_empty()).map(std::path::PathBuf::from) else { return };
-    let Some(dir) = db.parent().map(|d| d.join("backups")) else { return };
+    let Some(db) = conn
+        .path()
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+    else {
+        return;
+    };
+    let Some(dir) = db.parent().map(|d| d.join("backups")) else {
+        return;
+    };
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H%M%S");
-    let _ = crate::backup::snapshot_db(conn, &dir.join(format!("lattes_antes_migracao_v{}_{}.db", from, stamp)));
+    let _ = crate::backup::snapshot_db(
+        conn,
+        &dir.join(format!("lattes_antes_migracao_v{}_{}.db", from, stamp)),
+    );
 }
 
 pub fn init_schema(conn: &Connection) -> Result<()> {
