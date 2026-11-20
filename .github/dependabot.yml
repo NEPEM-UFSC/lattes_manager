@@ -1,0 +1,12 @@
+# Abre PRs quando sair versão nova de uma action usada nos workflows.
+# As actions estão fixadas por hash de commit; o Dependabot atualiza o hash e o comentário de versão.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"
