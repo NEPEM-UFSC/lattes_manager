@@ -1,6 +1,8 @@
 // Tauri IPC commands for Lattes Desktop Manager
 
-use crate::db::models::{AppStatsDto, AttachmentDto, MigrationReportDto, RecordDto, SubfolderMappingDto};
+use crate::db::models::{
+    AppStatsDto, AttachmentDto, MigrationReportDto, RecordDto, SubfolderMappingDto,
+};
 use crate::db::queries;
 use crate::files::{shell, storage};
 use crate::migration::calamine_importer;
@@ -21,7 +23,9 @@ pub fn get_records_impl(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<RecordDto>, String> {
-    let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     queries::get_records(&conn, category, search, year, tipo)
         .map_err(|e| format!("Failed to get records: {}", e))
 }
@@ -29,25 +33,38 @@ pub fn get_records_impl(
 /// Pasta de comprovantes válida: `5_producoes\artigos_completos\` (não o marcador "folder").
 pub fn valid_folder(f: &str) -> bool {
     let t = f.trim().trim_matches(|c| c == '\\' || c == '/');
-    let first = t.split(|c| c == '\\' || c == '/').next().unwrap_or("");
-    !t.is_empty() && first.split_once('_').map(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).unwrap_or(false)
+    let first = t.split(['\\', '/']).next().unwrap_or("");
+    !t.is_empty()
+        && first
+            .split_once('_')
+            .map(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or(false)
 }
 
 /// Pasta de comprovantes válida que aponta para um subdiretório folha (pelo menos 2 níveis),
 /// evitando que arquivos sejam salvos diretamente na pasta raiz da categoria (ex: `11_bancas\`).
 pub fn valid_subfolder(f: &str) -> bool {
     let t = f.trim().trim_matches(|c| c == '\\' || c == '/');
-    let parts: Vec<&str> = t.split(|c| c == '\\' || c == '/').filter(|s| !s.is_empty()).collect();
+    let parts: Vec<&str> = t.split(['\\', '/']).filter(|s| !s.is_empty()).collect();
     if parts.len() < 2 {
         return false;
     }
-    parts[0].split_once('_').map(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).unwrap_or(false)
+    parts[0]
+        .split_once('_')
+        .map(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(false)
 }
 
 /// Nome do grupo (subfolder_mappings.category_group) de uma categoria.
 fn group_of(conn: &Connection, category: &str) -> Option<String> {
     if crate::custom::is_custom(category) {
-        return conn.query_row("SELECT name FROM custom_categories WHERE key = ?1", [category], |r| r.get(0)).ok();
+        return conn
+            .query_row(
+                "SELECT name FROM custom_categories WHERE key = ?1",
+                [category],
+                |r| r.get(0),
+            )
+            .ok();
     }
     Some(
         match crate::db::schema::normalize_category(category)? {
@@ -73,7 +90,12 @@ fn group_of(conn: &Connection, category: &str) -> Option<String> {
 /// Garante uma pasta de destino real: a informada, a do registro, a do caminho atual
 /// ou a da subcategoria (tipo). Corrige registros com o marcador "folder" da planilha
 /// ou salvos equivocadamente na raiz da categoria.
-fn with_valid_folder(db: &Mutex<Connection>, category: &str, data: &Value, existing: Option<&RecordDto>) -> Result<Value, String> {
+fn with_valid_folder(
+    db: &Mutex<Connection>,
+    category: &str,
+    data: &Value,
+    existing: Option<&RecordDto>,
+) -> Result<Value, String> {
     let mut out = data.clone();
     let tipo = queries::json_str(data, "tipo").or_else(|| existing.and_then(|e| e.tipo.clone()));
 
@@ -112,7 +134,11 @@ fn with_valid_folder(db: &Mutex<Connection>, category: &str, data: &Value, exist
     // 4. Tenta inferir pelo diretório do path existente
     let from_path = existing
         .and_then(|e| e.path.as_deref())
-        .and_then(|p| p.replace('/', "\\").rsplit_once('\\').map(|(d, _)| format!("{}\\", d)))
+        .and_then(|p| {
+            p.replace('/', "\\")
+                .rsplit_once('\\')
+                .map(|(d, _)| format!("{}\\", d))
+        })
         .filter(|d| valid_subfolder(d));
 
     // 5. Fallback para subfolder_mappings daquele grupo (primeira subpasta conhecida)
@@ -150,13 +176,30 @@ pub fn normalize_url(raw: &str) -> Result<String, String> {
         format!("https://doi.org/{}", s)
     } else if lower.starts_with("doi:") {
         format!("https://doi.org/{}", s[4..].trim())
-    } else if s.split(['/', '?', '#']).next().is_some_and(|h| h.contains(':')) {
-        return Err(format!("URL inválida: '{}'. Use um endereço http:// ou https://", s));
+    } else if s
+        .split(['/', '?', '#'])
+        .next()
+        .is_some_and(|h| h.contains(':'))
+    {
+        return Err(format!(
+            "URL inválida: '{}'. Use um endereço http:// ou https://",
+            s
+        ));
     } else {
         format!("https://{}", s)
     };
-    let host = full.split_once("://").map(|(_, r)| r).unwrap_or("").split(['/', '?', '#']).next().unwrap_or("");
-    if full.contains(char::is_whitespace) || !host.contains('.') || host.starts_with('.') || host.ends_with('.') {
+    let host = full
+        .split_once("://")
+        .map(|(_, r)| r)
+        .unwrap_or("")
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    if full.contains(char::is_whitespace)
+        || !host.contains('.')
+        || host.starts_with('.')
+        || host.ends_with('.')
+    {
         return Err(format!("URL inválida: '{}'", s));
     }
     Ok(full)
@@ -167,7 +210,11 @@ fn with_clean_url(data: &Value) -> Result<Value, String> {
     let mut out = data.clone();
     if let Some(v) = out.get_mut("url") {
         let s = v.as_str().unwrap_or("").trim().to_string();
-        *v = if s.is_empty() { Value::Null } else { Value::String(normalize_url(&s)?) };
+        *v = if s.is_empty() {
+            Value::Null
+        } else {
+            Value::String(normalize_url(&s)?)
+        };
     }
     Ok(out)
 }
@@ -199,7 +246,10 @@ pub fn create_record_impl(
         if !src_trimmed.is_empty() {
             let src_path = PathBuf::from(src_trimmed);
             if !src_path.exists() {
-                return Err(format!("Arquivo de origem não encontrado: '{}'", src_trimmed));
+                return Err(format!(
+                    "Arquivo de origem não encontrado: '{}'",
+                    src_trimmed
+                ));
             }
             files_to_attach.push(src_path);
         }
@@ -227,8 +277,13 @@ pub fn create_record_impl(
             } else {
                 base.clone()
             };
-            let attachment = storage::save_attached_file_as(src_path, &target_subfolder, root_dir, item_base.as_deref())
-                .map_err(|e| format!("Falha ao anexar arquivo: {}", e))?;
+            let attachment = storage::save_attached_file_as(
+                src_path,
+                &target_subfolder,
+                root_dir,
+                item_base.as_deref(),
+            )
+            .map_err(|e| format!("Falha ao anexar arquivo: {}", e))?;
 
             if idx == 0 {
                 attached_file = Some(attachment.filename.clone());
@@ -262,7 +317,11 @@ pub fn create_record_impl(
             }
             let att_norm = att.path.replace('/', "\\").to_lowercase();
             for src in &files_to_attach {
-                let src_name = src.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                let src_name = src
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
                 if att.file.to_lowercase() == src_name {
                     return false;
                 }
@@ -279,11 +338,16 @@ pub fn create_record_impl(
             existing_atts.push(a);
         }
         if let Some(obj) = data_clone.as_object_mut() {
-            obj.insert("attachments".to_string(), serde_json::to_value(&existing_atts).unwrap_or_default());
+            obj.insert(
+                "attachments".to_string(),
+                serde_json::to_value(&existing_atts).unwrap_or_default(),
+            );
         }
     }
 
-    let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     queries::insert_record(&conn, category, &data_clone, attached_file, attached_path)
         .map_err(|e| format!("Falha ao inserir registro: {}", e))
 }
@@ -298,7 +362,9 @@ pub fn update_record_impl(
     new_source_files: Option<&[String]>,
 ) -> Result<RecordDto, String> {
     let existing = {
-        let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+        let conn = db
+            .lock()
+            .map_err(|e| format!("Database lock failed: {}", e))?;
         queries::get_record_by_id(&conn, category, id).ok()
     };
     let data = &with_valid_folder(db, category, &with_clean_url(data)?, existing.as_ref())?;
@@ -320,7 +386,10 @@ pub fn update_record_impl(
         if !src_trimmed.is_empty() {
             let src_path = PathBuf::from(src_trimmed);
             if !src_path.exists() {
-                return Err(format!("Novo arquivo de origem não encontrado: '{}'", src_trimmed));
+                return Err(format!(
+                    "Novo arquivo de origem não encontrado: '{}'",
+                    src_trimmed
+                ));
             }
             files_to_attach.push(src_path);
         }
@@ -334,10 +403,13 @@ pub fn update_record_impl(
         let folder_str = if let Some(f) = queries::json_str(data, "folder") {
             f
         } else {
-            let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+            let conn = db
+                .lock()
+                .map_err(|e| format!("Database lock failed: {}", e))?;
             let ex = queries::get_record_by_id(&conn, category, id)
                 .map_err(|e| format!("Registro não encontrado: {}", e))?;
-            ex.folder.ok_or_else(|| "Subpasta de destino não encontrada para o registro".to_string())?
+            ex.folder
+                .ok_or_else(|| "Subpasta de destino não encontrada para o registro".to_string())?
         };
 
         let target_subfolder = crate::files::rel_join(root_dir, &folder_str);
@@ -347,7 +419,9 @@ pub fn update_record_impl(
         }
 
         let merged = {
-            let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+            let conn = db
+                .lock()
+                .map_err(|e| format!("Database lock failed: {}", e))?;
             let mut base = queries::get_record_by_id(&conn, category, id)
                 .ok()
                 .and_then(|r| serde_json::to_value(r).ok())
@@ -367,8 +441,13 @@ pub fn update_record_impl(
             } else {
                 base.clone()
             };
-            let attachment = storage::save_attached_file_as(src_path, &target_subfolder, root_dir, item_base.as_deref())
-                .map_err(|e| format!("Falha ao salvar novo arquivo anexado: {}", e))?;
+            let attachment = storage::save_attached_file_as(
+                src_path,
+                &target_subfolder,
+                root_dir,
+                item_base.as_deref(),
+            )
+            .map_err(|e| format!("Falha ao salvar novo arquivo anexado: {}", e))?;
 
             if idx == 0 {
                 attached_file = Some(attachment.filename.clone());
@@ -391,7 +470,9 @@ pub fn update_record_impl(
         let mut existing_atts: Vec<AttachmentDto> = if let Some(arr) = data.get("attachments") {
             serde_json::from_value(arr.clone()).unwrap_or_default()
         } else {
-            let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+            let conn = db
+                .lock()
+                .map_err(|e| format!("Database lock failed: {}", e))?;
             queries::get_attachments_for_record(&conn, category, id).unwrap_or_default()
         };
 
@@ -404,7 +485,11 @@ pub fn update_record_impl(
             }
             let att_norm = att.path.replace('/', "\\").to_lowercase();
             for src in &files_to_attach {
-                let src_name = src.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+                let src_name = src
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
                 if att.file.to_lowercase() == src_name {
                     return false;
                 }
@@ -421,13 +506,25 @@ pub fn update_record_impl(
             existing_atts.push(a);
         }
         if let Some(obj) = data_clone.as_object_mut() {
-            obj.insert("attachments".to_string(), serde_json::to_value(&existing_atts).unwrap_or_default());
+            obj.insert(
+                "attachments".to_string(),
+                serde_json::to_value(&existing_atts).unwrap_or_default(),
+            );
         }
     }
 
-    let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
-    let res = queries::update_record(&conn, category, id, &data_clone, attached_file, attached_path)
-        .map_err(|e| format!("Falha ao atualizar registro: {}", e))?;
+    let conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
+    let res = queries::update_record(
+        &conn,
+        category,
+        id,
+        &data_clone,
+        attached_file,
+        attached_path,
+    )
+    .map_err(|e| format!("Falha ao atualizar registro: {}", e))?;
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
     Ok(res)
 }
@@ -439,7 +536,9 @@ pub fn delete_record_impl(
     id: i64,
     delete_file: bool,
 ) -> Result<(), String> {
-    let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
 
     if delete_file {
         if let Ok(rec) = queries::get_record_by_id(&conn, category, id) {
@@ -519,7 +618,9 @@ pub fn batch_update_records_impl(
     qualis: Option<String>,
     data: Option<&serde_json::Value>,
 ) -> Result<usize, String> {
-    let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let mut conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     let table = validate_batch_category(&conn, category)?;
     let unique_ids = dedup_ids(ids);
     if unique_ids.is_empty() {
@@ -528,7 +629,10 @@ pub fn batch_update_records_impl(
 
     let is_cust = crate::custom::is_custom(&table);
     let table_cols: Vec<String> = if is_cust {
-        ALLOWED_BATCH_COLUMNS.iter().map(|s| s.to_string()).collect()
+        ALLOWED_BATCH_COLUMNS
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     } else {
         let mut pragma = conn
             .prepare(&format!("PRAGMA table_info({})", table))
@@ -546,7 +650,9 @@ pub fn batch_update_records_impl(
     if let Some(obj) = data.and_then(|d| d.as_object()) {
         for (k, v) in obj {
             let col = k.to_lowercase();
-            if !ALLOWED_BATCH_COLUMNS.contains(&col.as_str()) || !table_cols.iter().any(|c| c.eq_ignore_ascii_case(&col)) {
+            if !ALLOWED_BATCH_COLUMNS.contains(&col.as_str())
+                || !table_cols.iter().any(|c| c.eq_ignore_ascii_case(&col))
+            {
                 continue;
             }
             if sets.iter().any(|s| s.starts_with(&format!("{} =", col))) {
@@ -583,14 +689,18 @@ pub fn batch_update_records_impl(
 
     // 2. Fallbacks diretos para ano, tipo e qualis
     if let Some(y) = ano {
-        if !sets.iter().any(|s| s.starts_with("ano =")) && table_cols.iter().any(|c| c.eq_ignore_ascii_case("ano")) {
+        if !sets.iter().any(|s| s.starts_with("ano ="))
+            && table_cols.iter().any(|c| c.eq_ignore_ascii_case("ano"))
+        {
             sets.push("ano = ?".to_string());
             base_params.push(rusqlite::types::Value::Integer(y));
         }
     }
     if let Some(t) = tipo {
         let trimmed = t.trim().to_string();
-        if !sets.iter().any(|s| s.starts_with("tipo =")) && table_cols.iter().any(|c| c.eq_ignore_ascii_case("tipo")) {
+        if !sets.iter().any(|s| s.starts_with("tipo ="))
+            && table_cols.iter().any(|c| c.eq_ignore_ascii_case("tipo"))
+        {
             sets.push("tipo = ?".to_string());
             base_params.push(if trimmed.is_empty() {
                 rusqlite::types::Value::Null
@@ -602,7 +712,9 @@ pub fn batch_update_records_impl(
     let eff_qualis = if table == "producoes" { qualis } else { None };
     if let Some(q) = eff_qualis {
         let trimmed = q.trim().to_string();
-        if !sets.iter().any(|s| s.starts_with("qualis =")) && table_cols.iter().any(|c| c.eq_ignore_ascii_case("qualis")) {
+        if !sets.iter().any(|s| s.starts_with("qualis ="))
+            && table_cols.iter().any(|c| c.eq_ignore_ascii_case("qualis"))
+        {
             sets.push("qualis = ?".to_string());
             base_params.push(if trimmed.is_empty() {
                 rusqlite::types::Value::Null
@@ -665,7 +777,9 @@ pub fn batch_delete_records_impl(
 ) -> Result<usize, String> {
     let unique_ids = dedup_ids(ids);
     let (paths_to_delete, deleted) = {
-        let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+        let mut conn = db
+            .lock()
+            .map_err(|e| format!("Database lock failed: {}", e))?;
         let table = validate_batch_category(&conn, category)?;
         if unique_ids.is_empty() {
             return Ok(0);
@@ -704,9 +818,11 @@ pub fn batch_delete_records_impl(
             for id in unique_ids {
                 if let Some(ref mut s) = sel_stmt {
                     let path_opt: Option<String> = if is_cust {
-                        s.query_row(rusqlite::params![&table, id], |r| r.get::<_, Option<String>>(0))
-                            .ok()
-                            .flatten()
+                        s.query_row(rusqlite::params![&table, id], |r| {
+                            r.get::<_, Option<String>>(0)
+                        })
+                        .ok()
+                        .flatten()
                     } else {
                         s.query_row(rusqlite::params![id], |r| r.get::<_, Option<String>>(0))
                             .ok()
@@ -754,7 +870,9 @@ pub fn get_subfolder_mappings_impl(
     db: &Mutex<Connection>,
     category_group: Option<&str>,
 ) -> Result<Vec<SubfolderMappingDto>, String> {
-    let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     let mappings = queries::get_subfolder_mappings(&conn, category_group)
         .map_err(|e| format!("Falha ao carregar mapeamentos de subpastas: {}", e))?;
     Ok(mappings.into_iter().map(Into::into).collect())
@@ -778,7 +896,9 @@ pub fn add_subfolder_mapping_impl(
         let _ = std::fs::create_dir_all(&full_dir);
     }
 
-    let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     let mapping = queries::add_subfolder_mapping(&conn, category_group, description, &clean_folder)
         .map_err(|e| format!("Falha ao adicionar mapeamento de subpasta: {}", e))?;
     Ok(mapping.into())
@@ -821,10 +941,15 @@ pub fn import_from_excel_impl(
         .unwrap_or_else(|| root_dir.join("lattes.xlsm"));
 
     if !path.exists() {
-        return Err(format!("Arquivo Excel não encontrado em '{}'", path.display()));
+        return Err(format!(
+            "Arquivo Excel não encontrado em '{}'",
+            path.display()
+        ));
     }
 
-    let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let mut conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     let report = calamine_importer::migrate_workbook(&mut conn, &path, root_dir)
         .map_err(|e| format!("Falha na migração do Excel: {}", e))?;
 
@@ -837,9 +962,12 @@ pub fn import_from_excel_impl(
 }
 
 pub fn get_app_stats_impl(db: &Mutex<Connection>, root_dir: &Path) -> Result<AppStatsDto, String> {
-    let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     let db_path = root_dir.join("lattes.db").to_string_lossy().to_string();
-    queries::get_app_stats(&conn, &db_path).map_err(|e| format!("Falha ao obter estatísticas: {}", e))
+    queries::get_app_stats(&conn, &db_path)
+        .map_err(|e| format!("Falha ao obter estatísticas: {}", e))
 }
 
 // ==========================================
@@ -859,7 +987,13 @@ pub fn get_records(
     year: Option<i64>,
     tipo: Option<String>,
 ) -> Result<Vec<RecordDto>, String> {
-    get_records_impl(&state.db, &category, search.as_deref(), year, tipo.as_deref())
+    get_records_impl(
+        &state.db,
+        &category,
+        search.as_deref(),
+        year,
+        tipo.as_deref(),
+    )
 }
 
 #[tauri::command(async)]
@@ -912,7 +1046,10 @@ pub fn add_record_attachment(
     if !p.exists() {
         return Err(format!("Arquivo não encontrado: '{}'", file_path));
     }
-    let conn = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("DB lock error: {}", e))?;
     let mut rec = queries::get_record_by_id(&conn, &category, record_id)
         .map_err(|e| format!("Registro não encontrado: {}", e))?;
 
@@ -953,7 +1090,10 @@ pub fn remove_record_attachment(
     path: String,
     delete_file: bool,
 ) -> Result<RecordDto, String> {
-    let conn = state.db.lock().map_err(|e| format!("DB lock error: {}", e))?;
+    let conn = state
+        .db
+        .lock()
+        .map_err(|e| format!("DB lock error: {}", e))?;
     let mut rec = queries::get_record_by_id(&conn, &category, record_id)
         .map_err(|e| format!("Registro não encontrado: {}", e))?;
 
@@ -1033,7 +1173,9 @@ pub fn select_source_file() -> Result<Option<String>, String> {
         .set_title("Selecionar Comprovante / Documento")
         .add_filter(
             "Documentos e Imagens",
-            &["pdf", "png", "jpg", "jpeg", "docx", "doc", "xlsx", "xls", "txt"],
+            &[
+                "pdf", "png", "jpg", "jpeg", "docx", "doc", "xlsx", "xls", "txt",
+            ],
         )
         .add_filter("PDF (*.pdf)", &["pdf"])
         .add_filter("Imagens (*.png, *.jpg, *.jpeg)", &["png", "jpg", "jpeg"])
@@ -1057,10 +1199,7 @@ pub fn resolve_for_shell(state: &AppState, path: &str) -> Result<PathBuf, String
 }
 
 #[tauri::command]
-pub fn open_file(
-    state: tauri::State<'_, AppState>,
-    relative_path: String,
-) -> Result<(), String> {
+pub fn open_file(state: tauri::State<'_, AppState>, relative_path: String) -> Result<(), String> {
     shell::open_path(&resolve_for_shell(&state, &relative_path)?)
 }
 
@@ -1073,10 +1212,7 @@ pub fn reveal_in_explorer(
 }
 
 #[tauri::command]
-pub fn open_folder(
-    state: tauri::State<'_, AppState>,
-    relative_path: String,
-) -> Result<(), String> {
+pub fn open_folder(state: tauri::State<'_, AppState>, relative_path: String) -> Result<(), String> {
     open_folder_impl(&state.root_dir, &relative_path)
 }
 
@@ -1110,7 +1246,12 @@ fn resolve_xml_path(root_dir: &Path, xml_path: Option<&str>) -> PathBuf {
                 let mut candidates = Vec::new();
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()).map(|s| s.eq_ignore_ascii_case("xml")).unwrap_or(false) {
+                    if path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|s| s.eq_ignore_ascii_case("xml"))
+                        .unwrap_or(false)
+                    {
                         let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
                         if stem.len() == 16 && stem.chars().all(|c| c.is_ascii_digit()) {
                             return path;
@@ -1134,9 +1275,14 @@ pub fn preview_lattes_xml_impl(
 ) -> Result<Vec<XmlProduction>, String> {
     let path = resolve_xml_path(root_dir, xml_path);
     if !path.exists() {
-        return Err(format!("Arquivo XML não encontrado em '{}'", path.display()));
+        return Err(format!(
+            "Arquivo XML não encontrado em '{}'",
+            path.display()
+        ));
     }
-    let conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     lattes_xml::preview(&conn, &path)
 }
 
@@ -1145,7 +1291,9 @@ pub fn import_lattes_xml_impl(
     root_dir: &Path,
     items: &[XmlProduction],
 ) -> Result<usize, String> {
-    let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let mut conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     lattes_xml::import_items(&mut conn, root_dir, items)
 }
 
@@ -1182,7 +1330,11 @@ pub fn update_subfolder_mapping(
     description: String,
     folder: String,
 ) -> Result<(), String> {
-    let clean = folder.trim().replace('/', "\\").trim_start_matches('\\').to_string();
+    let clean = folder
+        .trim()
+        .replace('/', "\\")
+        .trim_start_matches('\\')
+        .to_string();
     let full = crate::files::rel_join(&state.root_dir, &clean);
     if !full.exists() {
         let _ = std::fs::create_dir_all(&full);
@@ -1199,14 +1351,20 @@ pub fn update_subfolder_mapping(
 #[tauri::command(async)]
 pub fn delete_subfolder_mapping(state: tauri::State<'_, AppState>, id: i64) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM subfolder_mappings WHERE id = ?1", rusqlite::params![id])
-        .map_err(|e| format!("Falha ao excluir opção: {}", e))?;
+    conn.execute(
+        "DELETE FROM subfolder_mappings WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .map_err(|e| format!("Falha ao excluir opção: {}", e))?;
     Ok(())
 }
 
 /// Opções de listas simples (ex.: qualis) guardadas em app_metadata como JSON.
 #[tauri::command(async)]
-pub fn get_dropdown_options(state: tauri::State<'_, AppState>, field: String) -> Result<Option<Vec<String>>, String> {
+pub fn get_dropdown_options(
+    state: tauri::State<'_, AppState>,
+    field: String,
+) -> Result<Option<Vec<String>>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let raw: Option<String> = conn
         .query_row(
@@ -1235,7 +1393,9 @@ pub fn set_dropdown_options(
 }
 
 #[tauri::command(async)]
-pub fn get_all_records(state: tauri::State<'_, AppState>) -> Result<std::collections::HashMap<String, Vec<RecordDto>>, String> {
+pub fn get_all_records(
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, Vec<RecordDto>>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let mut out = std::collections::HashMap::new();
     for t in crate::db::schema::ENTITY_TABLES {
@@ -1265,7 +1425,9 @@ pub fn resolve_inside_root(root_dir: &Path, relative_path: &str) -> Result<PathB
     if !full.exists() {
         return Err(format!("Arquivo não encontrado: {}", full.display()));
     }
-    let root = crate::strip_verbatim(&std::fs::canonicalize(root_dir).unwrap_or_else(|_| root_dir.to_path_buf()));
+    let root = crate::strip_verbatim(
+        &std::fs::canonicalize(root_dir).unwrap_or_else(|_| root_dir.to_path_buf()),
+    );
     let canon = crate::strip_verbatim(&std::fs::canonicalize(&full).map_err(|e| e.to_string())?);
     if !canon.starts_with(&root) {
         return Err("Caminho fora da pasta do currículo".into());
@@ -1275,13 +1437,19 @@ pub fn resolve_inside_root(root_dir: &Path, relative_path: &str) -> Result<PathB
 
 /// Caminho absoluto de um comprovante, para o visualizador interno (asset protocol).
 #[tauri::command(async)]
-pub fn resolve_file_path(state: tauri::State<'_, AppState>, relative_path: String) -> Result<String, String> {
+pub fn resolve_file_path(
+    state: tauri::State<'_, AppState>,
+    relative_path: String,
+) -> Result<String, String> {
     resolve_inside_root(&state.root_dir, &relative_path).map(|p| p.to_string_lossy().to_string())
 }
 
 /// Bytes de um comprovante (binário, sem JSON) para montar o PDF único.
 #[tauri::command]
-pub async fn read_file_bytes(state: tauri::State<'_, AppState>, relative_path: String) -> Result<tauri::ipc::Response, String> {
+pub async fn read_file_bytes(
+    state: tauri::State<'_, AppState>,
+    relative_path: String,
+) -> Result<tauri::ipc::Response, String> {
     let p = resolve_inside_root(&state.root_dir, &relative_path)?;
     let bytes = std::fs::read(&p).map_err(|e| format!("Falha ao ler '{}': {}", p.display(), e))?;
     Ok(tauri::ipc::Response::new(bytes))
@@ -1305,16 +1473,40 @@ pub fn read_system_font(name: String) -> Result<tauri::ipc::Response, String> {
     }
     let (mac, linux): (&[&str], &[&str]) = match weight {
         "bold" => (
-            &["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/Library/Fonts/Arial Bold.ttf"],
-            &["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"],
+            &[
+                "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+                "/Library/Fonts/Arial Bold.ttf",
+            ],
+            &[
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            ],
         ),
         "semibold" => (
-            &["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/Library/Fonts/Arial Bold.ttf"],
-            &["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"],
+            &[
+                "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+                "/Library/Fonts/Arial Bold.ttf",
+            ],
+            &[
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            ],
         ),
         _ => (
-            &["/System/Library/Fonts/Supplemental/Arial.ttf", "/Library/Fonts/Arial.ttf"],
-            &["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"],
+            &[
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/Library/Fonts/Arial.ttf",
+            ],
+            &[
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            ],
         ),
     };
     cands.extend(mac.iter().chain(linux.iter()).map(std::path::PathBuf::from));
@@ -1333,7 +1525,10 @@ pub fn get_lattes_profile(
 ) -> Result<lattes_xml::LattesProfile, String> {
     let path = resolve_xml_path(&state.root_dir, xml_path.as_deref());
     if !path.exists() {
-        return Err(format!("Arquivo XML não encontrado em '{}'", path.display()));
+        return Err(format!(
+            "Arquivo XML não encontrado em '{}'",
+            path.display()
+        ));
     }
     lattes_xml::parse_profile(&path)
 }
@@ -1357,7 +1552,10 @@ pub fn photo_kind(bytes: &[u8]) -> Option<&'static str> {
 }
 
 fn photo_files(root_dir: &Path) -> Vec<PathBuf> {
-    ["png", "jpg"].iter().map(|e| root_dir.join(PHOTO_DIR).join(format!("foto_perfil.{}", e))).collect()
+    ["png", "jpg"]
+        .iter()
+        .map(|e| root_dir.join(PHOTO_DIR).join(format!("foto_perfil.{}", e)))
+        .collect()
 }
 
 /// Caminho relativo da foto atual, se houver.
@@ -1365,19 +1563,25 @@ pub fn profile_photo_impl(root_dir: &Path) -> Option<String> {
     photo_files(root_dir)
         .into_iter()
         .find(|p| p.is_file())
-        .and_then(|p| p.file_name().map(|n| format!("{}/{}", PHOTO_DIR, n.to_string_lossy())))
+        .and_then(|p| {
+            p.file_name()
+                .map(|n| format!("{}/{}", PHOTO_DIR, n.to_string_lossy()))
+        })
 }
 
 /// Copia `src` como a foto de perfil, substituindo a anterior. Devolve o caminho relativo.
 pub fn set_profile_photo_impl(root_dir: &Path, src: &Path) -> Result<String, String> {
-    let size = std::fs::metadata(src).map_err(|e| format!("Falha ao ler a foto: {}", e))?.len();
+    let size = std::fs::metadata(src)
+        .map_err(|e| format!("Falha ao ler a foto: {}", e))?
+        .len();
     if size > PHOTO_MAX_BYTES {
         return Err("Foto muito grande (máximo de 40 MB)".into());
     }
     let bytes = std::fs::read(src).map_err(|e| format!("Falha ao ler a foto: {}", e))?;
     let ext = photo_kind(&bytes).ok_or("A foto precisa ser um arquivo PNG ou JPG")?;
     let dir = root_dir.join(PHOTO_DIR);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Falha ao criar a pasta '{}': {}", dir.display(), e))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Falha ao criar a pasta '{}': {}", dir.display(), e))?;
     remove_profile_photo_impl(root_dir)?;
     let target = dir.join(format!("foto_perfil.{}", ext));
     std::fs::write(&target, &bytes).map_err(|e| format!("Falha ao salvar a foto: {}", e))?;
@@ -1386,7 +1590,8 @@ pub fn set_profile_photo_impl(root_dir: &Path, src: &Path) -> Result<String, Str
 
 pub fn remove_profile_photo_impl(root_dir: &Path) -> Result<(), String> {
     for p in photo_files(root_dir).into_iter().filter(|p| p.is_file()) {
-        std::fs::remove_file(&p).map_err(|e| format!("Falha ao remover '{}': {}", p.display(), e))?;
+        std::fs::remove_file(&p)
+            .map_err(|e| format!("Falha ao remover '{}': {}", p.display(), e))?;
     }
     Ok(())
 }
@@ -1421,10 +1626,18 @@ pub fn get_app_version() -> &'static str {
 
 /// Abre o diálogo "Salvar como" e guarda o destino para `write_report`.
 #[tauri::command]
-pub fn select_save_path(state: tauri::State<'_, AppState>, suggested_name: String, kind: Option<String>) -> Result<Option<String>, String> {
+pub fn select_save_path(
+    state: tauri::State<'_, AppState>,
+    suggested_name: String,
+    kind: Option<String>,
+) -> Result<Option<String>, String> {
     let (title, filter, ext): (&str, &str, &str) = match kind.as_deref() {
         Some("xlsx") => ("Salvar planilha do Excel", "Excel (*.xlsx)", "xlsx"),
-        Some("html") => ("Salvar painel de indicadores", "Página HTML (*.html)", "html"),
+        Some("html") => (
+            "Salvar painel de indicadores",
+            "Página HTML (*.html)",
+            "html",
+        ),
         Some("csv") => ("Salvar CSV", "CSV (*.csv)", "csv"),
         Some("bib") => ("Salvar arquivo BibTeX", "BibTeX (*.bib)", "bib"),
         Some("ris") => ("Salvar arquivo RIS", "RIS (*.ris)", "ris"),
@@ -1459,7 +1672,8 @@ pub async fn write_report(
         .map_err(|e| e.to_string())?
         .take()
         .ok_or_else(|| "Nenhum destino selecionado".to_string())?;
-    std::fs::write(&target, bytes).map_err(|e| format!("Falha ao salvar '{}': {}", target.display(), e))?;
+    std::fs::write(&target, bytes)
+        .map_err(|e| format!("Falha ao salvar '{}': {}", target.display(), e))?;
     state.remember_saved(&target);
     {
         use tauri::Manager;
@@ -1485,7 +1699,13 @@ pub async fn write_preview_temp(
         .unwrap_or("preview_comprovantes.pdf");
     let safe_name: String = raw_name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let final_name = if safe_name.to_lowercase().ends_with(".pdf") {
         safe_name
@@ -1506,20 +1726,27 @@ pub async fn write_preview_temp(
 
 /// Comprime um PDF binário (imagens embutidas + streams/objetos) e devolve os bytes comprimidos.
 #[tauri::command]
-pub async fn compress_pdf(request: tauri::ipc::Request<'_>) -> Result<tauri::ipc::Response, String> {
+pub async fn compress_pdf(
+    request: tauri::ipc::Request<'_>,
+) -> Result<tauri::ipc::Response, String> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err("Conteúdo do PDF não recebido".into());
     };
     let input = bytes.clone();
-    let compressed = tauri::async_runtime::spawn_blocking(move || crate::pdf_compress::compress_pdf_bytes(input))
-        .await
-        .map_err(|e| format!("Falha ao comprimir PDF: {}", e))?;
+    let compressed = tauri::async_runtime::spawn_blocking(move || {
+        crate::pdf_compress::compress_pdf_bytes(input)
+    })
+    .await
+    .map_err(|e| format!("Falha ao comprimir PDF: {}", e))?;
     Ok(tauri::ipc::Response::new(compressed))
 }
 
 /// Configurações livres (JSON) guardadas em app_metadata, ex.: modelos de relatório.
 #[tauri::command(async)]
-pub fn get_setting(state: tauri::State<'_, AppState>, key: String) -> Result<Option<Value>, String> {
+pub fn get_setting(
+    state: tauri::State<'_, AppState>,
+    key: String,
+) -> Result<Option<Value>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     let raw: Option<String> = conn
         .query_row(
@@ -1532,7 +1759,11 @@ pub fn get_setting(state: tauri::State<'_, AppState>, key: String) -> Result<Opt
 }
 
 #[tauri::command(async)]
-pub fn set_setting(state: tauri::State<'_, AppState>, key: String, value: Value) -> Result<(), String> {
+pub fn set_setting(
+    state: tauri::State<'_, AppState>,
+    key: String,
+    value: Value,
+) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT INTO app_metadata (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -1549,27 +1780,32 @@ pub fn set_setting(state: tauri::State<'_, AppState>, key: String, value: Value)
 use crate::files::linker;
 
 #[tauri::command]
-pub async fn suggest_file_links(state: tauri::State<'_, AppState>) -> Result<Vec<linker::LinkSuggestion>, String> {
+pub async fn suggest_file_links(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<linker::LinkSuggestion>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     linker::suggest_links(&conn, &state.root_dir)
 }
 
 #[tauri::command(async)]
-pub fn apply_file_links(state: tauri::State<'_, AppState>, links: Vec<linker::LinkApply>) -> Result<usize, String> {
+pub fn apply_file_links(
+    state: tauri::State<'_, AppState>,
+    links: Vec<linker::LinkApply>,
+) -> Result<usize, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     linker::apply_links(&conn, &state.root_dir, &links)
 }
 
 #[tauri::command(async)]
-pub fn find_duplicate_records(state: tauri::State<'_, AppState>) -> Result<Vec<linker::DupPair>, String> {
+pub fn find_duplicate_records(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<linker::DupPair>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     linker::find_duplicates(&conn)
 }
 
 #[tauri::command(async)]
-pub fn get_app_stats(
-    state: tauri::State<'_, AppState>,
-) -> Result<AppStatsDto, String> {
+pub fn get_app_stats(state: tauri::State<'_, AppState>) -> Result<AppStatsDto, String> {
     get_app_stats_impl(&state.db, &state.root_dir)
 }
 
@@ -1586,7 +1822,10 @@ pub fn get_data_dir_info(state: tauri::State<'_, AppState>) -> Result<config::Da
     let cfg = config::load();
     let from_config = cfg
         .data_dir
-        .map(|d| crate::strip_verbatim(&std::fs::canonicalize(&d).unwrap_or_else(|_| PathBuf::from(&d))) == root)
+        .map(|d| {
+            crate::strip_verbatim(&std::fs::canonicalize(&d).unwrap_or_else(|_| PathBuf::from(&d)))
+                == root
+        })
         .unwrap_or(false);
     Ok(config::DataDirInfo {
         data_dir: root.to_string_lossy().to_string(),
@@ -1614,20 +1853,39 @@ pub fn inspect_data_dir(path: String) -> Result<config::DataDirInspection, Strin
 /// Troca a pasta de dados e reinicia o app.
 /// `copy_db`: copia o banco atual para a nova pasta (só se lá ainda não houver lattes.db).
 #[tauri::command]
-pub fn set_data_dir(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path: String, copy_db: bool) -> Result<(), String> {
+pub fn set_data_dir(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    path: String,
+    copy_db: bool,
+) -> Result<(), String> {
     let target = PathBuf::from(path.trim());
-    std::fs::create_dir_all(&target).map_err(|e| format!("Não foi possível usar a pasta '{}': {}", target.display(), e))?;
+    std::fs::create_dir_all(&target).map_err(|e| {
+        format!(
+            "Não foi possível usar a pasta '{}': {}",
+            target.display(),
+            e
+        )
+    })?;
     let target_db = target.join("lattes.db");
     if copy_db {
         if target_db.exists() {
-            return Err("A pasta escolhida já tem um lattes.db — escolha 'usar o banco que já está lá'.".into());
+            return Err(
+                "A pasta escolhida já tem um lattes.db — escolha 'usar o banco que já está lá'."
+                    .into(),
+            );
         }
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         // cópia consistente do banco (inclui o conteúdo do WAL)
-        conn.execute("VACUUM INTO ?1", rusqlite::params![target_db.to_string_lossy().to_string()])
-            .map_err(|e| format!("Falha ao copiar o banco: {}", e))?;
+        conn.execute(
+            "VACUUM INTO ?1",
+            rusqlite::params![target_db.to_string_lossy().to_string()],
+        )
+        .map_err(|e| format!("Falha ao copiar o banco: {}", e))?;
     }
-    config::save(&config::AppConfig { data_dir: Some(target.to_string_lossy().to_string()) })?;
+    config::save(&config::AppConfig {
+        data_dir: Some(target.to_string_lossy().to_string()),
+    })?;
     app.restart();
 }
 
@@ -1660,15 +1918,20 @@ pub async fn extract_pdf_metadata(
     let tipo_options: Vec<String> = {
         let conn = state.db.lock().map_err(|e| e.to_string())?;
         let mut st = conn
-            .prepare("SELECT description FROM subfolder_mappings WHERE category_group = 'Produções'")
+            .prepare(
+                "SELECT description FROM subfolder_mappings WHERE category_group = 'Produções'",
+            )
             .map_err(|e| e.to_string())?;
-        let rows = st.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        let rows = st
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
         rows.flatten().collect()
     };
     let online = online.unwrap_or(true);
     // leitura do PDF + Crossref fora da thread principal e sem travar o banco
     let mut md = tauri::async_runtime::spawn_blocking(move || {
-        let bytes = std::fs::read(&p).map_err(|e| format!("Falha ao ler '{}': {}", p.display(), e))?;
+        let bytes =
+            std::fs::read(&p).map_err(|e| format!("Falha ao ler '{}': {}", p.display(), e))?;
         crate::metadata::extract_remote(&bytes, &tipo_options, online)
     })
     .await
@@ -1681,7 +1944,11 @@ pub async fn extract_pdf_metadata(
 /// DOI declarado dentro do comprovante PDF de um registro (sem rede).
 /// `None` quando o registro não tem PDF anexado ou o arquivo não traz DOI.
 #[tauri::command]
-pub async fn extract_record_doi(app: tauri::AppHandle, category: String, id: i64) -> Result<Option<String>, String> {
+pub async fn extract_record_doi(
+    app: tauri::AppHandle,
+    category: String,
+    id: i64,
+) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Manager;
         let state = app.state::<AppState>();
@@ -1695,7 +1962,8 @@ pub async fn extract_record_doi(app: tauri::AppHandle, category: String, id: i64
             return Ok(None);
         };
         let full = resolve_inside_root(&state.root_dir, &rel)?;
-        let bytes = std::fs::read(&full).map_err(|e| format!("Falha ao ler '{}': {}", full.display(), e))?;
+        let bytes = std::fs::read(&full)
+            .map_err(|e| format!("Falha ao ler '{}': {}", full.display(), e))?;
         Ok(crate::tools::doi_in_pdf(&bytes))
     })
     .await
@@ -1711,7 +1979,10 @@ fn open_in_browser(url: &str) -> Result<(), String> {
                 .args(["/c", "start", "", url])
                 .spawn();
             if let Err(cmd_err) = res {
-                return Err(format!("Falha ao abrir no navegador: {} (fallback cmd: {})", e, cmd_err));
+                return Err(format!(
+                    "Falha ao abrir no navegador: {} (fallback cmd: {})",
+                    e, cmd_err
+                ));
             }
         }
         #[cfg(not(windows))]
@@ -1752,7 +2023,9 @@ fn producao_tipos(state: &AppState) -> Result<Vec<String>, String> {
     let mut st = conn
         .prepare("SELECT description FROM subfolder_mappings WHERE category_group = 'Produções'")
         .map_err(|e| e.to_string())?;
-    let rows = st.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    let rows = st
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
     let v = rows.flatten().collect();
     Ok(v)
 }
@@ -1766,9 +2039,10 @@ pub async fn resolve_doi(
 ) -> Result<crate::doi::DoiResult, String> {
     let tipos = producao_tipos(&state)?;
     let download = download.unwrap_or(true);
-    let mut res = tauri::async_runtime::spawn_blocking(move || crate::doi::resolve(&doi, &tipos, download))
-        .await
-        .map_err(|e| e.to_string())??;
+    let mut res =
+        tauri::async_runtime::spawn_blocking(move || crate::doi::resolve(&doi, &tipos, download))
+            .await
+            .map_err(|e| e.to_string())??;
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::metadata::enrich_from_db(&conn, &mut res.meta);
     Ok(res)
@@ -1797,25 +2071,37 @@ pub fn open_url(url: String) -> Result<(), String> {
 // ==========================================
 
 #[tauri::command(async)]
-pub fn list_custom_categories(state: tauri::State<'_, AppState>) -> Result<Vec<crate::custom::CustomCategory>, String> {
+pub fn list_custom_categories(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::custom::CustomCategory>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::custom::list_categories(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
-pub fn save_custom_category(state: tauri::State<'_, AppState>, category: crate::custom::CustomCategory) -> Result<crate::custom::CustomCategory, String> {
+pub fn save_custom_category(
+    state: tauri::State<'_, AppState>,
+    category: crate::custom::CustomCategory,
+) -> Result<crate::custom::CustomCategory, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::custom::save_category(&conn, &state.root_dir, category)
 }
 
 #[tauri::command(async)]
-pub fn delete_custom_category(state: tauri::State<'_, AppState>, key: String, force: Option<bool>) -> Result<(), String> {
+pub fn delete_custom_category(
+    state: tauri::State<'_, AppState>,
+    key: String,
+    force: Option<bool>,
+) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::custom::delete_category(&conn, &key, force.unwrap_or(false))
 }
 
 #[tauri::command(async)]
-pub fn reorder_custom_categories(state: tauri::State<'_, AppState>, keys: Vec<String>) -> Result<(), String> {
+pub fn reorder_custom_categories(
+    state: tauri::State<'_, AppState>,
+    keys: Vec<String>,
+) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::custom::reorder(&conn, &keys).map_err(|e| e.to_string())
 }
@@ -1825,13 +2111,18 @@ pub fn reorder_custom_categories(state: tauri::State<'_, AppState>, keys: Vec<St
 // ==========================================
 
 #[tauri::command(async)]
-pub fn preview_file_renames(state: tauri::State<'_, AppState>) -> Result<Vec<crate::tools::RenameItem>, String> {
+pub fn preview_file_renames(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::tools::RenameItem>, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::tools::preview_renames(&conn, &state.root_dir)
 }
 
 #[tauri::command(async)]
-pub fn apply_file_renames(state: tauri::State<'_, AppState>, items: Vec<crate::tools::RenameItem>) -> Result<crate::tools::ApplyResult, String> {
+pub fn apply_file_renames(
+    state: tauri::State<'_, AppState>,
+    items: Vec<crate::tools::RenameItem>,
+) -> Result<crate::tools::ApplyResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     Ok(crate::tools::apply_renames(&conn, &state.root_dir, &items))
 }
@@ -1843,13 +2134,18 @@ pub fn check_files(state: tauri::State<'_, AppState>) -> Result<crate::tools::Fi
 }
 
 #[tauri::command(async)]
-pub fn clear_missing_links(state: tauri::State<'_, AppState>, items: Vec<crate::tools::MissingFile>) -> Result<crate::tools::ApplyResult, String> {
+pub fn clear_missing_links(
+    state: tauri::State<'_, AppState>,
+    items: Vec<crate::tools::MissingFile>,
+) -> Result<crate::tools::ApplyResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     Ok(crate::tools::clear_missing(&conn, &state.root_dir, &items))
 }
 
 #[tauri::command(async)]
-pub fn scan_root_folders(state: tauri::State<'_, AppState>) -> Result<crate::tools::RootFolderAudit, String> {
+pub fn scan_root_folders(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::tools::RootFolderAudit, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::tools::scan_root_folders(&conn, &state.root_dir)
 }
@@ -1876,7 +2172,10 @@ pub fn create_missing_mapped_folders(
     state: tauri::State<'_, AppState>,
     rel_paths: Vec<String>,
 ) -> Result<crate::tools::ApplyResult, String> {
-    Ok(crate::tools::create_missing_mapped_folders(&state.root_dir, &rel_paths))
+    Ok(crate::tools::create_missing_mapped_folders(
+        &state.root_dir,
+        &rel_paths,
+    ))
 }
 
 #[tauri::command(async)]
@@ -1894,18 +2193,27 @@ pub fn delete_orphan_files(
     rel_files: Vec<String>,
 ) -> Result<crate::tools::ApplyResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    Ok(crate::tools::delete_orphan_files(&conn, &state.root_dir, &rel_files))
+    Ok(crate::tools::delete_orphan_files(
+        &conn,
+        &state.root_dir,
+        &rel_files,
+    ))
 }
 
 #[tauri::command(async)]
-pub fn backup_database(state: tauri::State<'_, AppState>) -> Result<crate::tools::BackupInfo, String> {
+pub fn backup_database(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::tools::BackupInfo, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::tools::backup(&conn, &state.root_dir)
 }
 
 /// Grava as planilhas no destino escolhido em `select_save_path(kind = "xlsx")`.
 #[tauri::command(async)]
-pub fn export_xlsx(state: tauri::State<'_, AppState>, sheets: Vec<crate::tools::Sheet>) -> Result<String, String> {
+pub fn export_xlsx(
+    state: tauri::State<'_, AppState>,
+    sheets: Vec<crate::tools::Sheet>,
+) -> Result<String, String> {
     let target = state
         .pending_save
         .lock()
@@ -1921,10 +2229,16 @@ pub fn export_xlsx(state: tauri::State<'_, AppState>, sheets: Vec<crate::tools::
 // CLASSIFICAR DOCUMENTO (qualquer categoria)
 // ==========================================
 
-static INDEX_CACHE: std::sync::Mutex<Option<(std::time::Instant, std::sync::Arc<Vec<crate::classify::TrainDoc>>)>> =
-    std::sync::Mutex::new(None);
+static INDEX_CACHE: std::sync::Mutex<
+    Option<(
+        std::time::Instant,
+        std::sync::Arc<Vec<crate::classify::TrainDoc>>,
+    )>,
+> = std::sync::Mutex::new(None);
 
-fn update_doc_index_with_docs(state: &AppState) -> Result<std::sync::Arc<Vec<crate::classify::TrainDoc>>, String> {
+fn update_doc_index_with_docs(
+    state: &AppState,
+) -> Result<std::sync::Arc<Vec<crate::classify::TrainDoc>>, String> {
     let mut cache = INDEX_CACHE.lock().map_err(|e| e.to_string())?;
     if let Some((ts, ref docs_arc)) = *cache {
         if ts.elapsed() < std::time::Duration::from_secs(4) {
@@ -1956,7 +2270,11 @@ pub fn update_doc_index(state: &AppState) -> Result<usize, String> {
 /// Sugere categoria/tipo, campos e registros existentes para um PDF ou imagem.
 /// `text`: texto já obtido por OCR na interface (imagens e PDFs digitalizados).
 #[tauri::command]
-pub async fn analyze_document(app: tauri::AppHandle, path: String, text: Option<String>) -> Result<crate::classify::Analysis, String> {
+pub async fn analyze_document(
+    app: tauri::AppHandle,
+    path: String,
+    text: Option<String>,
+) -> Result<crate::classify::Analysis, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::Manager;
         let state = app.state::<AppState>();
@@ -1966,24 +2284,43 @@ pub async fn analyze_document(app: tauri::AppHandle, path: String, text: Option<
         }
         let docs = update_doc_index_with_docs(&state)?;
         let ntrain = docs.len();
-        let is_pdf = p.extension().map(|e| e.eq_ignore_ascii_case("pdf")).unwrap_or(false);
+        let is_pdf = p
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("pdf"))
+            .unwrap_or(false);
         let text = match text {
             Some(t) => t,
-            None if is_pdf => std::panic::catch_unwind(|| crate::classify::pdf_text(&p)).unwrap_or_default(),
+            None if is_pdf => {
+                std::panic::catch_unwind(|| crate::classify::pdf_text(&p)).unwrap_or_default()
+            }
             None => String::new(),
         };
-        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         let chars = text.chars().filter(|c| c.is_alphabetic()).count();
-        let mut a = crate::classify::Analysis { chars, treino: ntrain, nome_arquivo: name.clone(), ..Default::default() };
+        let mut a = crate::classify::Analysis {
+            chars,
+            treino: ntrain,
+            nome_arquivo: name.clone(),
+            ..Default::default()
+        };
         if chars < 60 {
             a.needs_ocr = true;
         }
         a.campos = crate::classify::extract_fields(&text);
         let conn = state.db.lock().map_err(|e| e.to_string())?;
-        let valid: std::collections::HashSet<String> = crate::tools::all_categories(&conn).into_iter().collect();
+        let valid: std::collections::HashSet<String> =
+            crate::tools::all_categories(&conn).into_iter().collect();
         a.sugestoes = crate::classify::suggest_cached(&conn, &docs, &text, &name, &valid, None);
         a.sugestoes.truncate(5);
-        let top: Vec<String> = a.sugestoes.iter().take(2).map(|s| s.category.clone()).collect();
+        let top: Vec<String> = a
+            .sugestoes
+            .iter()
+            .take(2)
+            .map(|s| s.category.clone())
+            .collect();
         a.registros = crate::classify::match_records(&conn, &text, &top);
         Ok(a)
     })
@@ -1997,7 +2334,9 @@ pub async fn pdf_scan_image(path: String) -> Result<tauri::ipc::Response, String
     tauri::async_runtime::spawn_blocking(move || {
         crate::classify::scan_image(Path::new(path.trim()))
             .map(tauri::ipc::Response::new)
-            .ok_or_else(|| "O PDF não tem imagem digitalizada legível (JPEG) na 1ª página".to_string())
+            .ok_or_else(|| {
+                "O PDF não tem imagem digitalizada legível (JPEG) na 1ª página".to_string()
+            })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2007,17 +2346,29 @@ pub async fn pdf_scan_image(path: String) -> Result<tauri::ipc::Response, String
 #[tauri::command]
 pub async fn read_image_file(path: String) -> Result<tauri::ipc::Response, String> {
     let p = PathBuf::from(path.trim());
-    let ok = p.extension().map(|e| ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"].contains(&e.to_string_lossy().to_lowercase().as_str())).unwrap_or(false);
+    let ok = p
+        .extension()
+        .map(|e| {
+            ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"]
+                .contains(&e.to_string_lossy().to_lowercase().as_str())
+        })
+        .unwrap_or(false);
     if !ok {
         return Err("Apenas imagens".into());
     }
-    std::fs::read(&p).map(tauri::ipc::Response::new).map_err(|e| e.to_string())
+    std::fs::read(&p)
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| e.to_string())
 }
 
 /// Rotação da 1ª página de um PDF (para endireitar a digitalização antes do OCR).
 #[tauri::command]
 pub async fn pdf_rotation(path: String) -> Result<i64, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::classify::page_rotation(Path::new(path.trim()))).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::classify::page_rotation(Path::new(path.trim()))
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 // ==========================================
@@ -2070,7 +2421,9 @@ pub fn list_folder_files(path: String, recursive: bool) -> Result<Vec<BatchFile>
     let mut out = Vec::new();
     let mut stack = vec![dir];
     while let Some(d) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        let Ok(rd) = std::fs::read_dir(&d) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
             if p.is_dir() {
@@ -2091,13 +2444,18 @@ pub fn list_folder_files(path: String, recursive: bool) -> Result<Vec<BatchFile>
 // ==========================================
 
 #[tauri::command(async)]
-pub fn backup_estimate(state: tauri::State<'_, AppState>) -> Result<crate::backup::Estimate, String> {
+pub fn backup_estimate(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::backup::Estimate, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     Ok(crate::backup::estimate(&conn, &state.root_dir))
 }
 
 #[tauri::command]
-pub fn pick_backup_target(state: tauri::State<'_, AppState>, include_files: bool) -> Result<Option<String>, String> {
+pub fn pick_backup_target(
+    state: tauri::State<'_, AppState>,
+    include_files: bool,
+) -> Result<Option<String>, String> {
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H%M");
     let name = if include_files {
         format!("LattesManager_Cofre_{}.lattespack", stamp)
@@ -2110,13 +2468,20 @@ pub fn pick_backup_target(state: tauri::State<'_, AppState>, include_files: bool
         .set_title("Salvar Cofre / Backup do Lattes Manager")
         .set_directory(&dir)
         .set_file_name(&name)
-        .add_filter("Cofre do Lattes Manager (*.lattespack, *.zip)", &["lattespack", "zip"])
+        .add_filter(
+            "Cofre do Lattes Manager (*.lattespack, *.zip)",
+            &["lattespack", "zip"],
+        )
         .save_file()
         .map(|p| p.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
-pub async fn create_backup(app: tauri::AppHandle, path: String, include_files: bool) -> Result<crate::backup::BackupResult, String> {
+pub async fn create_backup(
+    app: tauri::AppHandle,
+    path: String,
+    include_files: bool,
+) -> Result<crate::backup::BackupResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         use tauri::{Emitter, Manager};
         let state = app.state::<AppState>();
@@ -2127,9 +2492,20 @@ pub async fn create_backup(app: tauri::AppHandle, path: String, include_files: b
             crate::backup::snapshot_db(&conn, &snap)?;
             crate::backup::data_folders(Some(&conn), &state.root_dir)
         };
-        let res = crate::backup::write_zip(&snap, &state.root_dir, &folders, include_files, env!("CARGO_PKG_VERSION"), &dest, |done, total, name| {
-            let _ = app.emit("backup-progress", serde_json::json!({ "done": done, "total": total, "name": name }));
-        });
+        let res = crate::backup::write_zip(
+            &snap,
+            &state.root_dir,
+            &folders,
+            include_files,
+            env!("CARGO_PKG_VERSION"),
+            &dest,
+            |done, total, name| {
+                let _ = app.emit(
+                    "backup-progress",
+                    serde_json::json!({ "done": done, "total": total, "name": name }),
+                );
+            },
+        );
         let _ = std::fs::remove_file(&snap);
         if res.is_ok() {
             state.remember_saved(&dest);
@@ -2145,7 +2521,10 @@ pub fn pick_backup_file(state: tauri::State<'_, AppState>) -> Result<Option<Stri
     let dir = crate::strip_verbatim(&state.root_dir).join("backups");
     let mut d = rfd::FileDialog::new()
         .set_title("Escolher Cofre / Backup para restaurar")
-        .add_filter("Cofre do Lattes Manager (*.lattespack, *.zip, *.db)", &["lattespack", "zip", "db"]);
+        .add_filter(
+            "Cofre do Lattes Manager (*.lattespack, *.zip, *.db)",
+            &["lattespack", "zip", "db"],
+        );
     if dir.is_dir() {
         d = d.set_directory(&dir);
     }
@@ -2160,10 +2539,14 @@ pub async fn inspect_backup(path: String) -> Result<crate::backup::BackupInspect
 }
 
 #[tauri::command]
-pub async fn verify_backup_integrity(path: String) -> Result<crate::backup::IntegrityReport, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::backup::verify_integrity(Path::new(path.trim())))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn verify_backup_integrity(
+    path: String,
+) -> Result<crate::backup::IntegrityReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::backup::verify_integrity(Path::new(path.trim()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ==========================================
@@ -2206,7 +2589,9 @@ pub async fn diff_lattes_xml(
     xml_path_old: Option<String>,
 ) -> Result<crate::diff::LattesDiffResult, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let old_buf = xml_path_old.filter(|s| !s.trim().is_empty()).map(PathBuf::from);
+    let old_buf = xml_path_old
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from);
     crate::diff::compare_lattes_versions(&conn, Path::new(xml_path_new.trim()), old_buf.as_deref())
 }
 
@@ -2242,10 +2627,11 @@ pub async fn sync_openalex_metrics(
         })
         .collect();
 
-    let (parsed, errors) =
-        tauri::async_runtime::spawn_blocking(move || crate::academic::fetch_openalex_for_dois(&dois))
-            .await
-            .map_err(|e| format!("Falha ao consultar OpenAlex: {}", e))?;
+    let (parsed, errors) = tauri::async_runtime::spawn_blocking(move || {
+        crate::academic::fetch_openalex_for_dois(&dois)
+    })
+    .await
+    .map_err(|e| format!("Falha ao consultar OpenAlex: {}", e))?;
 
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::academic::build_and_apply_openalex_report(
@@ -2265,9 +2651,11 @@ pub async fn sync_orcid_works(
     let clean = crate::academic::clean_orcid(&orcid)
         .ok_or_else(|| "ORCID inválido. Use o formato 0000-0000-0000-0000.".to_string())?;
     let clean_clone = clean.clone();
-    let raw = tauri::async_runtime::spawn_blocking(move || crate::academic::fetch_orcid_works(&clean_clone))
-        .await
-        .map_err(|e| format!("Falha ao consultar ORCID: {}", e))??;
+    let raw = tauri::async_runtime::spawn_blocking(move || {
+        crate::academic::fetch_orcid_works(&clean_clone)
+    })
+    .await
+    .map_err(|e| format!("Falha ao consultar ORCID: {}", e))??;
 
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::academic::compare_orcid_with_db(&conn, &clean, raw)
@@ -2294,7 +2682,10 @@ pub async fn restore_backup(
             // cópia de segurança do banco atual
             let dir = state.root_dir.join("backups");
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            let safety = dir.join(format!("lattes_antes_restauracao_{}.db", chrono::Local::now().format("%Y-%m-%d_%H%M%S")));
+            let safety = dir.join(format!(
+                "lattes_antes_restauracao_{}.db",
+                chrono::Local::now().format("%Y-%m-%d_%H%M%S")
+            ));
             crate::backup::snapshot_db(&conn, &safety)?;
             rep.safety_copy = Some(safety.to_string_lossy().to_string());
             let r = crate::backup::swap_db(&mut conn, &state.root_dir, &new_db);
@@ -2303,9 +2694,18 @@ pub async fn restore_backup(
             rep.db_restored = true;
         }
         if restore_files {
-            crate::backup::restore_files(&src, &state.root_dir, overwrite, &mut rep, |done, total, name| {
-                let _ = app.emit("backup-progress", serde_json::json!({ "done": done, "total": total, "name": name }));
-            })?;
+            crate::backup::restore_files(
+                &src,
+                &state.root_dir,
+                overwrite,
+                &mut rep,
+                |done, total, name| {
+                    let _ = app.emit(
+                        "backup-progress",
+                        serde_json::json!({ "done": done, "total": total, "name": name }),
+                    );
+                },
+            )?;
         }
         Ok(rep)
     })
@@ -2318,7 +2718,9 @@ pub async fn restore_backup(
 // ==========================================
 
 #[tauri::command(async)]
-pub fn get_scholar_config(state: tauri::State<'_, AppState>) -> Result<crate::scholar::ScholarConfig, String> {
+pub fn get_scholar_config(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::scholar::ScholarConfig, String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::scholar::get_scholar_config(&conn)
 }
@@ -2362,9 +2764,30 @@ mod tests {
         let db = Mutex::new(crate::db::open_in_memory().unwrap());
         let (p1, p2, e1) = {
             let conn = db.lock().unwrap();
-            let a = queries::insert_record(&conn, "producoes", &json!({ "ano": 2020, "tipo": "Artigo", "titulo": "Paper A", "qualis": "B1" }), None, None).unwrap();
-            let b = queries::insert_record(&conn, "producoes", &json!({ "ano": 2021, "tipo": "Capítulo", "titulo": "Paper B", "qualis": "B2" }), None, None).unwrap();
-            let c = queries::insert_record(&conn, "eventos", &json!({ "ano": 2019, "tipo": "Congresso", "descricao": "Ev 1" }), None, None).unwrap();
+            let a = queries::insert_record(
+                &conn,
+                "producoes",
+                &json!({ "ano": 2020, "tipo": "Artigo", "titulo": "Paper A", "qualis": "B1" }),
+                None,
+                None,
+            )
+            .unwrap();
+            let b = queries::insert_record(
+                &conn,
+                "producoes",
+                &json!({ "ano": 2021, "tipo": "Capítulo", "titulo": "Paper B", "qualis": "B2" }),
+                None,
+                None,
+            )
+            .unwrap();
+            let c = queries::insert_record(
+                &conn,
+                "eventos",
+                &json!({ "ano": 2019, "tipo": "Congresso", "descricao": "Ev 1" }),
+                None,
+                None,
+            )
+            .unwrap();
             (a.id, b.id, c.id)
         };
 
@@ -2397,7 +2820,16 @@ mod tests {
         drop(conn);
 
         // Blank string clears field to NULL
-        let cleared = batch_update_records_impl(&db, "producoes", &[p1], None, None, Some("   ".into()), None).unwrap();
+        let cleared = batch_update_records_impl(
+            &db,
+            "producoes",
+            &[p1],
+            None,
+            None,
+            Some("   ".into()),
+            None,
+        )
+        .unwrap();
         assert_eq!(cleared, 1);
         let r1_after = queries::get_record_by_id(&db.lock().unwrap(), "producoes", p1).unwrap();
         assert_eq!(r1_after.qualis, None);
@@ -2408,7 +2840,16 @@ mod tests {
             "journal": "Nature Communications"
         });
         assert_eq!(
-            batch_update_records_impl(&db, "producoes", &[p1, p2], None, None, None, Some(&upd_data)).unwrap(),
+            batch_update_records_impl(
+                &db,
+                "producoes",
+                &[p1, p2],
+                None,
+                None,
+                None,
+                Some(&upd_data)
+            )
+            .unwrap(),
             2
         );
         let r1_upd = queries::get_record_by_id(&db.lock().unwrap(), "producoes", p1).unwrap();
@@ -2417,20 +2858,42 @@ mod tests {
 
         // Only qualis on non-producoes is ignored and returns 0 cleanly
         assert_eq!(
-            batch_update_records_impl(&db, "eventos", &[e1], None, None, Some("A1".into()), None).unwrap(),
+            batch_update_records_impl(&db, "eventos", &[e1], None, None, Some("A1".into()), None)
+                .unwrap(),
             0
         );
         // Updating ano + qualis on non-producoes updates ano and ignores qualis
         assert_eq!(
-            batch_update_records_impl(&db, "eventos", &[e1], Some(2023), None, Some("A1".into()), None).unwrap(),
+            batch_update_records_impl(
+                &db,
+                "eventos",
+                &[e1],
+                Some(2023),
+                None,
+                Some("A1".into()),
+                None
+            )
+            .unwrap(),
             1
         );
         let ev_after = queries::get_record_by_id(&db.lock().unwrap(), "eventos", e1).unwrap();
         assert_eq!(ev_after.ano, Some(2023));
 
         // Invalid category errors
-        assert!(batch_update_records_impl(&db, "nao_existe", &[1], Some(2024), None, None, None).is_err());
-        assert!(batch_update_records_impl(&db, "x_inexistente", &[1], Some(2024), None, None, None).is_err());
+        assert!(
+            batch_update_records_impl(&db, "nao_existe", &[1], Some(2024), None, None, None)
+                .is_err()
+        );
+        assert!(batch_update_records_impl(
+            &db,
+            "x_inexistente",
+            &[1],
+            Some(2024),
+            None,
+            None,
+            None
+        )
+        .is_err());
     }
 
     #[test]
@@ -2442,27 +2905,58 @@ mod tests {
         std::fs::write(&f1, b"pdf1").unwrap();
         std::fs::write(&f2, b"pdf2").unwrap();
 
-        let outside = std::env::temp_dir().join(format!("lattes_outside_{}.txt", uuid::Uuid::new_v4()));
+        let outside =
+            std::env::temp_dir().join(format!("lattes_outside_{}.txt", uuid::Uuid::new_v4()));
         std::fs::write(&outside, b"keep").unwrap();
 
         let db = Mutex::new(crate::db::open_in_memory().unwrap());
         let (p1, p2, p3, c1) = {
             let conn = db.lock().unwrap();
-            let a = queries::insert_record(&conn, "producoes", &json!({ "ano": 2020, "titulo": "D1", "path": "files\\doc1.pdf" }), None, None).unwrap();
-            let b = queries::insert_record(&conn, "producoes", &json!({ "ano": 2021, "titulo": "D2", "path": "files\\doc2.pdf" }), None, None).unwrap();
+            let a = queries::insert_record(
+                &conn,
+                "producoes",
+                &json!({ "ano": 2020, "titulo": "D1", "path": "files\\doc1.pdf" }),
+                None,
+                None,
+            )
+            .unwrap();
+            let b = queries::insert_record(
+                &conn,
+                "producoes",
+                &json!({ "ano": 2021, "titulo": "D2", "path": "files\\doc2.pdf" }),
+                None,
+                None,
+            )
+            .unwrap();
             let c = queries::insert_record(&conn, "producoes", &json!({ "ano": 2022, "titulo": "D3", "path": outside.to_string_lossy().to_string() }), None, None).unwrap();
             conn.execute(
                 "INSERT INTO custom_categories (key, name, folder) VALUES ('x_premios', 'Prêmios', '12_premios')",
                 [],
             )
             .unwrap();
-            let d = queries::insert_record(&conn, "x_premios", &json!({ "ano": 2018, "tipo": "Prêmio", "titulo": "P1" }), None, None).unwrap();
+            let d = queries::insert_record(
+                &conn,
+                "x_premios",
+                &json!({ "ano": 2018, "tipo": "Prêmio", "titulo": "P1" }),
+                None,
+                None,
+            )
+            .unwrap();
             (a.id, b.id, c.id, d.id)
         };
 
         // Custom category batch update
         assert_eq!(
-            batch_update_records_impl(&db, "x_premios", &[c1], Some(2025), Some("Honra".into()), Some("A1".into()), None).unwrap(),
+            batch_update_records_impl(
+                &db,
+                "x_premios",
+                &[c1],
+                Some(2025),
+                Some("Honra".into()),
+                Some("A1".into()),
+                None
+            )
+            .unwrap(),
             1
         );
         let cust_after = queries::get_record_by_id(&db.lock().unwrap(), "x_premios", c1).unwrap();
@@ -2470,20 +2964,32 @@ mod tests {
         assert_eq!(cust_after.tipo.as_deref(), Some("Honra"));
 
         // Batch delete without deleting files keeps f1 on disk
-        assert_eq!(batch_delete_records_impl(&db, &root, "producoes", &[p1], false).unwrap(), 1);
+        assert_eq!(
+            batch_delete_records_impl(&db, &root, "producoes", &[p1], false).unwrap(),
+            1
+        );
         assert!(f1.exists());
 
         // Batch delete with delete_files=true deletes f2 inside root, ignores path outside root, returns count
-        assert_eq!(batch_delete_records_impl(&db, &root, "producoes", &[p2, p3, p2], true).unwrap(), 2);
+        assert_eq!(
+            batch_delete_records_impl(&db, &root, "producoes", &[p2, p3, p2], true).unwrap(),
+            2
+        );
         assert!(!f2.exists());
         assert!(outside.exists());
 
         // Custom category batch delete
-        assert_eq!(batch_delete_records_impl(&db, &root, "x_premios", &[c1], false).unwrap(), 1);
+        assert_eq!(
+            batch_delete_records_impl(&db, &root, "x_premios", &[c1], false).unwrap(),
+            1
+        );
         assert!(queries::get_record_by_id(&db.lock().unwrap(), "x_premios", c1).is_err());
 
         // Empty ids returns 0
-        assert_eq!(batch_delete_records_impl(&db, &root, "producoes", &[], true).unwrap(), 0);
+        assert_eq!(
+            batch_delete_records_impl(&db, &root, "producoes", &[], true).unwrap(),
+            0
+        );
 
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_file(&outside);
@@ -2515,7 +3021,10 @@ mod tests {
             "folder": r"11_bancas\"
         });
         let fixed = with_valid_folder(&db, "bancas", &raw, None).unwrap();
-        assert_eq!(fixed.get("folder").unwrap().as_str().unwrap(), r"11_bancas\doutorado\");
+        assert_eq!(
+            fixed.get("folder").unwrap().as_str().unwrap(),
+            r"11_bancas\doutorado\"
+        );
     }
 
     #[test]
@@ -2538,23 +3047,42 @@ mod tests {
         });
 
         let rec = create_record_impl(&db, &root, "atuacao", &data, None, None).unwrap();
-        assert_eq!(rec.instituicao.as_deref(), Some("Universidade Federal de Santa Catarina"));
-        assert_eq!(rec.titulo.as_deref(), Some("Universidade Federal de Santa Catarina"));
+        assert_eq!(
+            rec.instituicao.as_deref(),
+            Some("Universidade Federal de Santa Catarina")
+        );
+        assert_eq!(
+            rec.titulo.as_deref(),
+            Some("Universidade Federal de Santa Catarina")
+        );
         assert_eq!(rec.ano, Some(2021));
         assert_eq!(rec.ano_fim, Some(2025));
         assert_eq!(rec.vinculo.as_deref(), Some("Servidor Público"));
-        assert_eq!(rec.folder.as_deref(), Some(r"3_atuacao\atuacao_profissional\"));
+        assert_eq!(
+            rec.folder.as_deref(),
+            Some(r"3_atuacao\atuacao_profissional\")
+        );
 
         let recs = queries::get_records(&db.lock().unwrap(), "atuacao", None, None, None).unwrap();
         assert_eq!(recs.len(), 1);
-        assert_eq!(recs[0].instituicao.as_deref(), Some("Universidade Federal de Santa Catarina"));
+        assert_eq!(
+            recs[0].instituicao.as_deref(),
+            Some("Universidade Federal de Santa Catarina")
+        );
 
         let update_data = json!({
             "enquadramento": "Professor Associado"
         });
-        let updated = update_record_impl(&db, &root, "atuacao", rec.id, &update_data, None, None).unwrap();
-        assert_eq!(updated.enquadramento.as_deref(), Some("Professor Associado"));
-        assert_eq!(updated.instituicao.as_deref(), Some("Universidade Federal de Santa Catarina"));
+        let updated =
+            update_record_impl(&db, &root, "atuacao", rec.id, &update_data, None, None).unwrap();
+        assert_eq!(
+            updated.enquadramento.as_deref(),
+            Some("Professor Associado")
+        );
+        assert_eq!(
+            updated.instituicao.as_deref(),
+            Some("Universidade Federal de Santa Catarina")
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -2574,7 +3102,10 @@ mod tests {
             "descricao": "Sistema de inteligência artificial embarcada para melhoramento genético"
         });
         let in_rec = create_record_impl(&db, &root, "inovacao", &in_data, None, None).unwrap();
-        assert_eq!(in_rec.titulo.as_deref(), Some("Plataforma IA para Fenotipagem Vegetal"));
+        assert_eq!(
+            in_rec.titulo.as_deref(),
+            Some("Plataforma IA para Fenotipagem Vegetal")
+        );
         assert_eq!(in_rec.ano, Some(2025));
 
         let ed_data = json!({
@@ -2584,14 +3115,26 @@ mod tests {
             "instituicao": "Revista Ciência Hoje",
             "descricao": "Artigo para popularização da fenotipagem digital"
         });
-        let ed_rec = create_record_impl(&db, &root, "educacao_popularizacao", &ed_data, None, None).unwrap();
-        assert_eq!(ed_rec.titulo.as_deref(), Some("Como a visão computacional revoluciona a agricultura"));
+        let ed_rec =
+            create_record_impl(&db, &root, "educacao_popularizacao", &ed_data, None, None).unwrap();
+        assert_eq!(
+            ed_rec.titulo.as_deref(),
+            Some("Como a visão computacional revoluciona a agricultura")
+        );
         assert_eq!(ed_rec.ano, Some(2024));
 
-        let list_in = queries::get_records(&db.lock().unwrap(), "inovacao", None, None, None).unwrap();
+        let list_in =
+            queries::get_records(&db.lock().unwrap(), "inovacao", None, None, None).unwrap();
         assert_eq!(list_in.len(), 1);
 
-        let list_ed = queries::get_records(&db.lock().unwrap(), "educacao_popularizacao", None, None, None).unwrap();
+        let list_ed = queries::get_records(
+            &db.lock().unwrap(),
+            "educacao_popularizacao",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(list_ed.len(), 1);
 
         let _ = std::fs::remove_dir_all(&root);
@@ -2622,12 +3165,16 @@ mod tests {
         ).unwrap();
 
         crate::db::schema::create_tables(&conn).unwrap();
-        let count1: i64 = conn.query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0)).unwrap();
+        let count1: i64 = conn
+            .query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0))
+            .unwrap();
 
         // Calling create_tables multiple times must never duplicate mappings
         crate::db::schema::create_tables(&conn).unwrap();
         crate::db::schema::create_tables(&conn).unwrap();
-        let count2: i64 = conn.query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0)).unwrap();
+        let count2: i64 = conn
+            .query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count1, count2);
 
         let legacy_cnt: i64 = conn.query_row(
@@ -2637,21 +3184,41 @@ mod tests {
         ).unwrap();
         assert_eq!(legacy_cnt, 0);
 
-        let migrated_folder: String = conn.query_row(
-            "SELECT folder FROM subfolder_mappings WHERE description = 'Áreas extras'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
+        let migrated_folder: String = conn
+            .query_row(
+                "SELECT folder FROM subfolder_mappings WHERE description = 'Áreas extras'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
         assert_eq!(migrated_folder, r"3_atuacao\areas_extras\");
 
         // add_subfolder_mapping must also be idempotent
         let root = std::env::temp_dir().join("test_idempotent_subfolders_root");
         let _ = std::fs::create_dir_all(&root);
         let db = Mutex::new(conn);
-        let first = add_subfolder_mapping_impl(&db, &root, "Atuação", "Chefia", r"3_atuacao\atuacao_profissional\chefia\").unwrap();
-        let second = add_subfolder_mapping_impl(&db, &root, "atuação", "CHEFIA", r"3_atuacao\atuacao_profissional\chefia\").unwrap();
+        let first = add_subfolder_mapping_impl(
+            &db,
+            &root,
+            "Atuação",
+            "Chefia",
+            r"3_atuacao\atuacao_profissional\chefia\",
+        )
+        .unwrap();
+        let second = add_subfolder_mapping_impl(
+            &db,
+            &root,
+            "atuação",
+            "CHEFIA",
+            r"3_atuacao\atuacao_profissional\chefia\",
+        )
+        .unwrap();
         assert_eq!(first.id, second.id);
-        let count3: i64 = db.lock().unwrap().query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0)).unwrap();
+        let count3: i64 = db
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(count2, count3);
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -98,11 +98,22 @@ impl PreFile {
         let nf = normalize_title(trimmed);
         let lf = nf.chars().count();
         let ft = tokens(trimmed);
-        Self { path, dir, nf, lf, ft }
+        Self {
+            path,
+            dir,
+            nf,
+            lf,
+            ft,
+        }
     }
 }
 
-fn score_pre(nt: &str, tt_cache: &mut Option<HashSet<String>>, title_raw: &str, pf: &PreFile) -> f64 {
+fn score_pre(
+    nt: &str,
+    tt_cache: &mut Option<HashSet<String>>,
+    title_raw: &str,
+    pf: &PreFile,
+) -> f64 {
     if pf.lf >= 12 && nt.starts_with(&pf.nf) {
         return 1.0;
     }
@@ -118,7 +129,9 @@ fn score_pre(nt: &str, tt_cache: &mut Option<HashSet<String>>, title_raw: &str, 
         .ft
         .iter()
         .enumerate()
-        .filter(|(i, w)| tt.contains(*w) || (*i == last && tt.iter().any(|t| t.starts_with(w.as_str()))))
+        .filter(|(i, w)| {
+            tt.contains(*w) || (*i == last && tt.iter().any(|t| t.starts_with(w.as_str())))
+        })
         .count();
     0.9 * hit as f64 / pf.ft.len() as f64
 }
@@ -147,11 +160,16 @@ pub fn dice(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
 }
 
 pub fn norm_rel(p: &str) -> String {
-    p.trim().replace('/', "\\").trim_matches('\\').to_lowercase()
+    p.trim()
+        .replace('/', "\\")
+        .trim_matches('\\')
+        .to_lowercase()
 }
 
 pub fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() {
@@ -214,20 +232,34 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
             .prepare("SELECT category_group, description, folder FROM subfolder_mappings")
             .map_err(|e| e.to_string())?;
         let rows = st
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })
             .map_err(|e| e.to_string())?;
         for (g, d, f) in rows.flatten() {
             if let Some(t) = normalize_category(&g) {
                 if let Some(first) = norm_rel(&f).split('\\').next().filter(|s| !s.is_empty()) {
                     roots.entry(t).or_default().insert(first.to_string());
                 }
-                mapping.entry(t).or_default().insert(d.to_lowercase(), norm_rel(&f));
+                mapping
+                    .entry(t)
+                    .or_default()
+                    .insert(d.to_lowercase(), norm_rel(&f));
             }
         }
     }
     for (t, recs) in &all {
         for r in recs {
-            if let Some(first) = r.path.as_deref().map(norm_rel).and_then(|p| p.split('\\').next().map(String::from)) {
+            if let Some(first) = r
+                .path
+                .as_deref()
+                .map(norm_rel)
+                .and_then(|p| p.split('\\').next().map(String::from))
+            {
                 if !first.is_empty() && first.contains('_') {
                     roots.entry(t).or_default().insert(first);
                 }
@@ -240,7 +272,12 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
         let recs: Vec<(&Rec, String)> = all[table]
             .iter()
             .filter_map(|r| {
-                if !r.path.as_deref().map(|p| p.trim().is_empty()).unwrap_or(true) {
+                if !r
+                    .path
+                    .as_deref()
+                    .map(|p| p.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     return None;
                 }
                 let r_norm = normalize_title(&r.titulo);
@@ -264,8 +301,18 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
             let expected = r
                 .tipo
                 .as_ref()
-                .and_then(|t| mapping.get(table).and_then(|m| m.get(&t.to_lowercase())).cloned())
-                .or_else(|| r.folder.as_deref().filter(|f| f.contains('\\')).map(norm_rel));
+                .and_then(|t| {
+                    mapping
+                        .get(table)
+                        .and_then(|m| m.get(&t.to_lowercase()))
+                        .cloned()
+                })
+                .or_else(|| {
+                    r.folder
+                        .as_deref()
+                        .filter(|f| f.contains('\\'))
+                        .map(norm_rel)
+                });
             let mut r_tokens: Option<HashSet<String>> = None;
             for (fi, pf) in files_pre.iter().enumerate() {
                 let mut s = score_pre(r_norm, &mut r_tokens, &r.titulo, pf);
@@ -300,7 +347,11 @@ pub fn suggest_links(conn: &Connection, root: &Path) -> Result<Vec<LinkSuggestio
             });
         }
     }
-    out.sort_by(|a, b| b.score.total_cmp(&a.score).then(a.category.cmp(&b.category)));
+    out.sort_by(|a, b| {
+        b.score
+            .total_cmp(&a.score)
+            .then(a.category.cmp(&b.category))
+    });
     Ok(out)
 }
 
@@ -325,10 +376,12 @@ fn default_cat_folder(cat: &str) -> String {
 /// Grava os vínculos aceitos: path, file e folder do registro.
 pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Result<usize, String> {
     let mut n = 0;
-    let mut external_copy_cache: std::collections::HashMap<String, (String, String, String)> = std::collections::HashMap::new();
+    let mut external_copy_cache: std::collections::HashMap<String, (String, String, String)> =
+        std::collections::HashMap::new();
 
     for l in links {
-        let table = normalize_category(&l.category).ok_or_else(|| format!("Categoria inválida: {}", l.category))?;
+        let table = normalize_category(&l.category)
+            .ok_or_else(|| format!("Categoria inválida: {}", l.category))?;
         let trimmed = l.path.trim().replace('/', "\\");
         let path_obj = Path::new(&trimmed);
 
@@ -348,15 +401,26 @@ pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Resul
                 if pc.starts_with(&root_canon) {
                     let stripped = pc.strip_prefix(&root_canon).unwrap();
                     let rel = stripped.to_string_lossy().replace('/', "\\");
-                    let file = pc.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-                    let folder = rel.rsplit_once('\\').map(|(d, _)| format!("{}\\", d)).unwrap_or_default();
+                    let file = pc
+                        .file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let folder = rel
+                        .rsplit_once('\\')
+                        .map(|(d, _)| format!("{}\\", d))
+                        .unwrap_or_default();
                     (rel, file, folder)
                 } else {
                     // Arquivo externo: copia uma única vez para a pasta da categoria no root
                     let cat_folder = default_cat_folder(&l.category);
                     let target_subfolder = root.join(&cat_folder);
-                    let saved = crate::files::storage::save_attached_file(&pc, &target_subfolder, root)?;
-                    let folder = saved.relative_path.rsplit_once('\\').map(|(d, _)| format!("{}\\", d)).unwrap_or_default();
+                    let saved =
+                        crate::files::storage::save_attached_file(&pc, &target_subfolder, root)?;
+                    let folder = saved
+                        .relative_path
+                        .rsplit_once('\\')
+                        .map(|(d, _)| format!("{}\\", d))
+                        .unwrap_or_default();
                     let res = (saved.relative_path, saved.filename, folder);
                     external_copy_cache.insert(trimmed.clone(), res.clone());
                     res
@@ -364,15 +428,24 @@ pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Resul
             } else {
                 // Tenta fallback com resolve_inside_root caso seja caminho relativo sem canonicalizar
                 let full = crate::commands::resolve_inside_root(root, &trimmed)?;
-                let file = full.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-                let folder = trimmed.rsplit_once('\\').map(|(d, _)| format!("{}\\", d)).unwrap_or_default();
+                let file = full
+                    .file_name()
+                    .map(|f| f.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let folder = trimmed
+                    .rsplit_once('\\')
+                    .map(|(d, _)| format!("{}\\", d))
+                    .unwrap_or_default();
                 (trimmed.clone(), file, folder)
             }
         };
 
         n += conn
             .execute(
-                &format!("UPDATE {} SET path = ?1, file = ?2, folder = ?3 WHERE id = ?4", table),
+                &format!(
+                    "UPDATE {} SET path = ?1, file = ?2, folder = ?3 WHERE id = ?4",
+                    table
+                ),
                 params![rel, file, folder, l.id],
             )
             .map_err(|e| e.to_string())?;
@@ -385,12 +458,7 @@ pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Resul
             description: None,
             ord: Some(1),
         };
-        let _ = crate::db::queries::sync_record_attachments(
-            conn,
-            table,
-            l.id,
-            &[att_dto],
-        );
+        let _ = crate::db::queries::sync_record_attachments(conn, table, l.id, &[att_dto]);
     }
     Ok(n)
 }
@@ -407,12 +475,20 @@ pub fn find_duplicates(conn: &Connection) -> Result<Vec<DupPair>, String> {
             let mut st = conn
                 .prepare(&format!("SELECT id, COALESCE(aluno, '') FROM {}", table))
                 .map_err(|e| e.to_string())?;
-            let rows = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))).map_err(|e| e.to_string())?;
+            let rows = st
+                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+                .map_err(|e| e.to_string())?;
             aluno = rows.flatten().collect();
         }
         let tri: Vec<HashSet<String>> = recs
             .iter()
-            .map(|r| trigrams(&format!("{} {}", r.titulo, aluno.get(&r.id).map(String::as_str).unwrap_or(""))))
+            .map(|r| {
+                trigrams(&format!(
+                    "{} {}",
+                    r.titulo,
+                    aluno.get(&r.id).map(String::as_str).unwrap_or("")
+                ))
+            })
             .collect();
         for i in 0..recs.len() {
             if tri[i].len() < 12 {
@@ -437,14 +513,27 @@ pub fn find_duplicates(conn: &Connection) -> Result<Vec<DupPair>, String> {
                     titulo: r.titulo.clone(),
                     ano: r.ano,
                     tipo: r.tipo.clone(),
-                    has_file: r.path.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false),
-                    from_xml: r.log.as_deref().map(|l| l.starts_with("XML Lattes")).unwrap_or(false),
+                    has_file: r
+                        .path
+                        .as_deref()
+                        .map(|p| !p.trim().is_empty())
+                        .unwrap_or(false),
+                    from_xml: r
+                        .log
+                        .as_deref()
+                        .map(|l| l.starts_with("XML Lattes"))
+                        .unwrap_or(false),
                 };
                 let (a, b) = (item(&recs[i]), item(&recs[j]));
                 // mantém quem tem arquivo; depois quem não veio do XML; depois o mais antigo (id menor)
                 let rank = |d: &DupItem| (d.has_file as u8, !d.from_xml as u8);
                 let (keep, drop) = if rank(&b) > rank(&a) { (b, a) } else { (a, b) };
-                out.push(DupPair { category: table.to_string(), keep, drop, score: (s * 100.0).round() / 100.0 });
+                out.push(DupPair {
+                    category: table.to_string(),
+                    keep,
+                    drop,
+                    score: (s * 100.0).round() / 100.0,
+                });
             }
         }
     }
@@ -461,13 +550,21 @@ mod tests {
         let t = "MGIDI: towards an effective multivariate selection in biological experiments";
         assert_eq!(link_score(t, "001_mgidi towards an eff.pdf"), 1.0);
         assert!(link_score(t, "002_metan an r package f.pdf") < 0.5);
-        assert!(link_score("Produção e qualidade fisiológica de sementes da Soja", "003_produção_qualidade_fisiológ.pdf") >= 0.6);
+        assert!(
+            link_score(
+                "Produção e qualidade fisiológica de sementes da Soja",
+                "003_produção_qualidade_fisiológ.pdf"
+            ) >= 0.6
+        );
     }
 
     #[test]
     fn detects_near_duplicates() {
-        let a = trigrams("MGIDI: towards an effective multivariate selection in biological experiments");
-        let b = trigrams("MGIDI: toward an effective multivariate selection in biological experiments");
+        let a = trigrams(
+            "MGIDI: towards an effective multivariate selection in biological experiments",
+        );
+        let b =
+            trigrams("MGIDI: toward an effective multivariate selection in biological experiments");
         let c = trigrams("metan: an R package for multi-environment trial analysis");
         assert!(dice(&a, &b) > 0.95);
         assert!(dice(&a, &c) < 0.4);
@@ -479,12 +576,21 @@ mod tests {
         if !db.exists() {
             return;
         }
-        let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let conn =
+            Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         let s = suggest_links(&conn, Path::new(r"d:\Desktop\UFSC\lattes")).unwrap();
         let d = find_duplicates(&conn).unwrap();
-        println!("sugestões={} (>=0.9: {}) duplicatas={}", s.len(), s.iter().filter(|x| x.score >= 0.9).count(), d.len());
+        println!(
+            "sugestões={} (>=0.9: {}) duplicatas={}",
+            s.len(),
+            s.iter().filter(|x| x.score >= 0.9).count(),
+            d.len()
+        );
         for x in d.iter().take(10) {
-            println!("  dup {:.2} keep#{} drop#{} {}", x.score, x.keep.id, x.drop.id, x.drop.titulo);
+            println!(
+                "  dup {:.2} keep#{} drop#{} {}",
+                x.score, x.keep.id, x.drop.id, x.drop.titulo
+            );
         }
         if let Some(m) = s.iter().find(|x| x.titulo.starts_with("MGIDI: towards")) {
             assert!(m.path.ends_with("001_mgidi towards an eff.pdf"));
@@ -493,7 +599,8 @@ mod tests {
 
     #[test]
     fn suggest_links_precomputes_and_matches() {
-        let root = std::env::temp_dir().join(format!("lattes_linker_test_{}", uuid::Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("lattes_linker_test_{}", uuid::Uuid::new_v4()));
         let sub = root.join("5_producoes").join("artigos_completos");
         std::fs::create_dir_all(&sub).unwrap();
         std::fs::write(sub.join("001_mgidi towards an eff.pdf"), b"pdf").unwrap();

@@ -54,7 +54,10 @@ fn doi_re() -> &'static Regex {
 
 /// Limpa pontuação final e sufixos comuns grudados ao DOI no texto extraído.
 pub fn clean_doi(raw: &str) -> String {
-    let mut d = raw.trim().trim_end_matches(['.', ',', ';', ':', ')', ']', '\'', '"']).to_string();
+    let mut d = raw
+        .trim()
+        .trim_end_matches(['.', ',', ';', ':', ')', ']', '\'', '"'])
+        .to_string();
     // parênteses desbalanceados no fim (ex.: "...(2020)" é válido, "...x)" não)
     while d.ends_with(')') && d.matches('(').count() < d.matches(')').count() {
         d.pop();
@@ -70,15 +73,26 @@ pub fn clean_doi(raw: &str) -> String {
 /// Primeiro DOI de um texto (em ordem de aparição).
 pub fn find_doi(text: &str) -> Option<String> {
     // junta quebras de linha dentro do DOI ("10.1016/j.cj.\n2026.05.010")
-    let joined = text.replace("-\n", "-").replace("/\n", "/").replace(".\n", ".");
-    doi_re().captures_iter(&joined).map(|c| clean_doi(&c[1])).find(|d| d.len() > 8)
+    let joined = text
+        .replace("-\n", "-")
+        .replace("/\n", "/")
+        .replace(".\n", ".");
+    doi_re()
+        .captures_iter(&joined)
+        .map(|c| clean_doi(&c[1]))
+        .find(|d| d.len() > 8)
 }
 
 /// Ano mais frequente entre 1950 e o ano seguinte ao atual.
 pub fn guess_year(text: &str) -> Option<i64> {
     static R: OnceLock<Regex> = OnceLock::new();
     let re = R.get_or_init(|| Regex::new(r"\b(19[5-9]\d|20\d\d)\b").unwrap());
-    let max = chrono::Local::now().format("%Y").to_string().parse::<i64>().unwrap_or(2100) + 1;
+    let max = chrono::Local::now()
+        .format("%Y")
+        .to_string()
+        .parse::<i64>()
+        .unwrap_or(2100)
+        + 1;
     let mut c: HashMap<i64, usize> = HashMap::new();
     for m in re.captures_iter(text) {
         if let Ok(y) = m[1].parse::<i64>() {
@@ -88,7 +102,9 @@ pub fn guess_year(text: &str) -> Option<i64> {
         }
     }
     // empate → ano mais recente (data de publicação costuma ser a mais recente da 1ª página)
-    c.into_iter().max_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0))).map(|(y, _)| y)
+    c.into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)))
+        .map(|(y, _)| y)
 }
 
 /// Decodifica string PDF (UTF-16BE com BOM ou PDFDocEncoding≈Latin-1).
@@ -99,7 +115,12 @@ fn pdf_string(o: &Object) -> Option<String> {
         _ => return None,
     };
     let s = if bytes.starts_with(&[0xFE, 0xFF]) {
-        let u: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        let u: Vec<u16> = bytes[2..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| u16::from_be_bytes(c))
+            .collect();
         String::from_utf16_lossy(&u)
     } else if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
         String::from_utf8_lossy(&bytes[3..]).to_string()
@@ -112,15 +133,11 @@ fn pdf_string(o: &Object) -> Option<String> {
 
 fn info_dict(doc: &Document) -> HashMap<String, String> {
     let mut m = HashMap::new();
-    let info = doc
-        .trailer
-        .get(b"Info")
-        .ok()
-        .and_then(|o| match o {
-            Object::Reference(id) => doc.get_dictionary(*id).ok(),
-            Object::Dictionary(d) => Some(d),
-            _ => None,
-        });
+    let info = doc.trailer.get(b"Info").ok().and_then(|o| match o {
+        Object::Reference(id) => doc.get_dictionary(*id).ok(),
+        Object::Dictionary(d) => Some(d),
+        _ => None,
+    });
     if let Some(d) = info {
         for (k, v) in d.iter() {
             if let Some(s) = pdf_string(v) {
@@ -176,7 +193,11 @@ pub fn extract_local_with_text(bytes: &[u8]) -> Result<(PdfMetadata, String), St
     if doc.is_encrypted() {
         let _ = doc.decrypt("");
     }
-    let mut md = PdfMetadata { fonte: "pdf".into(), paginas_pdf: doc.get_pages().len(), ..Default::default() };
+    let mut md = PdfMetadata {
+        fonte: "pdf".into(),
+        paginas_pdf: doc.get_pages().len(),
+        ..Default::default()
+    };
     let info = info_dict(&doc);
     let pages = first_pages_text(&doc, 2);
     let p1 = pages.first().cloned().unwrap_or_default();
@@ -185,7 +206,10 @@ pub fn extract_local_with_text(bytes: &[u8]) -> Result<(PdfMetadata, String), St
     let raw = String::from_utf8_lossy(bytes);
     let xmp_doi = ["prism:doi", "pdfx:doi", "dc:identifier", "crossmark:doi"]
         .iter()
-        .find_map(|tag| raw.find(tag).and_then(|i| find_doi(&raw[i..(i + 300).min(raw.len())])));
+        .find_map(|tag| {
+            raw.find(tag)
+                .and_then(|i| find_doi(&raw[i..(i + 300).min(raw.len())]))
+        });
 
     md.doi = info
         .get("doi")
@@ -206,7 +230,10 @@ pub fn extract_local_with_text(bytes: &[u8]) -> Result<(PdfMetadata, String), St
     // "Subject" de editoras costuma ser "Revista, vol, páginas. doi:..."
     if let Some(sub) = info.get("subject") {
         let j = sub.split([',', '.']).next().unwrap_or("").trim();
-        if j.chars().filter(|c| c.is_alphabetic()).count() >= 4 && !doi_re().is_match(j) && j.len() < 120 {
+        if j.chars().filter(|c| c.is_alphabetic()).count() >= 4
+            && !doi_re().is_match(j)
+            && j.len() < 120
+        {
             md.journal = Some(j.to_string());
         }
     }
@@ -220,12 +247,18 @@ pub fn extract_local_with_text(bytes: &[u8]) -> Result<(PdfMetadata, String), St
 /// Sem DOI: busca bibliográfica na Crossref com o título (ou o começo da 1ª página).
 /// Só aceita um resultado cujo título esteja de fato no PDF — evita casar com o artigo errado.
 pub fn crossref_search(titulo: Option<&str>, page1: &str) -> Result<Option<Value>, String> {
-    let head: String = page1.split_whitespace().take(60).collect::<Vec<_>>().join(" ");
+    let head: String = page1
+        .split_whitespace()
+        .take(60)
+        .collect::<Vec<_>>()
+        .join(" ");
     let query = titulo.map(String::from).unwrap_or(head);
     if query.chars().filter(|c| c.is_alphabetic()).count() < 15 {
         return Ok(None);
     }
-    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(8)).build();
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(8))
+        .build();
     let v = agent
         .get("https://api.crossref.org/works")
         .query("query.bibliographic", &query)
@@ -235,21 +268,41 @@ pub fn crossref_search(titulo: Option<&str>, page1: &str) -> Result<Option<Value
     let v = call_json(v)?;
     let p1n = normalize_title(page1);
     let tt = titulo.map(trigrams);
-    let hits: Vec<&Value> = v["message"]["items"].as_array().into_iter().flatten().filter(|it| {
-        let Some(t) = first_str(&it["title"]) else { return false };
-        let tn = normalize_title(&t);
-        tn.len() >= 20 && (p1n.contains(&tn) || tt.as_ref().map(|x| dice(x, &trigrams(&t)) >= 0.85).unwrap_or(false))
-    }).collect();
+    let hits: Vec<&Value> = v["message"]["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|it| {
+            let Some(t) = first_str(&it["title"]) else {
+                return false;
+            };
+            let tn = normalize_title(&t);
+            tn.len() >= 20
+                && (p1n.contains(&tn)
+                    || tt
+                        .as_ref()
+                        .map(|x| dice(x, &trigrams(&t)) >= 0.85)
+                        .unwrap_or(false))
+        })
+        .collect();
     // mesmo título como preprint e como artigo: fica com a versão publicada
-    let hit = hits.iter().find(|it| it["type"].as_str() != Some("posted-content")).or(hits.first());
+    let hit = hits
+        .iter()
+        .find(|it| it["type"].as_str() != Some("posted-content"))
+        .or(hits.first());
     Ok(hit.map(|v| (*v).clone()))
 }
 
 /// Consulta a Crossref para um DOI (timeout curto; sem dados pessoais na requisição).
 pub fn crossref(doi: &str) -> Result<Value, String> {
-    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(8)).build();
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(8))
+        .build();
     let url = format!("https://api.crossref.org/works/{}", urlencode(doi));
-    let v = call_json(agent.get(&url).set("User-Agent", concat!("LattesManager/", env!("CARGO_PKG_VERSION"))))?;
+    let v = call_json(agent.get(&url).set(
+        "User-Agent",
+        concat!("LattesManager/", env!("CARGO_PKG_VERSION")),
+    ))?;
     Ok(v["message"].clone())
 }
 
@@ -259,15 +312,25 @@ fn call_json(req: ureq::Request) -> Result<Value, String> {
     loop {
         tries += 1;
         match req.clone().call() {
-            Ok(r) => return r.into_json().map_err(|e| format!("Resposta inválida da Crossref ({})", e)),
+            Ok(r) => {
+                return r
+                    .into_json()
+                    .map_err(|e| format!("Resposta inválida da Crossref ({})", e))
+            }
             Err(ureq::Error::Status(code @ (429 | 503), _)) if tries < 3 => {
                 let _ = code;
                 std::thread::sleep(Duration::from_millis(1500 * tries));
             }
             Err(ureq::Error::Status(404, _)) => return Err("DOI não encontrado na Crossref".into()),
-            Err(ureq::Error::Status(429, _)) => return Err("Crossref ocupada no momento — tente de novo em instantes".into()),
-            Err(ureq::Error::Status(code, _)) => return Err(format!("Crossref respondeu com erro {}", code)),
-            Err(ureq::Error::Transport(_)) => return Err("sem conexão com a Crossref (internet indisponível?)".into()),
+            Err(ureq::Error::Status(429, _)) => {
+                return Err("Crossref ocupada no momento — tente de novo em instantes".into())
+            }
+            Err(ureq::Error::Status(code, _)) => {
+                return Err(format!("Crossref respondeu com erro {}", code))
+            }
+            Err(ureq::Error::Transport(_)) => {
+                return Err("sem conexão com a Crossref (internet indisponível?)".into())
+            }
         }
     }
 }
@@ -275,7 +338,18 @@ fn call_json(req: ureq::Request) -> Result<Value, String> {
 fn urlencode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' | b'(' | b')' | b';' | b':' => (b as char).to_string(),
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'~'
+            | b'/'
+            | b'('
+            | b')'
+            | b';'
+            | b':' => (b as char).to_string(),
             _ => format!("%{:02X}", b),
         })
         .collect()
@@ -300,7 +374,13 @@ pub fn merge_crossref(md: &mut PdfMetadata, m: &Value) {
         });
     }
     md.journal = first_str(&m["container-title"]).or(md.journal.take());
-    for k in ["published-print", "published-online", "issued", "published", "created"] {
+    for k in [
+        "published-print",
+        "published-online",
+        "issued",
+        "published",
+        "created",
+    ] {
         if let Some(y) = m[k]["date-parts"][0][0].as_i64() {
             md.ano = Some(y);
             break;
@@ -324,7 +404,14 @@ pub fn merge_crossref(md: &mut PdfMetadata, m: &Value) {
     md.volume = m["volume"].as_str().map(String::from);
     md.paginas = m["page"].as_str().map(String::from);
     md.editora = m["publisher"].as_str().map(String::from);
-    md.issn = m["ISSN"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    md.issn = m["ISSN"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
     md.crossref_type = m["type"].as_str().map(String::from);
     md.fonte = "crossref".into();
 }
@@ -339,7 +426,12 @@ pub fn suggest_tipo(crossref_type: Option<&str>, options: &[String]) -> Option<S
         "posted-content" => &["artigos aceitos", "artigo"],
         _ => return None,
     };
-    pats.iter().find_map(|p| options.iter().find(|o| o.to_lowercase().contains(p)).cloned())
+    pats.iter().find_map(|p| {
+        options
+            .iter()
+            .find(|o| o.to_lowercase().contains(p))
+            .cloned()
+    })
 }
 
 /// Qualis mais recente já atribuído à mesma revista no banco.
@@ -351,22 +443,40 @@ pub fn suggest_qualis(conn: &Connection, journal: &str) -> Option<String> {
     let mut st = conn
         .prepare("SELECT journal, qualis FROM producoes WHERE qualis IS NOT NULL AND TRIM(qualis) <> '' AND journal IS NOT NULL ORDER BY ano DESC, id DESC")
         .ok()?;
-    let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).ok()?;
-    let found = rows.flatten().find(|(j, _)| normalize_title(j) == key).map(|(_, q)| q.trim().to_uppercase());
+    let rows = st
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .ok()?;
+    let found = rows
+        .flatten()
+        .find(|(j, _)| normalize_title(j) == key)
+        .map(|(_, q)| q.trim().to_uppercase());
     found
 }
 
 /// Produção já cadastrada com o mesmo DOI ou título quase idêntico.
-pub fn find_duplicate(conn: &Connection, doi: Option<&str>, titulo: Option<&str>) -> Option<Duplicate> {
-    let mut st = conn.prepare("SELECT id, COALESCE(titulo, ''), COALESCE(identifier, '') FROM producoes").ok()?;
+pub fn find_duplicate(
+    conn: &Connection,
+    doi: Option<&str>,
+    titulo: Option<&str>,
+) -> Option<Duplicate> {
+    let mut st = conn
+        .prepare("SELECT id, COALESCE(titulo, ''), COALESCE(identifier, '') FROM producoes")
+        .ok()?;
     let rows: Vec<(i64, String, String)> = st
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .ok()?
         .flatten()
         .collect();
     if let Some(d) = doi {
-        if let Some((id, t, _)) = rows.iter().find(|(_, _, ident)| ident.to_lowercase().contains(d)) {
-            return Some(Duplicate { id: *id, titulo: t.clone(), motivo: "mesmo DOI".into() });
+        if let Some((id, t, _)) = rows
+            .iter()
+            .find(|(_, _, ident)| ident.to_lowercase().contains(d))
+        {
+            return Some(Duplicate {
+                id: *id,
+                titulo: t.clone(),
+                motivo: "mesmo DOI".into(),
+            });
         }
     }
     let t = titulo?;
@@ -378,11 +488,20 @@ pub fn find_duplicate(conn: &Connection, doi: Option<&str>, titulo: Option<&str>
         .map(|(id, ti, _)| (id, ti, dice(&tt, &trigrams(ti))))
         .filter(|(_, _, s)| *s >= 0.9)
         .max_by(|a, b| a.2.total_cmp(&b.2))
-        .map(|(id, ti, s)| Duplicate { id: *id, titulo: ti.clone(), motivo: format!("título {}% igual", (s * 100.0).round()) })
+        .map(|(id, ti, s)| Duplicate {
+            id: *id,
+            titulo: ti.clone(),
+            motivo: format!("título {}% igual", (s * 100.0).round()),
+        })
 }
 
 /// Fluxo completo: PDF → (Crossref) → sugestões do banco.
-pub fn extract(bytes: &[u8], conn: &Connection, tipo_options: &[String], online: bool) -> Result<PdfMetadata, String> {
+pub fn extract(
+    bytes: &[u8],
+    conn: &Connection,
+    tipo_options: &[String],
+    online: bool,
+) -> Result<PdfMetadata, String> {
     let mut md = extract_remote(bytes, tipo_options, online)?;
     enrich_from_db(conn, &mut md);
     Ok(md)
@@ -395,23 +514,36 @@ pub fn enrich_from_db(conn: &Connection, md: &mut PdfMetadata) {
 }
 
 /// PDF + Crossref, sem tocar no banco (pode levar alguns segundos com rede).
-pub fn extract_remote(bytes: &[u8], tipo_options: &[String], online: bool) -> Result<PdfMetadata, String> {
+pub fn extract_remote(
+    bytes: &[u8],
+    tipo_options: &[String],
+    online: bool,
+) -> Result<PdfMetadata, String> {
     let (mut md, p1) = extract_local_with_text(bytes)?;
     match (md.doi.clone(), online) {
         (Some(doi), true) => match crossref(&doi) {
             Ok(m) => merge_crossref(&mut md, &m),
-            Err(e) => md.avisos.push(format!("{} — usando apenas os dados do PDF.", e)),
+            Err(e) => md
+                .avisos
+                .push(format!("{} — usando apenas os dados do PDF.", e)),
         },
-        (None, true) => match crossref_search(md.titulo.as_deref(), &p1) {
-            Ok(Some(m)) => {
-                md.doi = m["DOI"].as_str().map(|d| d.to_lowercase());
-                merge_crossref(&mut md, &m);
-                md.avisos.push("O DOI não estava no PDF; foi encontrado na Crossref pelo título — confira.".into());
+        (None, true) => {
+            match crossref_search(md.titulo.as_deref(), &p1) {
+                Ok(Some(m)) => {
+                    md.doi = m["DOI"].as_str().map(|d| d.to_lowercase());
+                    merge_crossref(&mut md, &m);
+                    md.avisos.push("O DOI não estava no PDF; foi encontrado na Crossref pelo título — confira.".into());
+                }
+                Ok(None) => md.avisos.push(
+                    "DOI não encontrado no PDF nem na Crossref; preencha os campos que faltarem."
+                        .into(),
+                ),
+                Err(e) => md.avisos.push(format!("DOI não encontrado no PDF; {}.", e)),
             }
-            Ok(None) => md.avisos.push("DOI não encontrado no PDF nem na Crossref; preencha os campos que faltarem.".into()),
-            Err(e) => md.avisos.push(format!("DOI não encontrado no PDF; {}.", e)),
-        },
-        (None, false) => md.avisos.push("DOI não encontrado no PDF; preencha os campos que faltarem.".into()),
+        }
+        (None, false) => md
+            .avisos
+            .push("DOI não encontrado no PDF; preencha os campos que faltarem.".into()),
         (Some(_), false) => {}
     }
     md.tipo_sugerido = suggest_tipo(md.crossref_type.as_deref(), tipo_options);
@@ -424,16 +556,31 @@ mod tests {
 
     #[test]
     fn finds_and_cleans_dois() {
-        assert_eq!(find_doi("Available: https://doi.org/10.1016/j.cj.2026.05.010."), Some("10.1016/j.cj.2026.05.010".into()));
-        assert_eq!(find_doi("doi:10.1111/jph.70414)"), Some("10.1111/jph.70414".into()));
-        assert_eq!(find_doi("DOI 10.1007/s10681-025-03513-8\nnext"), Some("10.1007/s10681-025-03513-8".into()));
-        assert_eq!(find_doi("10.1590/0103-8478cr20190123/abstract"), Some("10.1590/0103-8478cr20190123".into()));
+        assert_eq!(
+            find_doi("Available: https://doi.org/10.1016/j.cj.2026.05.010."),
+            Some("10.1016/j.cj.2026.05.010".into())
+        );
+        assert_eq!(
+            find_doi("doi:10.1111/jph.70414)"),
+            Some("10.1111/jph.70414".into())
+        );
+        assert_eq!(
+            find_doi("DOI 10.1007/s10681-025-03513-8\nnext"),
+            Some("10.1007/s10681-025-03513-8".into())
+        );
+        assert_eq!(
+            find_doi("10.1590/0103-8478cr20190123/abstract"),
+            Some("10.1590/0103-8478cr20190123".into())
+        );
         assert_eq!(find_doi("sem doi aqui"), None);
     }
 
     #[test]
     fn guesses_year_and_titles() {
-        assert_eq!(guess_year("Received 2025, accepted 2026, published 2026"), Some(2026));
+        assert_eq!(
+            guess_year("Received 2025, accepted 2026, published 2026"),
+            Some(2026)
+        );
         assert!(plausible_title("Pixel size and spatial scale in phenomics"));
         assert!(!plausible_title("Microsoft Word - artigo_final.docx"));
         assert!(!plausible_title("10.1016/j.cj.2026.05.010"));
@@ -441,9 +588,23 @@ mod tests {
 
     #[test]
     fn maps_crossref_types() {
-        let opts: Vec<String> = ["Artigos completos", "Capítulos de livros", "Livros", "Resumos completos"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(suggest_tipo(Some("journal-article"), &opts).as_deref(), Some("Artigos completos"));
-        assert_eq!(suggest_tipo(Some("book-chapter"), &opts).as_deref(), Some("Capítulos de livros"));
+        let opts: Vec<String> = [
+            "Artigos completos",
+            "Capítulos de livros",
+            "Livros",
+            "Resumos completos",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            suggest_tipo(Some("journal-article"), &opts).as_deref(),
+            Some("Artigos completos")
+        );
+        assert_eq!(
+            suggest_tipo(Some("book-chapter"), &opts).as_deref(),
+            Some("Capítulos de livros")
+        );
         assert_eq!(suggest_tipo(Some("dataset"), &opts), None);
     }
 
@@ -473,7 +634,10 @@ mod tests {
         let dir = std::path::Path::new(r"d:\Desktop\UFSC\lattes\5_producoes\artigos_completos");
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE producoes (id INTEGER, titulo TEXT, identifier TEXT, journal TEXT, qualis TEXT, ano INTEGER);").unwrap();
-        let opts: Vec<String> = ["Artigos completos", "Capítulos de livros"].iter().map(|s| s.to_string()).collect();
+        let opts: Vec<String> = ["Artigos completos", "Capítulos de livros"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         for name in [
             "137_Artigo linho_Dose de N_Follmann_2024 (1).pdf",
             "117_Klein et al. - 2023 - Selection of superior black oat lines using the MG.pdf",
@@ -495,12 +659,20 @@ mod tests {
     /// Lê PDFs reais da pasta do usuário (sem rede) e imprime o que foi extraído.
     #[test]
     fn extracts_from_real_pdfs_if_present() {
-        let dir = [r"d:\Desktop\UFSC\lattes\tt\5_producoes\artigos_completos", r"d:\Desktop\UFSC\lattes\5_producoes\artigos_completos"]
-            .into_iter()
-            .map(std::path::Path::new)
-            .find(|p| p.is_dir());
+        let dir = [
+            r"d:\Desktop\UFSC\lattes\tt\5_producoes\artigos_completos",
+            r"d:\Desktop\UFSC\lattes\5_producoes\artigos_completos",
+        ]
+        .into_iter()
+        .map(std::path::Path::new)
+        .find(|p| p.is_dir());
         let Some(dir) = dir else { return };
-        let mut files: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().map(|e| e == "pdf").unwrap_or(false)).collect();
+        let mut files: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|e| e == "pdf").unwrap_or(false))
+            .collect();
         files.sort();
         let (mut n, mut with_doi) = (0, 0);
         for f in files.iter().rev().take(25) {
@@ -512,7 +684,18 @@ mod tests {
                     if md.doi.is_some() {
                         with_doi += 1;
                     }
-                    println!("{:>5}ms {:?} | doi={:?} ano={:?} | {}", t0.elapsed().as_millis(), f.file_name().unwrap(), md.doi, md.ano, md.titulo.unwrap_or_default().chars().take(50).collect::<String>());
+                    println!(
+                        "{:>5}ms {:?} | doi={:?} ano={:?} | {}",
+                        t0.elapsed().as_millis(),
+                        f.file_name().unwrap(),
+                        md.doi,
+                        md.ano,
+                        md.titulo
+                            .unwrap_or_default()
+                            .chars()
+                            .take(50)
+                            .collect::<String>()
+                    );
                 }
                 Err(e) => println!("ERRO {:?}: {}", f.file_name().unwrap(), e),
             }

@@ -14,7 +14,9 @@ fn find_workspace_root() -> Option<PathBuf> {
 
 #[test]
 fn test_real_workbook_migration_census_in_memory() {
-    let Some(root) = find_workspace_root() else { return };
+    let Some(root) = find_workspace_root() else {
+        return;
+    };
     let xlsm_path = root.join("lattes.xlsm");
 
     let mut conn = Connection::open_in_memory().expect("Failed opening in-memory SQLite");
@@ -99,9 +101,7 @@ fn test_real_workbook_migration_census_in_memory() {
     let mut total_db = 0;
     for (tbl, expected) in tables {
         let count: i64 = conn
-            .query_row(&format!("SELECT COUNT(*) FROM {}", tbl), [], |r| {
-                r.get(0)
-            })
+            .query_row(&format!("SELECT COUNT(*) FROM {}", tbl), [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, expected, "Mismatch in table {}", tbl);
         total_db += count;
@@ -109,16 +109,16 @@ fn test_real_workbook_migration_census_in_memory() {
     assert_eq!(total_db, 361);
 
     let map_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| {
-            r.get(0)
-        })
+        .query_row("SELECT COUNT(*) FROM subfolder_mappings", [], |r| r.get(0))
         .unwrap();
     assert!(map_count >= 49);
 }
 
 #[test]
 fn test_path_relative_normalization_zero_drive_letters() {
-    let Some(root) = find_workspace_root() else { return };
+    let Some(root) = find_workspace_root() else {
+        return;
+    };
     let xlsm_path = root.join("lattes.xlsm");
 
     let mut conn = Connection::open_in_memory().unwrap();
@@ -170,7 +170,9 @@ fn test_path_relative_normalization_zero_drive_letters() {
 
 #[test]
 fn test_data_anomalies_and_edge_cases_preservation() {
-    let Some(root) = find_workspace_root() else { return };
+    let Some(root) = find_workspace_root() else {
+        return;
+    };
     let xlsm_path = root.join("lattes.xlsm");
 
     let mut conn = Connection::open_in_memory().unwrap();
@@ -185,7 +187,10 @@ fn test_data_anomalies_and_edge_cases_preservation() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(null_horas >= 1, "Expected at least 1 atuacao with NULL horas");
+    assert!(
+        null_horas >= 1,
+        "Expected at least 1 atuacao with NULL horas"
+    );
 
     // 2. Produções Qualis contains 'SQ' and NULL
     let sq_count: i64 = conn

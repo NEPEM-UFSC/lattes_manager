@@ -52,8 +52,8 @@ fn test_naming_zero_padding_format() {
 
     File::create(target.join("042_tese.pdf")).unwrap();
 
-    let next_name = calculate_next_filename(&target, "defesa.pdf")
-        .expect("calculate_next_filename failed");
+    let next_name =
+        calculate_next_filename(&target, "defesa.pdf").expect("calculate_next_filename failed");
     assert_eq!(next_name, "043_defesa.pdf");
 
     let _ = fs::remove_dir_all(&dir);
@@ -75,10 +75,13 @@ fn test_naming_existing_prefix_stripping() {
     assert_eq!(strip_existing_prefix("relatorio.pdf"), "relatorio.pdf");
 
     // Integration test: file with prefix 005_ attached to folder with max 012_
-    let next_name = calculate_next_filename(&target, "005_artigo.pdf")
-        .expect("calculate_next_filename failed");
+    let next_name =
+        calculate_next_filename(&target, "005_artigo.pdf").expect("calculate_next_filename failed");
     assert_eq!(next_name, "013_artigo.pdf");
-    assert!(!next_name.starts_with("013_005_"), "Detected double prefix!");
+    assert!(
+        !next_name.starts_with("013_005_"),
+        "Detected double prefix!"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -148,12 +151,12 @@ fn test_storage_zero_byte_file_attachment() {
     let meta = fs::metadata(&source_file).unwrap();
     assert_eq!(meta.len(), 0);
 
-    let next_name = calculate_next_filename(&target, "empty_doc.pdf")
-        .expect("calculate_next_filename failed");
+    let next_name =
+        calculate_next_filename(&target, "empty_doc.pdf").expect("calculate_next_filename failed");
     assert_eq!(next_name, "001_empty_doc.pdf");
 
-    let attachment = save_attached_file(&source_file, &target, &dir)
-        .expect("save_attached_file failed");
+    let attachment =
+        save_attached_file(&source_file, &target, &dir).expect("save_attached_file failed");
     assert_eq!(attachment.filename, "001_empty_doc.pdf");
     assert_eq!(attachment.file_size, 0);
     assert!(target.join("001_empty_doc.pdf").exists());
@@ -255,16 +258,16 @@ fn test_naming_prefix_overflow_past_999_and_1000() {
     File::create(target.join("999_final.pdf")).unwrap();
 
     // Next should be 1000_novo.pdf
-    let next_1000 = calculate_next_filename(&target, "novo.pdf")
-        .expect("calculate next after 999 failed");
+    let next_1000 =
+        calculate_next_filename(&target, "novo.pdf").expect("calculate next after 999 failed");
     assert_eq!(next_1000, "1000_novo.pdf");
 
     // Create 1000_novo.pdf on disk
     File::create(target.join(&next_1000)).unwrap();
 
     // Next should advance to 1001_outro.pdf
-    let next_1001 = calculate_next_filename(&target, "outro.pdf")
-        .expect("calculate next after 1000 failed");
+    let next_1001 =
+        calculate_next_filename(&target, "outro.pdf").expect("calculate next after 1000 failed");
     assert_eq!(next_1001, "1001_outro.pdf");
 
     // Also verify strip_existing_prefix on >= 1000 prefixes
@@ -273,10 +276,13 @@ fn test_naming_prefix_overflow_past_999_and_1000() {
     assert_eq!(strip_existing_prefix("10000_muitos.pdf"), "muitos.pdf");
 
     // Ingesting a file that already has a 1000_ prefix should strip it without double-prefix
-    let next_from_prefixed = calculate_next_filename(&target, "1000_novo.pdf")
-        .expect("calculate next failed");
+    let next_from_prefixed =
+        calculate_next_filename(&target, "1000_novo.pdf").expect("calculate next failed");
     assert_eq!(next_from_prefixed, "1001_novo.pdf");
-    assert!(!next_from_prefixed.starts_with("1001_1000_"), "Double prefix detected on >=1000");
+    assert!(
+        !next_from_prefixed.starts_with("1001_1000_"),
+        "Double prefix detected on >=1000"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -324,7 +330,9 @@ fn test_naming_extremely_long_filename_ntfs_safety() {
 #[test]
 fn test_shell_reveal_in_explorer_arg_formatting_and_missing() {
     // 1. Argument formatting test on paths with spaces
-    let tricky_path = Path::new(r"d:\Desktop\UFSC\lattes\1_dados_gerais\premios_titulos\001_FELIPE ZANANDREA.pdf");
+    let tricky_path = Path::new(
+        r"d:\Desktop\UFSC\lattes\1_dados_gerais\premios_titulos\001_FELIPE ZANANDREA.pdf",
+    );
     let arg = format_reveal_arg(tricky_path);
     assert_eq!(
         arg,
@@ -396,7 +404,10 @@ fn test_storage_concurrent_ingestion_race_condition_free() {
 
     let mut results = Vec::new();
     for handle in handles {
-        let att = handle.join().unwrap().expect("concurrent save_attached_file failed");
+        let att = handle
+            .join()
+            .unwrap()
+            .expect("concurrent save_attached_file failed");
         results.push(att.filename);
     }
 
@@ -414,7 +425,11 @@ fn test_storage_concurrent_ingestion_race_condition_free() {
 
     // Verify all 5 files exist on disk
     for fname in &results {
-        assert!(target.join(fname).exists(), "File {} missing from disk!", fname);
+        assert!(
+            target.join(fname).exists(),
+            "File {} missing from disk!",
+            fname
+        );
     }
 
     let _ = fs::remove_dir_all(&*dir);

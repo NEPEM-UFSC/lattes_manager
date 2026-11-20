@@ -31,17 +31,14 @@ pub fn relativize_path(path_str: Option<&str>) -> Option<String> {
     let unified = trimmed.replace('/', "\\");
 
     // Match .*lattes[\\/](.*)
-    let re_lattes = RE_LATTES.get_or_init(|| {
-        Regex::new(r"(?i)(?:[a-zA-Z]:)?[\\/].*?[\\/]lattes[\\/](.*)").unwrap()
-    });
+    let re_lattes = RE_LATTES
+        .get_or_init(|| Regex::new(r"(?i)(?:[a-zA-Z]:)?[\\/].*?[\\/]lattes[\\/](.*)").unwrap());
     if let Some(caps) = re_lattes.captures(&unified) {
         return Some(caps[1].trim_start_matches('\\').to_string());
     }
 
     // Match drive letter e.g. E:\... or D:\...
-    let re_drive = RE_DRIVE.get_or_init(|| {
-        Regex::new(r"(?i)^[a-zA-Z]:[\\/](.*)").unwrap()
-    });
+    let re_drive = RE_DRIVE.get_or_init(|| Regex::new(r"(?i)^[a-zA-Z]:[\\/](.*)").unwrap());
     if let Some(caps) = re_drive.captures(&unified) {
         return Some(caps[1].trim_start_matches('\\').to_string());
     }
@@ -51,12 +48,30 @@ pub fn relativize_path(path_str: Option<&str>) -> Option<String> {
 
 /// A planilha traz os textos "file"/"folder" como marcadores nas colunas File/Folder:
 /// o nome e a pasta reais vêm do caminho (Path).
-pub fn fix_file_folder(file: Option<String>, folder: Option<String>, path: Option<&str>) -> (Option<String>, Option<String>) {
-    let placeholder = |v: &Option<String>, w: &str| v.as_deref().map(|x| x.trim().eq_ignore_ascii_case(w) || x.trim().is_empty()).unwrap_or(true);
-    let p = path.map(|p| p.replace('/', "\\")).filter(|p| !p.trim().is_empty());
-    let file = if placeholder(&file, "file") { p.as_deref().and_then(|p| p.rsplit('\\').next()).map(String::from) } else { file };
+pub fn fix_file_folder(
+    file: Option<String>,
+    folder: Option<String>,
+    path: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let placeholder = |v: &Option<String>, w: &str| {
+        v.as_deref()
+            .map(|x| x.trim().eq_ignore_ascii_case(w) || x.trim().is_empty())
+            .unwrap_or(true)
+    };
+    let p = path
+        .map(|p| p.replace('/', "\\"))
+        .filter(|p| !p.trim().is_empty());
+    let file = if placeholder(&file, "file") {
+        p.as_deref()
+            .and_then(|p| p.rsplit('\\').next())
+            .map(String::from)
+    } else {
+        file
+    };
     let folder = if placeholder(&folder, "folder") {
-        p.as_deref().and_then(|p| p.rsplit_once('\\')).map(|(d, _)| format!("{}\\", d))
+        p.as_deref()
+            .and_then(|p| p.rsplit_once('\\'))
+            .map(|(d, _)| format!("{}\\", d))
     } else {
         folder
     };
@@ -114,7 +129,9 @@ pub fn parse_datetime(data: &Data) -> Option<String> {
         return Some(ndt.format("%Y-%m-%d %H:%M:%S").to_string());
     }
     match data {
-        Data::DateTime(dt) => dt.as_datetime().map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string()),
+        Data::DateTime(dt) => dt
+            .as_datetime()
+            .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string()),
         Data::DateTimeIso(s) => Some(s.clone()),
         Data::String(s) => {
             let trimmed = s.trim();
@@ -210,14 +227,20 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
             let file = get_cell(&range, &cols, r, "file").and_then(parse_string);
             let folder = get_cell(&range, &cols, r, "folder").and_then(parse_string);
             let descricao = get_cell(&range, &cols, r, "descricao").and_then(parse_string);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
@@ -238,7 +261,9 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
             let file = get_cell(&range, &cols, r, "file").and_then(parse_string);
@@ -246,7 +271,11 @@ pub fn migrate_workbook(
             let descricao = get_cell(&range, &cols, r, "descricao").and_then(parse_string);
             let horas = get_cell(&range, &cols, r, "horas").and_then(parse_i64);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
@@ -267,7 +296,9 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
             let file = get_cell(&range, &cols, r, "file").and_then(parse_string);
@@ -275,7 +306,11 @@ pub fn migrate_workbook(
             let descricao = get_cell(&range, &cols, r, "descricao").and_then(parse_string);
             let horas = get_cell(&range, &cols, r, "horas").and_then(parse_i64);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
@@ -296,7 +331,9 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let curso = get_cell(&range, &cols, r, "curso").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
@@ -306,11 +343,17 @@ pub fn migrate_workbook(
             let horas = get_cell(&range, &cols, r, "horas").and_then(parse_i64);
             let alunos = get_cell(&range, &cols, r, "alunos").and_then(parse_i64);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
-            let desc = alunos.map(|a| format!("{} alunos", a)).or_else(|| disciplina.clone());
+            let desc = alunos
+                .map(|a| format!("{} alunos", a))
+                .or_else(|| disciplina.clone());
             tx.execute(
                 "INSERT INTO atuacao (ano, tipo, instituicao, titulo, enquadramento, horas, descricao, identifier, file, folder, log, path)
                  VALUES (?1, ?2, ?3, ?4, 'Docente', ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
@@ -328,14 +371,20 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
             let file = get_cell(&range, &cols, r, "file").and_then(parse_string);
             let folder = get_cell(&range, &cols, r, "folder").and_then(parse_string);
             let descricao = get_cell(&range, &cols, r, "descricao").and_then(parse_string);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
@@ -356,7 +405,9 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
             let file = get_cell(&range, &cols, r, "file").and_then(parse_string);
@@ -365,7 +416,11 @@ pub fn migrate_workbook(
             let journal = get_cell(&range, &cols, r, "journal").and_then(parse_string);
             let qualis = get_cell(&range, &cols, r, "qualis").and_then(parse_qualis);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
@@ -386,14 +441,20 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
             let file = get_cell(&range, &cols, r, "file").and_then(parse_string);
             let folder = get_cell(&range, &cols, r, "folder").and_then(parse_string);
             let descricao = get_cell(&range, &cols, r, "descricao").and_then(parse_string);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
@@ -414,14 +475,20 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
             let file = get_cell(&range, &cols, r, "file").and_then(parse_string);
             let folder = get_cell(&range, &cols, r, "folder").and_then(parse_string);
             let descricao = get_cell(&range, &cols, r, "descricao").and_then(parse_string);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
@@ -442,7 +509,9 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let identifier = get_cell(&range, &cols, r, "identifier").and_then(parse_string);
             let file = get_cell(&range, &cols, r, "file").and_then(parse_string);
@@ -450,7 +519,11 @@ pub fn migrate_workbook(
             let aluno = get_cell(&range, &cols, r, "aluno").and_then(parse_string);
             let titulo = get_cell(&range, &cols, r, "titulo").and_then(parse_string);
             let log = get_cell(&range, &cols, r, "log").and_then(parse_datetime);
-            let path = relativize_path(get_cell(&range, &cols, r, "path").and_then(parse_string).as_deref());
+            let path = relativize_path(
+                get_cell(&range, &cols, r, "path")
+                    .and_then(parse_string)
+                    .as_deref(),
+            );
 
             let (file, folder) = fix_file_folder(file, folder, path.as_deref());
 
@@ -471,7 +544,9 @@ pub fn migrate_workbook(
         let mut count = 0;
         for r in 1..range.height() {
             let ano = get_cell(&range, &cols, r, "ano").and_then(parse_i64);
-            if ano.is_none() { continue; }
+            if ano.is_none() {
+                continue;
+            }
             let tipo = get_cell(&range, &cols, r, "tipo").and_then(parse_string);
             let raw_path = get_cell(&range, &cols, r, "path").and_then(parse_string);
             let path = relativize_path(raw_path.as_deref());
@@ -553,12 +628,18 @@ mod placeholder_tests {
 
     #[test]
     fn placeholders_come_from_path() {
-        let (f, d) = fix_file_folder(Some("file".into()), Some("folder".into()), Some(r"2_formacao\formacao_complementar\034_certificado-85023.pdf"));
+        let (f, d) = fix_file_folder(
+            Some("file".into()),
+            Some("folder".into()),
+            Some(r"2_formacao\formacao_complementar\034_certificado-85023.pdf"),
+        );
         assert_eq!(f.as_deref(), Some("034_certificado-85023.pdf"));
         assert_eq!(d.as_deref(), Some(r"2_formacao\formacao_complementar\"));
         let (f, d) = fix_file_folder(Some("file".into()), Some("folder".into()), None);
         assert_eq!((f, d), (None, None));
-        assert!(crate::commands::valid_folder(r"5_producoes\artigos_completos\"));
+        assert!(crate::commands::valid_folder(
+            r"5_producoes\artigos_completos\"
+        ));
         assert!(!crate::commands::valid_folder("folder"));
     }
 }

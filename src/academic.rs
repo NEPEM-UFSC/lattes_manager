@@ -254,7 +254,9 @@ pub fn parse_openalex_works_json(val: &Value) -> HashMap<String, OpenAlexParsedW
 }
 
 /// Consulta a API pública do OpenAlex em lotes de até 40 DOIs por requisição.
-pub fn fetch_openalex_for_dois(dois: &[String]) -> (HashMap<String, OpenAlexParsedWork>, Vec<String>) {
+pub fn fetch_openalex_for_dois(
+    dois: &[String],
+) -> (HashMap<String, OpenAlexParsedWork>, Vec<String>) {
     let mut seen = HashSet::new();
     let unique: Vec<String> = dois
         .iter()
@@ -287,7 +289,11 @@ pub fn fetch_openalex_for_dois(dois: &[String]) -> (HashMap<String, OpenAlexPars
                 Err(e) => errors.push(format!("Lote {}: resposta JSON inválida ({})", idx + 1, e)),
             },
             Err(ureq::Error::Status(code, _)) => {
-                errors.push(format!("Lote {}: OpenAlex respondeu com HTTP {}", idx + 1, code));
+                errors.push(format!(
+                    "Lote {}: OpenAlex respondeu com HTTP {}",
+                    idx + 1,
+                    code
+                ));
             }
             Err(ureq::Error::Transport(t)) => {
                 errors.push(format!("Lote {}: erro de conexão ({})", idx + 1, t));
@@ -393,7 +399,7 @@ pub fn build_and_apply_openalex_report(
     let total_citations: i64 = cited_vec.iter().sum();
     let mut h_index = 0i64;
     for (idx, c) in cited_vec.iter().enumerate() {
-        if *c >= (idx as i64) + 1 {
+        if *c > (idx as i64) {
             h_index = (idx as i64) + 1;
         } else {
             break;
@@ -563,7 +569,10 @@ fn extract_doi_from_ext_ids(ext_ids: Option<&Value>) -> Option<String> {
             let val = item
                 .get("external-id-value")
                 .and_then(|v| v.as_str())
-                .or_else(|| item.pointer("/external-id-url/value").and_then(|v| v.as_str()));
+                .or_else(|| {
+                    item.pointer("/external-id-url/value")
+                        .and_then(|v| v.as_str())
+                });
             if let Some(v) = val {
                 if let Some(d) = parse_doi(v) {
                     return Some(d.to_ascii_lowercase());
@@ -607,13 +616,8 @@ pub fn parse_orcid_works_json(val: &Value) -> Vec<OrcidRawWork> {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
 
-        let tipo = map_orcid_type(
-            summary
-                .get("type")
-                .and_then(|v| v.as_str())
-                .unwrap_or(""),
-        )
-        .to_string();
+        let tipo =
+            map_orcid_type(summary.get("type").and_then(|v| v.as_str()).unwrap_or("")).to_string();
 
         let url = summary
             .pointer("/url/value")
@@ -655,12 +659,8 @@ pub fn fetch_orcid_works(orcid: &str) -> Result<Vec<OrcidRawWork>, String> {
         Err(ureq::Error::Status(404, _)) => {
             Err("ORCID não encontrado (verifique o número informado)".into())
         }
-        Err(ureq::Error::Status(code, _)) => {
-            Err(format!("ORCID respondeu com erro HTTP {}", code))
-        }
-        Err(ureq::Error::Transport(t)) => {
-            Err(format!("Sem conexão com o ORCID: {}", t))
-        }
+        Err(ureq::Error::Status(code, _)) => Err(format!("ORCID respondeu com erro HTTP {}", code)),
+        Err(ureq::Error::Transport(t)) => Err(format!("Sem conexão com o ORCID: {}", t)),
     }
 }
 
@@ -945,9 +945,27 @@ mod tests {
         assert_eq!(report.oa_counts.get("gold").copied(), Some(1));
         assert_eq!(report.oa_counts.get("closed").copied(), Some(1));
         assert_eq!(report.yearly_citations.len(), 2);
-        assert_eq!(report.yearly_citations[1], OpenAlexYearlyCitation { year: 2024, citations: 12 });
-        assert_eq!(report.top_coauthors[0], OpenAlexCollaborator { name: "Alice".into(), count: 2 });
-        assert_eq!(report.top_institutions[0], OpenAlexCollaborator { name: "UFSC".into(), count: 2 });
+        assert_eq!(
+            report.yearly_citations[1],
+            OpenAlexYearlyCitation {
+                year: 2024,
+                citations: 12
+            }
+        );
+        assert_eq!(
+            report.top_coauthors[0],
+            OpenAlexCollaborator {
+                name: "Alice".into(),
+                count: 2
+            }
+        );
+        assert_eq!(
+            report.top_institutions[0],
+            OpenAlexCollaborator {
+                name: "UFSC".into(),
+                count: 2
+            }
+        );
 
         let updated1 = queries::get_record_by_id(&conn, "producoes", r1.id).unwrap();
         let updated2 = queries::get_record_by_id(&conn, "producoes", r2.id).unwrap();
@@ -1032,9 +1050,18 @@ mod tests {
         assert_eq!(report.matched_count, 2);
         assert_eq!(report.only_in_orcid_count, 1);
         assert_eq!(report.only_in_db_count, 1);
-        assert!(report.works.iter().any(|w| w.status == "matched" && w.db_id == Some(p_doi.id)));
-        assert!(report.works.iter().any(|w| w.status == "matched" && w.db_id == Some(p_title.id)));
-        assert!(report.works.iter().any(|w| w.status == "only_orcid" && w.doi.as_deref() == Some("10.1126/new")));
+        assert!(report
+            .works
+            .iter()
+            .any(|w| w.status == "matched" && w.db_id == Some(p_doi.id)));
+        assert!(report
+            .works
+            .iter()
+            .any(|w| w.status == "matched" && w.db_id == Some(p_title.id)));
+        assert!(report
+            .works
+            .iter()
+            .any(|w| w.status == "only_orcid" && w.doi.as_deref() == Some("10.1126/new")));
         assert_eq!(report.only_in_db[0].titulo, "Apenas no Banco Local");
     }
 }

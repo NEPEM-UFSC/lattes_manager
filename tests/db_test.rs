@@ -1,5 +1,5 @@
-use lattes_app::db::schema;
 use lattes_app::db::queries;
+use lattes_app::db::schema;
 use rusqlite::Connection;
 
 #[test]
@@ -33,7 +33,11 @@ fn test_sqlite_schema_creation_and_table_inventory() {
         .collect();
 
     for table in expected_tables {
-        assert!(tables.contains(&table.to_string()), "Missing table '{}'", table);
+        assert!(
+            tables.contains(&table.to_string()),
+            "Missing table '{}'",
+            table
+        );
     }
 }
 
@@ -45,7 +49,11 @@ fn test_subfolder_mappings_crud() {
     // 1. Create
     conn.execute(
         "INSERT INTO subfolder_mappings (category_group, description, folder) VALUES (?1, ?2, ?3)",
-        rusqlite::params!["Produções", "Artigos completos", r"5_producoes\artigos_completos"],
+        rusqlite::params![
+            "Produções",
+            "Artigos completos",
+            r"5_producoes\artigos_completos"
+        ],
     )
     .unwrap();
     let id = conn.last_insert_rowid();
@@ -162,7 +170,8 @@ fn test_queries_and_stats() {
     )
     .unwrap();
 
-    let records = queries::get_records(&conn, "producoes", Some("Microservices"), Some(2024), None).unwrap();
+    let records =
+        queries::get_records(&conn, "producoes", Some("Microservices"), Some(2024), None).unwrap();
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].titulo.as_deref(), Some("Rust Microservices"));
 

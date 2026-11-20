@@ -86,7 +86,9 @@ fn extract_years(text: &str) -> HashSet<i64> {
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
     while i + 4 <= chars.len() {
-        if (i == 0 || !chars[i - 1].is_ascii_digit()) && (i + 4 == chars.len() || !chars[i + 4].is_ascii_digit()) {
+        if (i == 0 || !chars[i - 1].is_ascii_digit())
+            && (i + 4 == chars.len() || !chars[i + 4].is_ascii_digit())
+        {
             let slice: String = chars[i..i + 4].iter().collect();
             if let Ok(y) = slice.parse::<i64>() {
                 if (1970..=2030).contains(&y) {
@@ -114,7 +116,9 @@ struct CandidateRecord {
 /// Lê subfolder_mappings para descobrir onde cada tipo é salvo por padrão.
 fn load_folder_mappings(conn: &Connection) -> HashMap<(String, String), String> {
     let mut map = HashMap::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT category_group, description, folder FROM subfolder_mappings") {
+    if let Ok(mut stmt) =
+        conn.prepare("SELECT category_group, description, folder FROM subfolder_mappings")
+    {
         if let Ok(rows) = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -135,9 +139,16 @@ fn load_folder_mappings(conn: &Connection) -> HashMap<(String, String), String> 
 }
 
 /// Varre a pasta externa informada procurando arquivos PDF e comparando com registros sem anexo.
-pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Result<Vec<VassouraMatch>, String> {
+pub fn scan_vassoura(
+    conn: &Connection,
+    root: &Path,
+    external_dir: &Path,
+) -> Result<Vec<VassouraMatch>, String> {
     if !external_dir.is_dir() {
-        return Err(format!("A pasta '{}' não existe ou não é acessível.", external_dir.display()));
+        return Err(format!(
+            "A pasta '{}' não existe ou não é acessível.",
+            external_dir.display()
+        ));
     }
 
     let folder_map = load_folder_mappings(conn);
@@ -148,15 +159,19 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
     for cat in &all_cats {
         let recs = queries::get_records(conn, cat, None, None, None).map_err(|e| e.to_string())?;
         for r in recs {
-            let has_file = r.path.as_deref().map(|p| !p.trim().is_empty()).unwrap_or(false);
+            let has_file = r
+                .path
+                .as_deref()
+                .map(|p| !p.trim().is_empty())
+                .unwrap_or(false);
             if has_file {
                 continue;
             }
             let titulo = [&r.titulo, &r.descricao, &r.disciplina]
                 .iter()
                 .filter_map(|x| x.as_ref().filter(|s| !s.trim().is_empty()))
-                .cloned()
                 .next()
+                .cloned()
                 .unwrap_or_default();
 
             if titulo.trim().is_empty() {
@@ -166,10 +181,15 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
             let extra = [&r.aluno, &r.journal, &r.curso]
                 .iter()
                 .filter_map(|x| x.as_ref().filter(|s| !s.trim().is_empty()))
-                .cloned()
-                .next();
+                .next()
+                .cloned();
 
-            let all_text = format!("{} {} {}", titulo, r.tipo.as_deref().unwrap_or(""), extra.as_deref().unwrap_or(""));
+            let all_text = format!(
+                "{} {} {}",
+                titulo,
+                r.tipo.as_deref().unwrap_or(""),
+                extra.as_deref().unwrap_or("")
+            );
             let toks = tokenize(&all_text);
 
             // Determina subpasta ideal
@@ -211,7 +231,9 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
             break;
         }
         depth += 1;
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in rd.flatten() {
             let p = entry.path();
             if p.is_dir() {
@@ -241,7 +263,11 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
     let mut matched_rec_ids: HashSet<(String, i64)> = HashSet::new();
 
     for pdf_path in pdf_files {
-        let file_name = pdf_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let file_name = pdf_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         let meta = std::fs::metadata(&pdf_path).ok();
         let file_size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
 
@@ -251,7 +277,8 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
         }
 
         // Extrai texto das primeiras páginas (protegido contra crash)
-        let text = std::panic::catch_unwind(|| crate::classify::pdf_text(&pdf_path)).unwrap_or_default();
+        let text =
+            std::panic::catch_unwind(|| crate::classify::pdf_text(&pdf_path)).unwrap_or_default();
         let doc_tokens = tokenize(&text);
         let fn_tokens = tokenize(&file_name);
         let doc_years = extract_years(&text);
@@ -271,8 +298,16 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
 
             // Intersecção de tokens com o título do registro
             if !cand.tokens.is_empty() {
-                let hit_doc = cand.tokens.iter().filter(|t| doc_tokens.contains(*t)).count();
-                let hit_fn = cand.tokens.iter().filter(|t| fn_tokens.contains(*t)).count();
+                let hit_doc = cand
+                    .tokens
+                    .iter()
+                    .filter(|t| doc_tokens.contains(*t))
+                    .count();
+                let hit_fn = cand
+                    .tokens
+                    .iter()
+                    .filter(|t| fn_tokens.contains(*t))
+                    .count();
                 let total = cand.tokens.len();
 
                 let doc_ratio = (hit_doc as f64) / (total as f64);
@@ -280,18 +315,30 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
 
                 if fn_ratio >= 0.7 && cand.tokens.len() >= 3 {
                     score += 60;
-                    reasons.push(format!("Nome do arquivo bate com o título ({:.0}%)", fn_ratio * 100.0));
+                    reasons.push(format!(
+                        "Nome do arquivo bate com o título ({:.0}%)",
+                        fn_ratio * 100.0
+                    ));
                 } else if fn_ratio >= 0.4 {
                     score += 35;
-                    reasons.push(format!("Palavras no nome do arquivo ({:.0}%)", fn_ratio * 100.0));
+                    reasons.push(format!(
+                        "Palavras no nome do arquivo ({:.0}%)",
+                        fn_ratio * 100.0
+                    ));
                 }
 
                 if doc_ratio >= 0.75 {
                     score += 65;
-                    reasons.push(format!("Texto do documento bate com o título ({:.0}%)", doc_ratio * 100.0));
+                    reasons.push(format!(
+                        "Texto do documento bate com o título ({:.0}%)",
+                        doc_ratio * 100.0
+                    ));
                 } else if doc_ratio >= 0.5 {
                     score += 45;
-                    reasons.push(format!("Palavras do título no texto ({:.0}%)", doc_ratio * 100.0));
+                    reasons.push(format!(
+                        "Palavras do título no texto ({:.0}%)",
+                        doc_ratio * 100.0
+                    ));
                 } else if doc_ratio >= 0.3 && total >= 4 {
                     score += 25;
                 }
@@ -312,7 +359,10 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
             if let Some(ref extra) = cand.extra {
                 let extra_toks = tokenize(extra);
                 if !extra_toks.is_empty() {
-                    let hit_extra = extra_toks.iter().filter(|t| doc_tokens.contains(*t)).count();
+                    let hit_extra = extra_toks
+                        .iter()
+                        .filter(|t| doc_tokens.contains(*t))
+                        .count();
                     if hit_extra >= 2 || (hit_extra == 1 && extra_toks.len() == 1) {
                         score += 20;
                         reasons.push(format!("Detalhe/Autor '{}' encontrado", extra));
@@ -370,7 +420,7 @@ pub fn scan_vassoura(conn: &Connection, root: &Path, external_dir: &Path) -> Res
     }
 
     // Ordena pelo score decrescente
-    matches.sort_by(|a, b| b.score.cmp(&a.score));
+    matches.sort_by_key(|m| std::cmp::Reverse(m.score));
     Ok(matches)
 }
 
@@ -386,15 +436,21 @@ pub fn apply_vassoura(
     for it in items {
         let from_path = Path::new(&it.file_path);
         if !from_path.is_file() {
-            res.errors.push(format!("Arquivo não encontrado: {}", it.file_path));
+            res.errors
+                .push(format!("Arquivo não encontrado: {}", it.file_path));
             continue;
         }
 
         // Subpasta de destino
-        let clean_folder = it.suggested_folder.replace('/', "\\").trim_matches('\\').to_string();
+        let clean_folder = it
+            .suggested_folder
+            .replace('/', "\\")
+            .trim_matches('\\')
+            .to_string();
         let target_dir = root.join(&clean_folder);
         if let Err(e) = std::fs::create_dir_all(&target_dir) {
-            res.errors.push(format!("Falha ao criar pasta '{}': {}", clean_folder, e));
+            res.errors
+                .push(format!("Falha ao criar pasta '{}': {}", clean_folder, e));
             continue;
         }
 
@@ -432,7 +488,11 @@ pub fn apply_vassoura(
         };
 
         if !transfer_ok {
-            res.errors.push(format!("Não foi possível transferir '{}' para '{}'.", it.file_name(), target_file.display()));
+            res.errors.push(format!(
+                "Não foi possível transferir '{}' para '{}'.",
+                it.file_name(),
+                target_file.display()
+            ));
             continue;
         }
 
@@ -446,7 +506,8 @@ pub fn apply_vassoura(
                 if crate::custom::is_custom(&it.category) {
                     "custom_records".to_string()
                 } else {
-                    res.errors.push(format!("Categoria inválida: {}", it.category));
+                    res.errors
+                        .push(format!("Categoria inválida: {}", it.category));
                     continue;
                 }
             }
@@ -454,21 +515,33 @@ pub fn apply_vassoura(
 
         let is_custom = table == "custom_records";
         let sql = if is_custom {
-            format!("UPDATE {} SET file = ?1, path = ?2 WHERE id = ?3 AND category = ?4", table)
+            format!(
+                "UPDATE {} SET file = ?1, path = ?2 WHERE id = ?3 AND category = ?4",
+                table
+            )
         } else {
             format!("UPDATE {} SET file = ?1, path = ?2 WHERE id = ?3", table)
         };
 
         let db_res = if is_custom {
-            conn.execute(&sql, params![target_name, rel_path, it.record_id, it.category])
+            conn.execute(
+                &sql,
+                params![target_name, rel_path, it.record_id, it.category],
+            )
         } else {
             conn.execute(&sql, params![target_name, rel_path, it.record_id])
         };
 
         match db_res {
             Ok(n) if n > 0 => res.ok += 1,
-            Ok(_) => res.errors.push(format!("Registro #{} não encontrado no banco", it.record_id)),
-            Err(e) => res.errors.push(format!("Erro ao atualizar registro #{}: {}", it.record_id, e)),
+            Ok(_) => res.errors.push(format!(
+                "Registro #{} não encontrado no banco",
+                it.record_id
+            )),
+            Err(e) => res.errors.push(format!(
+                "Erro ao atualizar registro #{}: {}",
+                it.record_id, e
+            )),
         }
     }
 

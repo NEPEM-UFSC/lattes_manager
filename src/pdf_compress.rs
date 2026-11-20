@@ -143,7 +143,12 @@ fn parse_cmap_mappings(cmap: &[u8]) -> std::collections::BTreeMap<u16, u16> {
     for i in 0..num_sub {
         let rec_off = 4 + i * 8;
         let platform_id = u16::from_be_bytes([cmap[rec_off], cmap[rec_off + 1]]);
-        let sub_off = u32::from_be_bytes([cmap[rec_off + 4], cmap[rec_off + 5], cmap[rec_off + 6], cmap[rec_off + 7]]) as usize;
+        let sub_off = u32::from_be_bytes([
+            cmap[rec_off + 4],
+            cmap[rec_off + 5],
+            cmap[rec_off + 6],
+            cmap[rec_off + 7],
+        ]) as usize;
         if sub_off + 14 > cmap.len() {
             continue;
         }
@@ -161,9 +166,13 @@ fn parse_cmap_mappings(cmap: &[u8]) -> std::collections::BTreeMap<u16, u16> {
             }
             for s in 0..seg_count {
                 let end_c = u16::from_be_bytes([cmap[end_pos + s * 2], cmap[end_pos + s * 2 + 1]]);
-                let start_c = u16::from_be_bytes([cmap[start_pos + s * 2], cmap[start_pos + s * 2 + 1]]);
-                let delta = i16::from_be_bytes([cmap[delta_pos + s * 2], cmap[delta_pos + s * 2 + 1]]);
-                let roff = u16::from_be_bytes([cmap[range_pos + s * 2], cmap[range_pos + s * 2 + 1]]) as usize;
+                let start_c =
+                    u16::from_be_bytes([cmap[start_pos + s * 2], cmap[start_pos + s * 2 + 1]]);
+                let delta =
+                    i16::from_be_bytes([cmap[delta_pos + s * 2], cmap[delta_pos + s * 2 + 1]]);
+                let roff =
+                    u16::from_be_bytes([cmap[range_pos + s * 2], cmap[range_pos + s * 2 + 1]])
+                        as usize;
                 if start_c == 0xFFFF && end_c == 0xFFFF {
                     break;
                 }
@@ -179,7 +188,11 @@ fn parse_cmap_mappings(cmap: &[u8]) -> std::collections::BTreeMap<u16, u16> {
                             0
                         } else {
                             let v = u16::from_be_bytes([cmap[idx_pos], cmap[idx_pos + 1]]);
-                            if v == 0 { 0 } else { (v as i32 + delta as i32) as u16 }
+                            if v == 0 {
+                                0
+                            } else {
+                                (v as i32 + delta as i32) as u16
+                            }
                         }
                     };
                     if gid != 0 {
@@ -230,14 +243,14 @@ fn build_format4_cmap(map: &std::collections::BTreeMap<u16, u16>) -> Vec<u8> {
     sub.extend_from_slice(&search_range.to_be_bytes());
     sub.extend_from_slice(&entry_sel.to_be_bytes());
     sub.extend_from_slice(&range_shift.to_be_bytes());
-    for &( _, end_c, _) in &segs {
+    for &(_, end_c, _) in &segs {
         sub.extend_from_slice(&end_c.to_be_bytes());
     }
     sub.extend_from_slice(&0u16.to_be_bytes()); // reservedPad
     for &(start_c, _, _) in &segs {
         sub.extend_from_slice(&start_c.to_be_bytes());
     }
-    for &( _, _, delta) in &segs {
+    for &(_, _, delta) in &segs {
         sub.extend_from_slice(&delta.to_be_bytes());
     }
     for _ in 0..seg_count {
@@ -249,7 +262,7 @@ fn build_format4_cmap(map: &std::collections::BTreeMap<u16, u16>) -> Vec<u8> {
     let mut out = Vec::with_capacity(sub_offset as usize + sub.len());
     out.extend_from_slice(&0u16.to_be_bytes()); // version
     out.extend_from_slice(&2u16.to_be_bytes()); // numTables = 2
-    // (1, 0)
+                                                // (1, 0)
     out.extend_from_slice(&1u16.to_be_bytes());
     out.extend_from_slice(&0u16.to_be_bytes());
     out.extend_from_slice(&sub_offset.to_be_bytes());
@@ -339,7 +352,11 @@ fn unfilter_png(raw: &[u8], width: usize, height: usize, bpp: usize) -> Option<V
             }
             3 => {
                 for x in 0..row_len {
-                    let left = if x >= bpp { curr_out[x - bpp] as u16 } else { 0 };
+                    let left = if x >= bpp {
+                        curr_out[x - bpp] as u16
+                    } else {
+                        0
+                    };
                     let up = prev_row[x] as u16;
                     let avg = ((left + up) / 2) as u8;
                     curr_out[x] = curr_raw[x].wrapping_add(avg);
@@ -347,14 +364,28 @@ fn unfilter_png(raw: &[u8], width: usize, height: usize, bpp: usize) -> Option<V
             }
             4 => {
                 for x in 0..row_len {
-                    let a = if x >= bpp { curr_out[x - bpp] as i16 } else { 0 };
+                    let a = if x >= bpp {
+                        curr_out[x - bpp] as i16
+                    } else {
+                        0
+                    };
                     let b = prev_row[x] as i16;
-                    let c = if x >= bpp { prev_row[x - bpp] as i16 } else { 0 };
+                    let c = if x >= bpp {
+                        prev_row[x - bpp] as i16
+                    } else {
+                        0
+                    };
                     let p = a + b - c;
                     let pa = (p - a).abs();
                     let pb = (p - b).abs();
                     let pc = (p - c).abs();
-                    let pr = if pa <= pb && pa <= pc { a } else if pb <= pc { b } else { c } as u8;
+                    let pr = if pa <= pb && pa <= pc {
+                        a
+                    } else if pb <= pc {
+                        b
+                    } else {
+                        c
+                    } as u8;
                     curr_out[x] = curr_raw[x].wrapping_add(pr);
                 }
             }
@@ -366,14 +397,24 @@ fn unfilter_png(raw: &[u8], width: usize, height: usize, bpp: usize) -> Option<V
 }
 
 /// Remove instruções de hinting de glifos simples e compostos em `glyf`, reconstruindo `loca`.
-fn strip_glyf_instructions(glyf: &[u8], loca: &[u8], is_long_loca: bool, num_glyphs: usize) -> Option<(Vec<u8>, Vec<u8>)> {
+fn strip_glyf_instructions(
+    glyf: &[u8],
+    loca: &[u8],
+    is_long_loca: bool,
+    num_glyphs: usize,
+) -> Option<(Vec<u8>, Vec<u8>)> {
     let mut offsets = Vec::with_capacity(num_glyphs + 1);
     if is_long_loca {
         if loca.len() < (num_glyphs + 1) * 4 {
             return None;
         }
         for i in 0..=num_glyphs {
-            let o = u32::from_be_bytes([loca[i * 4], loca[i * 4 + 1], loca[i * 4 + 2], loca[i * 4 + 3]]) as usize;
+            let o = u32::from_be_bytes([
+                loca[i * 4],
+                loca[i * 4 + 1],
+                loca[i * 4 + 2],
+                loca[i * 4 + 3],
+            ]) as usize;
             offsets.push(o);
         }
     } else {
@@ -405,7 +446,9 @@ fn strip_glyf_instructions(glyf: &[u8], loca: &[u8], is_long_loca: bool, num_gly
                 let nc = num_contours as usize;
                 let ins_len_pos = 10 + nc * 2;
                 if ins_len_pos + 2 <= g_bytes.len() {
-                    let ins_len = u16::from_be_bytes([g_bytes[ins_len_pos], g_bytes[ins_len_pos + 1]]) as usize;
+                    let ins_len =
+                        u16::from_be_bytes([g_bytes[ins_len_pos], g_bytes[ins_len_pos + 1]])
+                            as usize;
                     let flags_pos = ins_len_pos + 2 + ins_len;
                     if ins_len > 0 && flags_pos <= g_bytes.len() {
                         new_glyf.extend_from_slice(&g_bytes[..ins_len_pos]);
@@ -505,8 +548,8 @@ fn pack_sfnt_tables(sfnt_version: &[u8], mut kept: Vec<([u8; 4], Vec<u8>)>) -> V
             out.push(0);
         }
         let mut sum = 0u32;
-        for chunk in out[t_off as usize..].chunks_exact(4) {
-            sum = sum.wrapping_add(u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        for &chunk in out[t_off as usize..].as_chunks::<4>().0 {
+            sum = sum.wrapping_add(u32::from_be_bytes(chunk));
         }
         let dir_off = 12 + i * 16;
         out[dir_off..dir_off + 4].copy_from_slice(tag);
@@ -524,7 +567,7 @@ fn optimize_sfnt_font(raw: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let sfnt_version = &raw[0..4];
-    if sfnt_version != &[0, 1, 0, 0] && sfnt_version != b"true" && sfnt_version != b"OTTO" {
+    if sfnt_version != [0, 1, 0, 0] && sfnt_version != b"true" && sfnt_version != b"OTTO" {
         return None;
     }
     let num_tables = u16::from_be_bytes([raw[4], raw[5]]) as usize;
@@ -544,8 +587,10 @@ fn optimize_sfnt_font(raw: &[u8]) -> Option<Vec<u8>> {
         if !keep {
             continue;
         }
-        let t_off = u32::from_be_bytes([raw[off + 8], raw[off + 9], raw[off + 10], raw[off + 11]]) as usize;
-        let t_len = u32::from_be_bytes([raw[off + 12], raw[off + 13], raw[off + 14], raw[off + 15]]) as usize;
+        let t_off =
+            u32::from_be_bytes([raw[off + 8], raw[off + 9], raw[off + 10], raw[off + 11]]) as usize;
+        let t_len = u32::from_be_bytes([raw[off + 12], raw[off + 13], raw[off + 14], raw[off + 15]])
+            as usize;
         if t_off.checked_add(t_len)? > raw.len() {
             return None;
         }
@@ -564,17 +609,33 @@ fn optimize_sfnt_font(raw: &[u8]) -> Option<Vec<u8>> {
         .and_then(|m| (m.len() >= 6).then(|| u16::from_be_bytes([m[4], m[5]]) as usize));
 
     if let (Some(is_long), Some(ng)) = (is_long_loca, num_glyphs) {
-        if let (Some(glyf), Some(loca)) = (table_map.get(b"glyf").cloned(), table_map.get(b"loca").cloned()) {
+        if let (Some(glyf), Some(loca)) = (
+            table_map.get(b"glyf").cloned(),
+            table_map.get(b"loca").cloned(),
+        ) {
             if let Some((new_glyf, new_loca)) = strip_glyf_instructions(&glyf, &loca, is_long, ng) {
                 if let Some(hmtx) = table_map.get_mut(b"hmtx") {
                     for g in 4..ng {
                         let is_empty = if is_long {
-                            let o1 = u32::from_be_bytes([new_loca[g * 4], new_loca[g * 4 + 1], new_loca[g * 4 + 2], new_loca[g * 4 + 3]]);
-                            let o2 = u32::from_be_bytes([new_loca[(g + 1) * 4], new_loca[(g + 1) * 4 + 1], new_loca[(g + 1) * 4 + 2], new_loca[(g + 1) * 4 + 3]]);
+                            let o1 = u32::from_be_bytes([
+                                new_loca[g * 4],
+                                new_loca[g * 4 + 1],
+                                new_loca[g * 4 + 2],
+                                new_loca[g * 4 + 3],
+                            ]);
+                            let o2 = u32::from_be_bytes([
+                                new_loca[(g + 1) * 4],
+                                new_loca[(g + 1) * 4 + 1],
+                                new_loca[(g + 1) * 4 + 2],
+                                new_loca[(g + 1) * 4 + 3],
+                            ]);
                             o1 == o2
                         } else {
                             let o1 = u16::from_be_bytes([new_loca[g * 2], new_loca[g * 2 + 1]]);
-                            let o2 = u16::from_be_bytes([new_loca[(g + 1) * 2], new_loca[(g + 1) * 2 + 1]]);
+                            let o2 = u16::from_be_bytes([
+                                new_loca[(g + 1) * 2],
+                                new_loca[(g + 1) * 2 + 1],
+                            ]);
                             o1 == o2
                         };
                         if is_empty && (g + 1) * 4 <= hmtx.len() {
@@ -593,7 +654,7 @@ fn optimize_sfnt_font(raw: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn normalize_font_family(raw_name: &str) -> String {
-    let base = raw_name.split('+').last().unwrap_or(raw_name);
+    let base = raw_name.split('+').next_back().unwrap_or(raw_name);
     let mut s = base
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -623,7 +684,7 @@ struct ParsedTtfForMerge {
 }
 
 fn parse_ttf_for_merge(fid: ObjectId, stripped: &[u8]) -> Option<ParsedTtfForMerge> {
-    if stripped.len() < 12 || (&stripped[0..4] != &[0, 1, 0, 0] && &stripped[0..4] != b"true") {
+    if stripped.len() < 12 || (stripped[0..4] != [0, 1, 0, 0] && &stripped[0..4] != b"true") {
         return None;
     }
     let num_t = u16::from_be_bytes([stripped[4], stripped[5]]) as usize;
@@ -635,8 +696,18 @@ fn parse_ttf_for_merge(fid: ObjectId, stripped: &[u8]) -> Option<ParsedTtfForMer
         }
         let mut tag = [0u8; 4];
         tag.copy_from_slice(&stripped[off..off + 4]);
-        let toff = u32::from_be_bytes([stripped[off + 8], stripped[off + 9], stripped[off + 10], stripped[off + 11]]) as usize;
-        let tlen = u32::from_be_bytes([stripped[off + 12], stripped[off + 13], stripped[off + 14], stripped[off + 15]]) as usize;
+        let toff = u32::from_be_bytes([
+            stripped[off + 8],
+            stripped[off + 9],
+            stripped[off + 10],
+            stripped[off + 11],
+        ]) as usize;
+        let tlen = u32::from_be_bytes([
+            stripped[off + 12],
+            stripped[off + 13],
+            stripped[off + 14],
+            stripped[off + 15],
+        ]) as usize;
         if toff.checked_add(tlen)? > stripped.len() {
             return None;
         }
@@ -667,8 +738,18 @@ fn parse_ttf_for_merge(fid: ObjectId, stripped: &[u8]) -> Option<ParsedTtfForMer
                 return None;
             }
             (
-                u32::from_be_bytes([loca[g * 4], loca[g * 4 + 1], loca[g * 4 + 2], loca[g * 4 + 3]]) as usize,
-                u32::from_be_bytes([loca[(g + 1) * 4], loca[(g + 1) * 4 + 1], loca[(g + 1) * 4 + 2], loca[(g + 1) * 4 + 3]]) as usize,
+                u32::from_be_bytes([
+                    loca[g * 4],
+                    loca[g * 4 + 1],
+                    loca[g * 4 + 2],
+                    loca[g * 4 + 3],
+                ]) as usize,
+                u32::from_be_bytes([
+                    loca[(g + 1) * 4],
+                    loca[(g + 1) * 4 + 1],
+                    loca[(g + 1) * 4 + 2],
+                    loca[(g + 1) * 4 + 3],
+                ]) as usize,
             )
         } else {
             if (g + 1) * 2 + 2 > loca.len() {
@@ -705,7 +786,11 @@ fn parse_ttf_for_merge(fid: ObjectId, stripped: &[u8]) -> Option<ParsedTtfForMer
 
 fn build_merged_ttf(bucket: &[ParsedTtfForMerge]) -> Option<Vec<u8>> {
     let base = bucket.first()?;
-    let ng = bucket.iter().map(|x| x.num_glyphs).max().unwrap_or(base.num_glyphs);
+    let ng = bucket
+        .iter()
+        .map(|x| x.num_glyphs)
+        .max()
+        .unwrap_or(base.num_glyphs);
     let mut merged_glyphs = vec![Vec::new(); ng];
     let mut merged_hmtx = vec![0u8; ng * 4];
     let mut all_cmaps_equal = true;
@@ -724,7 +809,10 @@ fn build_merged_ttf(bucket: &[ParsedTtfForMerge]) -> Option<Vec<u8>> {
                 if (g + 1) * 4 <= item.hmtx.len() {
                     merged_hmtx[g * 4..g * 4 + 4].copy_from_slice(&item.hmtx[g * 4..g * 4 + 4]);
                 }
-            } else if g < 4 && merged_hmtx[g * 4..g * 4 + 4] == [0, 0, 0, 0] && (g + 1) * 4 <= item.hmtx.len() {
+            } else if g < 4
+                && merged_hmtx[g * 4..g * 4 + 4] == [0, 0, 0, 0]
+                && (g + 1) * 4 <= item.hmtx.len()
+            {
                 merged_hmtx[g * 4..g * 4 + 4].copy_from_slice(&item.hmtx[g * 4..g * 4 + 4]);
             }
         }
@@ -740,10 +828,10 @@ fn build_merged_ttf(bucket: &[ParsedTtfForMerge]) -> Option<Vec<u8>> {
 
     let mut new_glyf = Vec::new();
     let mut new_offsets = Vec::with_capacity(ng + 1);
-    for g in 0..ng {
+    for glyph in &merged_glyphs {
         new_offsets.push(new_glyf.len());
-        if !merged_glyphs[g].is_empty() {
-            new_glyf.extend_from_slice(&merged_glyphs[g]);
+        if !glyph.is_empty() {
+            new_glyf.extend_from_slice(glyph);
             while new_glyf.len() % 2 != 0 {
                 new_glyf.push(0);
             }
@@ -803,7 +891,12 @@ fn collect_content_names(raw: &[u8], out: &mut HashSet<Vec<u8>>) {
             let start = i;
             while i < len {
                 let b = raw[i];
-                if b.is_ascii_whitespace() || matches!(b, b'/' | b'[' | b']' | b'(' | b')' | b'<' | b'>' | b'{' | b'}' | b'%') {
+                if b.is_ascii_whitespace()
+                    || matches!(
+                        b,
+                        b'/' | b'[' | b']' | b'(' | b')' | b'<' | b'>' | b'{' | b'}' | b'%'
+                    )
+                {
                     break;
                 }
                 i += 1;
@@ -893,7 +986,8 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
             _ => None,
         };
         if let Some(d) = dict {
-            let is_meta = is_name(d.get(b"Type").ok(), b"Metadata") || is_name(d.get(b"Subtype").ok(), b"XML");
+            let is_meta = is_name(d.get(b"Type").ok(), b"Metadata")
+                || is_name(d.get(b"Subtype").ok(), b"XML");
             if is_meta {
                 metadata_stream_ids.push(id);
             } else {
@@ -943,7 +1037,11 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                 .and_then(|o| o.as_name().ok())
                 .map(|n| String::from_utf8_lossy(n).to_string())
                 .unwrap_or_default();
-            for k in [b"FontFile".as_slice(), b"FontFile2".as_slice(), b"FontFile3".as_slice()] {
+            for k in [
+                b"FontFile".as_slice(),
+                b"FontFile2".as_slice(),
+                b"FontFile3".as_slice(),
+            ] {
                 if let Ok(Object::Reference(fid)) = d.get(k) {
                     font_file_map.insert(*fid, fname.clone());
                 }
@@ -958,11 +1056,24 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
             if font_file_map.contains_key(&id) || s.dict.has(b"Length1") {
                 continue;
             }
-            let subtype = s.dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()).unwrap_or(b"");
-            if matches!(subtype, b"Image" | b"Type1C" | b"CIDFontType0C" | b"OpenType" | b"XML") {
+            let subtype = s
+                .dict
+                .get(b"Subtype")
+                .ok()
+                .and_then(|o| o.as_name().ok())
+                .unwrap_or(b"");
+            if matches!(
+                subtype,
+                b"Image" | b"Type1C" | b"CIDFontType0C" | b"OpenType" | b"XML"
+            ) {
                 continue;
             }
-            let typ = s.dict.get(b"Type").ok().and_then(|o| o.as_name().ok()).unwrap_or(b"");
+            let typ = s
+                .dict
+                .get(b"Type")
+                .ok()
+                .and_then(|o| o.as_name().ok())
+                .unwrap_or(b"");
             if matches!(typ, b"XRef" | b"ObjStm" | b"Metadata") {
                 continue;
             }
@@ -1018,8 +1129,14 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
         if let Object::Stream(s) = obj {
             let fname = font_file_map.get(&fid).cloned().unwrap_or_default();
             if font_file_map.contains_key(&fid) || s.dict.has(b"Length1") {
-                if let Some(raw) = raw_flate_decompress(&s.content).or_else(|| s.decompressed_content().ok()) {
-                    if raw.len() >= 12 && (&raw[0..4] == &[0, 1, 0, 0] || &raw[0..4] == b"true" || &raw[0..4] == b"OTTO") {
+                if let Some(raw) =
+                    raw_flate_decompress(&s.content).or_else(|| s.decompressed_content().ok())
+                {
+                    if raw.len() >= 12
+                        && (raw[0..4] == [0, 1, 0, 0]
+                            || &raw[0..4] == b"true"
+                            || &raw[0..4] == b"OTTO")
+                    {
                         ttf_jobs.push((fid, fname, raw, s.content.len()));
                     }
                 }
@@ -1030,13 +1147,13 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
     let num_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-        .min(8)
-        .max(1);
+        .clamp(1, 8);
 
     let mut font_replaced_count = 0usize;
     if !ttf_jobs.is_empty() {
-        let chunk_size = (ttf_jobs.len() + num_threads - 1) / num_threads;
-        let mut stripped_results: Vec<(ObjectId, String, Vec<u8>, usize)> = Vec::with_capacity(ttf_jobs.len());
+        let chunk_size = ttf_jobs.len().div_ceil(num_threads);
+        let mut stripped_results: Vec<(ObjectId, String, Vec<u8>, usize)> =
+            Vec::with_capacity(ttf_jobs.len());
         std::thread::scope(|s| {
             let mut handles = Vec::new();
             for chunk in ttf_jobs.chunks(chunk_size) {
@@ -1145,7 +1262,7 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
         }
 
         if !to_compress.is_empty() {
-            let c_chunk = (to_compress.len() + num_threads - 1) / num_threads;
+            let c_chunk = to_compress.len().div_ceil(num_threads);
             let mut comp_fonts: Vec<(ObjectId, Vec<u8>, usize, Option<usize>)> = Vec::new();
             std::thread::scope(|s| {
                 let mut handles = Vec::new();
@@ -1226,7 +1343,9 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                     mask_object_ids.insert(*ref_id);
                     small_masked_image_ids.insert(id);
                 } else if let Some(Object::Stream(ms)) = doc.objects.get(ref_id) {
-                    if let Some(mraw) = raw_flate_decompress(&ms.content).or_else(|| ms.decompressed_content().ok()) {
+                    if let Some(mraw) =
+                        raw_flate_decompress(&ms.content).or_else(|| ms.decompressed_content().ok())
+                    {
                         if !mraw.is_empty() && mraw.iter().all(|&b| b >= 250) {
                             opaque_smask_owners.push(id);
                         }
@@ -1262,10 +1381,14 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
             continue;
         }
 
-        let Some(w) = resolve_int(&doc, stream.dict.get(b"Width").ok()).and_then(|v| u32::try_from(v).ok()) else {
+        let Some(w) =
+            resolve_int(&doc, stream.dict.get(b"Width").ok()).and_then(|v| u32::try_from(v).ok())
+        else {
             continue;
         };
-        let Some(h) = resolve_int(&doc, stream.dict.get(b"Height").ok()).and_then(|v| u32::try_from(v).ok()) else {
+        let Some(h) =
+            resolve_int(&doc, stream.dict.get(b"Height").ok()).and_then(|v| u32::try_from(v).ok())
+        else {
             continue;
         };
         if w == 0 || h == 0 {
@@ -1324,7 +1447,9 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                     .unwrap_or(1);
 
                 let raw = if filter_kind == StreamFilterKind::Flate {
-                    let Some(d) = raw_flate_decompress(&stream.content).or_else(|| stream.decompressed_content().ok()) else {
+                    let Some(d) = raw_flate_decompress(&stream.content)
+                        .or_else(|| stream.decompressed_content().ok())
+                    else {
                         continue;
                     };
                     d
@@ -1348,7 +1473,7 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
 
     let mut replaced_count = 0;
     if !jobs.is_empty() {
-        let chunk_size = (jobs.len() + num_threads - 1) / num_threads;
+        let chunk_size = jobs.len().div_ceil(num_threads);
         let mut thread_results: Vec<Vec<ImageResult>> = Vec::new();
 
         std::thread::scope(|s| {
@@ -1358,7 +1483,10 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                     let mut res = Vec::new();
                     for job in chunk {
                         if job.filter_kind == StreamFilterKind::Dct {
-                            if let Ok(img) = image::load_from_memory_with_format(&job.raw_content, ImageFormat::Jpeg) {
+                            if let Ok(img) = image::load_from_memory_with_format(
+                                &job.raw_content,
+                                ImageFormat::Jpeg,
+                            ) {
                                 let scaled = downscale_if_needed(img);
                                 let nw = scaled.width();
                                 let nh = scaled.height();
@@ -1384,21 +1512,31 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                             let pixel_bytes = if job.raw_content.len() == expected_len {
                                 Some(job.raw_content.clone())
                             } else if job.predictor >= 10 {
-                                unfilter_png(&job.raw_content, job.w as usize, job.h as usize, job.channels)
+                                unfilter_png(
+                                    &job.raw_content,
+                                    job.w as usize,
+                                    job.h as usize,
+                                    job.channels,
+                                )
                             } else {
                                 None
                             };
                             let Some(pixels) = pixel_bytes else { continue };
 
                             let (dyn_img, out_ch) = if job.channels == 3 {
-                                let Some(rgb) = RgbImage::from_raw(job.w, job.h, pixels) else { continue };
+                                let Some(rgb) = RgbImage::from_raw(job.w, job.h, pixels) else {
+                                    continue;
+                                };
                                 (DynamicImage::ImageRgb8(rgb), 3)
                             } else if job.channels == 1 {
-                                let Some(gray) = GrayImage::from_raw(job.w, job.h, pixels) else { continue };
+                                let Some(gray) = GrayImage::from_raw(job.w, job.h, pixels) else {
+                                    continue;
+                                };
                                 (DynamicImage::ImageLuma8(gray), 1)
                             } else if job.channels == 4 {
-                                let mut rgb_vec = Vec::with_capacity((job.w as usize) * (job.h as usize) * 3);
-                                for cmyk in pixels.chunks_exact(4) {
+                                let mut rgb_vec =
+                                    Vec::with_capacity((job.w as usize) * (job.h as usize) * 3);
+                                for cmyk in pixels.as_chunks::<4>().0 {
                                     let c = cmyk[0] as u32;
                                     let m = cmyk[1] as u32;
                                     let y = cmyk[2] as u32;
@@ -1410,7 +1548,9 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                                     rgb_vec.push(g);
                                     rgb_vec.push(b);
                                 }
-                                let Some(rgb) = RgbImage::from_raw(job.w, job.h, rgb_vec) else { continue };
+                                let Some(rgb) = RgbImage::from_raw(job.w, job.h, rgb_vec) else {
+                                    continue;
+                                };
                                 (DynamicImage::ImageRgb8(rgb), 3)
                             } else {
                                 continue;
@@ -1451,7 +1591,9 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                 if let Some(Object::Stream(stream)) = doc.objects.get_mut(&res.id) {
                     if res.new_content.len() + 256 < stream.content.len() {
                         stream.content = res.new_content;
-                        stream.dict.set(b"Filter", Object::Name(b"DCTDecode".to_vec()));
+                        stream
+                            .dict
+                            .set(b"Filter", Object::Name(b"DCTDecode".to_vec()));
                         stream.dict.set(b"Width", res.new_w as i64);
                         stream.dict.set(b"Height", res.new_h as i64);
                         stream.dict.set(b"Length", stream.content.len() as i64);
@@ -1706,7 +1848,10 @@ mod tests {
         );
         let img_id = doc.add_object(img_stream);
 
-        let content = Stream::new(dictionary! {}, b"q 500 0 0 500 50 200 cm /Im0 Do Q".to_vec());
+        let content = Stream::new(
+            dictionary! {},
+            b"q 500 0 0 500 50 200 cm /Im0 Do Q".to_vec(),
+        );
         let content_id = doc.add_object(content);
         let resources_id = doc.add_object(dictionary! {
             "XObject" => dictionary! { "Im0" => img_id },
@@ -1753,7 +1898,7 @@ mod tests {
         let bpp = 3usize; // RGB
         let raw = vec![
             1u8, 10, 20, 30, 5, 5, 5, // row 0: pixel 0 = (10, 20, 30), pixel 1 = (15, 25, 35)
-            2u8, 1, 2, 3, 4, 5, 6,    // row 1: pixel 0 = (11, 22, 33), pixel 1 = (19, 30, 41)
+            2u8, 1, 2, 3, 4, 5, 6, // row 1: pixel 0 = (11, 22, 33), pixel 1 = (19, 30, 41)
         ];
         let decoded = unfilter_png(&raw, width, height, bpp).expect("unfilter deve funcionar");
         assert_eq!(decoded.len(), 12);
@@ -1793,7 +1938,10 @@ mod tests {
             vec![128u8; 120 * 120 * 3],
         );
         let logo_id = doc.add_object(logo_stream);
-        let content_id = doc.add_object(Stream::new(dictionary! {}, b"q 100 0 0 100 10 10 cm /ImLogo Do Q".to_vec()));
+        let content_id = doc.add_object(Stream::new(
+            dictionary! {},
+            b"q 100 0 0 100 10 10 cm /ImLogo Do Q".to_vec(),
+        ));
         let res_id = doc.add_object(dictionary! {
             "XObject" => dictionary! { "ImLogo" => logo_id },
         });
@@ -1859,7 +2007,10 @@ mod tests {
                 "  [{}] {:.2} MB -> {:.2} MB (-{:.1}%) em {:?}",
                 name, orig_mb, comp_mb, pct, elapsed
             );
-            assert!(comp_mb < orig_mb * 0.40, "PDF deve comprimir pelo menos 60%");
+            assert!(
+                comp_mb < orig_mb * 0.40,
+                "PDF deve comprimir pelo menos 60%"
+            );
         }
     }
 }

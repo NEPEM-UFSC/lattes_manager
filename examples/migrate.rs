@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
 use lattes_app::db;
 use lattes_app::migration;
+use std::path::{Path, PathBuf};
 
 fn resolve_paths() -> (PathBuf, PathBuf, PathBuf) {
     let root = if Path::new("lattes.xlsm").exists() {
@@ -48,11 +48,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("------------------------------------------------------------");
     println!("Total Entity Records   : {:>4}", report.total_records);
     println!("Subfolder Mappings     : {:>4}", report.total_mappings);
-    println!("Database File Size     : {} bytes", std::fs::metadata(&db_path)?.len());
+    println!(
+        "Database File Size     : {} bytes",
+        std::fs::metadata(&db_path)?.len()
+    );
     println!("============================================================");
 
-    assert_eq!(report.total_records, 361, "Total entity records must equal 361");
-    assert_eq!(report.total_mappings, 49, "Total subfolder mappings must equal 49");
+    assert_eq!(
+        report.total_records, 361,
+        "Total entity records must equal 361"
+    );
+    assert_eq!(
+        report.total_mappings, 49,
+        "Total subfolder mappings must equal 49"
+    );
 
     Ok(())
 }

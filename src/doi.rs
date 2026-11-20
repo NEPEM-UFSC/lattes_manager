@@ -15,7 +15,11 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 
-const UA: &str = concat!("LattesManager/", env!("CARGO_PKG_VERSION"), " (gerenciador de curriculo; mailto:lattesmanager@ufsc.br)");
+const UA: &str = concat!(
+    "LattesManager/",
+    env!("CARGO_PKG_VERSION"),
+    " (gerenciador de curriculo; mailto:lattesmanager@ufsc.br)"
+);
 const BROWSER_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const MAX_PDF: u64 = 120 * 1024 * 1024;
 
@@ -51,11 +55,20 @@ pub fn parse_doi(input: &str) -> Option<String> {
 }
 
 fn agent(secs: u64) -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout(Duration::from_secs(secs)).redirects(8).build()
+    ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(secs))
+        .redirects(8)
+        .build()
 }
 
 fn host_of(url: &str) -> String {
-    url.split("://").nth(1).unwrap_or(url).split(['/', '?']).next().unwrap_or("").to_string()
+    url.split("://")
+        .nth(1)
+        .unwrap_or(url)
+        .split(['/', '?'])
+        .next()
+        .unwrap_or("")
+        .to_string()
 }
 
 fn versao(v: Option<&str>) -> String {
@@ -72,7 +85,9 @@ fn versao(v: Option<&str>) -> String {
 pub fn openalex(doi: &str) -> Result<Value, String> {
     let url = format!("https://api.openalex.org/works/doi:{}", doi);
     match agent(10).get(&url).set("User-Agent", UA).call() {
-        Ok(r) => r.into_json().map_err(|e| format!("resposta inválida do OpenAlex ({})", e)),
+        Ok(r) => r
+            .into_json()
+            .map_err(|e| format!("resposta inválida do OpenAlex ({})", e)),
         Err(ureq::Error::Status(404, _)) => Err("DOI não encontrado no OpenAlex".into()),
         Err(ureq::Error::Status(c, _)) => Err(format!("OpenAlex respondeu com erro {}", c)),
         Err(ureq::Error::Transport(_)) => Err("sem conexão com o OpenAlex".into()),
@@ -81,9 +96,14 @@ pub fn openalex(doi: &str) -> Result<Value, String> {
 
 /// Unpaywall API direta (principal fonte do Zotero para PDFs de acesso aberto).
 pub fn unpaywall(doi: &str) -> Result<Value, String> {
-    let url = format!("https://api.unpaywall.org/v2/{}?email=lattesmanager@ufsc.br", doi);
+    let url = format!(
+        "https://api.unpaywall.org/v2/{}?email=lattesmanager@ufsc.br",
+        doi
+    );
     match agent(10).get(&url).set("User-Agent", UA).call() {
-        Ok(r) => r.into_json().map_err(|e| format!("resposta inválida do Unpaywall ({})", e)),
+        Ok(r) => r
+            .into_json()
+            .map_err(|e| format!("resposta inválida do Unpaywall ({})", e)),
         Err(ureq::Error::Status(404, _)) => Err("DOI não encontrado no Unpaywall".into()),
         Err(ureq::Error::Status(c, _)) => Err(format!("Unpaywall respondeu com erro {}", c)),
         Err(ureq::Error::Transport(_)) => Err("sem conexão com o Unpaywall".into()),
@@ -97,7 +117,9 @@ pub fn semanticscholar(doi: &str) -> Result<Value, String> {
         doi
     );
     match agent(10).get(&url).set("User-Agent", UA).call() {
-        Ok(r) => r.into_json().map_err(|e| format!("resposta inválida do Semantic Scholar ({})", e)),
+        Ok(r) => r
+            .into_json()
+            .map_err(|e| format!("resposta inválida do Semantic Scholar ({})", e)),
         Err(ureq::Error::Status(404, _)) => Err("DOI não encontrado no Semantic Scholar".into()),
         Err(ureq::Error::Status(c, _)) => Err(format!("Semantic Scholar respondeu com erro {}", c)),
         Err(ureq::Error::Transport(_)) => Err("sem conexão com o Semantic Scholar".into()),
@@ -111,7 +133,9 @@ pub fn europepmc(doi: &str) -> Result<Value, String> {
         doi
     );
     match agent(10).get(&url).set("User-Agent", UA).call() {
-        Ok(r) => r.into_json().map_err(|e| format!("resposta inválida do Europe PMC ({})", e)),
+        Ok(r) => r
+            .into_json()
+            .map_err(|e| format!("resposta inválida do Europe PMC ({})", e)),
         Err(ureq::Error::Status(c, _)) => Err(format!("Europe PMC respondeu com erro {}", c)),
         Err(ureq::Error::Transport(_)) => Err("sem conexão com o Europe PMC".into()),
     }
@@ -124,7 +148,9 @@ pub fn pmc_idconv(doi: &str) -> Result<Value, String> {
         doi
     );
     match agent(8).get(&url).set("User-Agent", UA).call() {
-        Ok(r) => r.into_json().map_err(|e| format!("resposta inválida do PMC ({})", e)),
+        Ok(r) => r
+            .into_json()
+            .map_err(|e| format!("resposta inválida do PMC ({})", e)),
         Err(ureq::Error::Status(c, _)) => Err(format!("PMC erro {}", c)),
         Err(ureq::Error::Transport(_)) => Err("sem conexão com o PMC".into()),
     }
@@ -137,7 +163,9 @@ pub fn openaire(doi: &str) -> Result<Value, String> {
         doi
     );
     match agent(8).get(&url).set("User-Agent", UA).call() {
-        Ok(r) => r.into_json().map_err(|e| format!("resposta inválida do OpenAIRE ({})", e)),
+        Ok(r) => r
+            .into_json()
+            .map_err(|e| format!("resposta inválida do OpenAIRE ({})", e)),
         Err(ureq::Error::Status(c, _)) => Err(format!("OpenAIRE erro {}", c)),
         Err(ureq::Error::Transport(_)) => Err("sem conexão com o OpenAIRE".into()),
     }
@@ -158,7 +186,15 @@ pub fn candidates(oa: Option<&Value>, crossref: Option<&Value>) -> Vec<PdfCandid
             "?" => 15,
             _ => 20,
         } + bonus;
-        out.push((rank, PdfCandidate { url: url.into(), host: host_of(url), versao: ver, licenca: lic.map(String::from) }));
+        out.push((
+            rank,
+            PdfCandidate {
+                url: url.into(),
+                host: host_of(url),
+                versao: ver,
+                licenca: lic.map(String::from),
+            },
+        ));
     };
     if let Some(oa) = oa {
         let b = &oa["best_oa_location"];
@@ -213,7 +249,11 @@ fn append_extra_candidates(
     if let Some(u) = upw {
         let best = &u["best_oa_location"];
         if let Some(p) = best["url_for_pdf"].as_str() {
-            push(p, &versao(best["version"].as_str()), best["license"].as_str());
+            push(
+                p,
+                &versao(best["version"].as_str()),
+                best["license"].as_str(),
+            );
         }
         for loc in u["oa_locations"].as_array().into_iter().flatten() {
             if let Some(p) = loc["url_for_pdf"].as_str() {
@@ -233,7 +273,11 @@ fn append_extra_candidates(
 
     if let Some(e) = epmc {
         for rec in e["resultList"]["result"].as_array().into_iter().flatten() {
-            for ft in rec["fullTextUrlList"]["fullTextUrl"].as_array().into_iter().flatten() {
+            for ft in rec["fullTextUrlList"]["fullTextUrl"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
                 if ft["documentStyle"].as_str() == Some("pdf") {
                     if let Some(p) = ft["url"].as_str() {
                         push(p, "publicada", None);
@@ -246,7 +290,11 @@ fn append_extra_candidates(
     if let Some(p) = pmc {
         for rec in p["records"].as_array().into_iter().flatten() {
             if let Some(pmcid) = rec["pmcid"].as_str() {
-                push(&format!("https://pmc.ncbi.nlm.nih.gov/articles/{}/pdf/", pmcid), "publicada", None);
+                push(
+                    &format!("https://pmc.ncbi.nlm.nih.gov/articles/{}/pdf/", pmcid),
+                    "publicada",
+                    None,
+                );
             }
         }
     }
@@ -255,10 +303,22 @@ fn append_extra_candidates(
         let results = &oa["response"]["results"]["result"];
         for rec in results.as_array().into_iter().flatten() {
             let instance = &rec["metadata"]["oaf:entity"]["oaf:result"]["children"]["instance"];
-            let arr = if instance.is_array() { instance.as_array().cloned().unwrap_or_default() } else if instance.is_object() { vec![instance.clone()] } else { vec![] };
+            let arr = if instance.is_array() {
+                instance.as_array().cloned().unwrap_or_default()
+            } else if instance.is_object() {
+                vec![instance.clone()]
+            } else {
+                vec![]
+            };
             for inst in arr {
                 let web = &inst["webresource"];
-                let warr = if web.is_array() { web.as_array().cloned().unwrap_or_default() } else if web.is_object() { vec![web.clone()] } else { vec![] };
+                let warr = if web.is_array() {
+                    web.as_array().cloned().unwrap_or_default()
+                } else if web.is_object() {
+                    vec![web.clone()]
+                } else {
+                    vec![]
+                };
                 for w in warr {
                     if let Some(u) = w["url"]["$"].as_str().or_else(|| w["url"].as_str()) {
                         if u.to_lowercase().contains("pdf") {
@@ -273,18 +333,52 @@ fn append_extra_candidates(
     // Regras diretas por prefixo de DOI / editora (acesso aberto ou rede institucional)
     let low = doi.to_lowercase();
     if let Some(arx) = low.strip_prefix("10.48550/arxiv.") {
-        push(&format!("https://arxiv.org/pdf/{}.pdf", arx), "preprint", None);
+        push(
+            &format!("https://arxiv.org/pdf/{}.pdf", arx),
+            "preprint",
+            None,
+        );
     } else if low.starts_with("10.1101/") {
-        push(&format!("https://www.biorxiv.org/content/{}.full.pdf", doi), "preprint", None);
-        push(&format!("https://www.medrxiv.org/content/{}.full.pdf", doi), "preprint", None);
+        push(
+            &format!("https://www.biorxiv.org/content/{}.full.pdf", doi),
+            "preprint",
+            None,
+        );
+        push(
+            &format!("https://www.medrxiv.org/content/{}.full.pdf", doi),
+            "preprint",
+            None,
+        );
     } else if low.starts_with("10.1007/") || low.starts_with("10.1186/") {
-        push(&format!("https://link.springer.com/content/pdf/{}.pdf", doi), "publicada", None);
+        push(
+            &format!("https://link.springer.com/content/pdf/{}.pdf", doi),
+            "publicada",
+            None,
+        );
     } else if low.starts_with("10.3389/") {
-        push(&format!("https://www.frontiersin.org/articles/{}/pdf", doi), "publicada", None);
+        push(
+            &format!("https://www.frontiersin.org/articles/{}/pdf", doi),
+            "publicada",
+            None,
+        );
     } else if low.starts_with("10.1371/") {
-        push(&format!("https://journals.plos.org/plosone/article/file?id={}&type=printable", doi), "publicada", None);
-    } else if low.starts_with("10.1155/") || low.starts_with("10.1002/") || low.starts_with("10.1111/") {
-        push(&format!("https://onlinelibrary.wiley.com/doi/pdfdirect/{}", doi), "publicada", None);
+        push(
+            &format!(
+                "https://journals.plos.org/plosone/article/file?id={}&type=printable",
+                doi
+            ),
+            "publicada",
+            None,
+        );
+    } else if low.starts_with("10.1155/")
+        || low.starts_with("10.1002/")
+        || low.starts_with("10.1111/")
+    {
+        push(
+            &format!("https://onlinelibrary.wiley.com/doi/pdfdirect/{}", doi),
+            "publicada",
+            None,
+        );
     }
 
     // Por último, tenta resolver diretamente a landing page do DOI (ex.: SciELO, OJS, MDPI, Wiley)
@@ -415,7 +509,10 @@ pub fn fetch_pdf(url: &str, depth: u8) -> Result<Vec<u8>, String> {
     let resp = match agent(25)
         .get(url)
         .set("User-Agent", BROWSER_UA)
-        .set("Accept", "application/pdf,text/html,application/xhtml+xml,*/*;q=0.8")
+        .set(
+            "Accept",
+            "application/pdf,text/html,application/xhtml+xml,*/*;q=0.8",
+        )
         .set("Accept-Language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7")
         .call()
     {
@@ -424,7 +521,10 @@ pub fn fetch_pdf(url: &str, depth: u8) -> Result<Vec<u8>, String> {
             if let Some(buf) = fetch_pdf_curl(url) {
                 return Ok(buf);
             }
-            return Err(format!("{}: a editora bloqueia downloads automáticos ({})", h, c));
+            return Err(format!(
+                "{}: a editora bloqueia downloads automáticos ({})",
+                h, c
+            ));
         }
         Err(ureq::Error::Status(c, _)) => return Err(format!("{}: erro {}", h, c)),
         Err(ureq::Error::Transport(t)) => {
@@ -437,7 +537,10 @@ pub fn fetch_pdf(url: &str, depth: u8) -> Result<Vec<u8>, String> {
     let final_url = resp.get_url().to_string();
     let ctype = resp.content_type().to_lowercase();
     let mut buf = Vec::new();
-    resp.into_reader().take(MAX_PDF + 1).read_to_end(&mut buf).map_err(|e| format!("{}: download interrompido ({})", h, e))?;
+    resp.into_reader()
+        .take(MAX_PDF + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("{}: download interrompido ({})", h, e))?;
     if buf.len() as u64 > MAX_PDF {
         return Err(format!("{}: arquivo grande demais", h));
     }
@@ -460,7 +563,13 @@ pub fn fetch_pdf(url: &str, depth: u8) -> Result<Vec<u8>, String> {
 fn sanitize(s: &str, max: usize) -> String {
     let cleaned: String = s
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' {
+                c
+            } else {
+                ' '
+            }
+        })
         .collect();
     let mut out = String::new();
     for w in cleaned.split_whitespace() {
@@ -477,10 +586,19 @@ fn sanitize(s: &str, max: usize) -> String {
 
 /// Nome legível: "Olivoto 2021 - MGIDI toward an effective multivariate.pdf"
 pub fn file_name(md: &PdfMetadata) -> String {
-    let autor = md.autores.first().and_then(|a| a.split_whitespace().last()).map(|s| sanitize(s, 30)).unwrap_or_default();
+    let autor = md
+        .autores
+        .first()
+        .and_then(|a| a.split_whitespace().last())
+        .map(|s| sanitize(s, 30))
+        .unwrap_or_default();
     let ano = md.ano.map(|a| a.to_string()).unwrap_or_default();
     let titulo = sanitize(md.titulo.as_deref().unwrap_or("artigo"), 60);
-    let head = [autor, ano].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
+    let head = [autor, ano]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
     if head.is_empty() {
         format!("{}.pdf", titulo)
     } else {
@@ -490,13 +608,17 @@ pub fn file_name(md: &PdfMetadata) -> String {
 
 /// O PDF baixado parece ser do artigo? (DOI igual no arquivo ou título na 1ª página)
 fn matches_article(bytes: &[u8], md: &PdfMetadata) -> bool {
-    let Ok((local, p1)) = metadata::extract_local_with_text(bytes) else { return true };
+    let Ok((local, p1)) = metadata::extract_local_with_text(bytes) else {
+        return true;
+    };
     if let (Some(a), Some(b)) = (&local.doi, &md.doi) {
         if a == b {
             return true;
         }
     }
-    let Some(t) = md.titulo.as_deref() else { return true };
+    let Some(t) = md.titulo.as_deref() else {
+        return true;
+    };
     let tn = normalize_title(t);
     let p1n = normalize_title(&p1);
     if p1n.len() < 50 {
@@ -509,21 +631,38 @@ fn matches_article(bytes: &[u8], md: &PdfMetadata) -> bool {
 
 /// Fluxo completo. `download=false` só traz os metadados e os candidatos.
 pub fn resolve(input: &str, tipo_options: &[String], download: bool) -> Result<DoiResult, String> {
-    let doi = parse_doi(input).ok_or_else(|| "DOI inválido — use o formato 10.xxxx/…".to_string())?;
+    let doi =
+        parse_doi(input).ok_or_else(|| "DOI inválido — use o formato 10.xxxx/…".to_string())?;
 
     // Consulta todas as APIs em paralelo para velocidade máxima
     let (oa, upw, cr_res, s2, epmc, pmc, oaire) = std::thread::scope(|s| {
         let h_oa = s.spawn(|| openalex(&doi));
         let h_upw = s.spawn(|| unpaywall(&doi));
         let h_cr = s.spawn(|| metadata::crossref(&doi));
-        let h_s2 = s.spawn(|| if download { semanticscholar(&doi).ok() } else { None });
+        let h_s2 = s.spawn(|| {
+            if download {
+                semanticscholar(&doi).ok()
+            } else {
+                None
+            }
+        });
         let h_epmc = s.spawn(|| if download { europepmc(&doi).ok() } else { None });
-        let h_pmc = s.spawn(|| if download { pmc_idconv(&doi).ok() } else { None });
+        let h_pmc = s.spawn(|| {
+            if download {
+                pmc_idconv(&doi).ok()
+            } else {
+                None
+            }
+        });
         let h_oaire = s.spawn(|| if download { openaire(&doi).ok() } else { None });
         (
-            h_oa.join().unwrap_or_else(|_| Err("OpenAlex falhou".into())),
-            h_upw.join().unwrap_or_else(|_| Err("Unpaywall falhou".into())),
-            h_cr.join().unwrap_or_else(|_| Err("Crossref falhou".into())),
+            h_oa.join()
+                .unwrap_or_else(|_| Err("OpenAlex falhou".into())),
+            h_upw
+                .join()
+                .unwrap_or_else(|_| Err("Unpaywall falhou".into())),
+            h_cr.join()
+                .unwrap_or_else(|_| Err("Crossref falhou".into())),
             h_s2.join().unwrap_or(None),
             h_epmc.join().unwrap_or(None),
             h_pmc.join().unwrap_or(None),
@@ -531,7 +670,10 @@ pub fn resolve(input: &str, tipo_options: &[String], download: bool) -> Result<D
         )
     });
 
-    let mut meta = PdfMetadata { doi: Some(doi.clone()), ..Default::default() };
+    let mut meta = PdfMetadata {
+        doi: Some(doi.clone()),
+        ..Default::default()
+    };
     let cr = match cr_res {
         Ok(m) => {
             metadata::merge_crossref(&mut meta, &m);
@@ -539,12 +681,21 @@ pub fn resolve(input: &str, tipo_options: &[String], download: bool) -> Result<D
         }
         Err(e) => {
             if let Ok(w) = &oa {
-                meta.titulo = w["title"].as_str().or(w["display_name"].as_str()).map(String::from);
+                meta.titulo = w["title"]
+                    .as_str()
+                    .or(w["display_name"].as_str())
+                    .map(String::from);
                 meta.ano = w["publication_year"].as_i64();
-                meta.journal = w["primary_location"]["source"]["display_name"].as_str().map(String::from);
+                meta.journal = w["primary_location"]["source"]["display_name"]
+                    .as_str()
+                    .map(String::from);
                 meta.autores = w["authorships"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|x| x["author"]["display_name"].as_str().map(String::from)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x["author"]["display_name"].as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 meta.fonte = "openalex".into();
             } else if let Ok(u) = &upw {
@@ -567,27 +718,46 @@ pub fn resolve(input: &str, tipo_options: &[String], download: bool) -> Result<D
         .as_ref()
         .ok()
         .and_then(|w| w["open_access"]["oa_status"].as_str().map(String::from))
-        .or_else(|| upw.as_ref().ok().and_then(|u| u["oa_status"].as_str().map(String::from)));
+        .or_else(|| {
+            upw.as_ref()
+                .ok()
+                .and_then(|u| u["oa_status"].as_str().map(String::from))
+        });
 
-    let mut res = DoiResult { oa_status, ..Default::default() };
+    let mut res = DoiResult {
+        oa_status,
+        ..Default::default()
+    };
     if let Err(e) = &oa {
         res.falhas.push(e.clone());
     }
     res.candidatos = candidates(oa.as_ref().ok(), cr.as_ref());
-    append_extra_candidates(&mut res.candidatos, upw.as_ref().ok(), s2.as_ref(), epmc.as_ref(), pmc.as_ref(), oaire.as_ref(), &doi);
+    append_extra_candidates(
+        &mut res.candidatos,
+        upw.as_ref().ok(),
+        s2.as_ref(),
+        epmc.as_ref(),
+        pmc.as_ref(),
+        oaire.as_ref(),
+        &doi,
+    );
 
     if download {
         for c in res.candidatos.clone() {
             match fetch_pdf(&c.url, 0) {
                 Ok(bytes) => {
                     if !matches_article(&bytes, &meta) {
-                        res.falhas.push(format!("{}: o PDF parece ser de outro documento", c.host));
+                        res.falhas
+                            .push(format!("{}: o PDF parece ser de outro documento", c.host));
                         continue;
                     }
-                    let dir = std::env::temp_dir().join("LattesManager").join(chrono::Local::now().format("%Y%m%d%H%M%S%3f").to_string());
+                    let dir = std::env::temp_dir()
+                        .join("LattesManager")
+                        .join(chrono::Local::now().format("%Y%m%d%H%M%S%3f").to_string());
                     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
                     let path: PathBuf = dir.join(file_name(&meta));
-                    std::fs::write(&path, &bytes).map_err(|e| format!("Falha ao salvar o PDF: {}", e))?;
+                    std::fs::write(&path, &bytes)
+                        .map_err(|e| format!("Falha ao salvar o PDF: {}", e))?;
                     res.pdf_bytes = bytes.len() as u64;
                     res.pdf_path = Some(path.to_string_lossy().to_string());
                     res.pdf_url = Some(c.url.clone());
@@ -626,9 +796,18 @@ mod tests {
 
     #[test]
     fn parses_doi_inputs() {
-        assert_eq!(parse_doi("https://doi.org/10.1093/bioinformatics/btaa981").as_deref(), Some("10.1093/bioinformatics/btaa981"));
-        assert_eq!(parse_doi("doi: 10.1590/0103-8478CR20190123").as_deref(), Some("10.1590/0103-8478cr20190123"));
-        assert_eq!(parse_doi("https://doi.org/10.1016%2Fj.cj.2026.05.010").as_deref(), Some("10.1016/j.cj.2026.05.010"));
+        assert_eq!(
+            parse_doi("https://doi.org/10.1093/bioinformatics/btaa981").as_deref(),
+            Some("10.1093/bioinformatics/btaa981")
+        );
+        assert_eq!(
+            parse_doi("doi: 10.1590/0103-8478CR20190123").as_deref(),
+            Some("10.1590/0103-8478cr20190123")
+        );
+        assert_eq!(
+            parse_doi("https://doi.org/10.1016%2Fj.cj.2026.05.010").as_deref(),
+            Some("10.1016/j.cj.2026.05.010")
+        );
         assert_eq!(parse_doi("abc"), None);
     }
 
@@ -650,13 +829,27 @@ mod tests {
         assert_eq!(c[1].versao, "preprint");
 
         let html = r#"<head><meta name="citation_title" content="X"><meta content="/doi/pdf/10.1/abc?x=1&amp;y=2" name="citation_pdf_url"></head>"#;
-        assert_eq!(citation_pdf_url(html, "https://www.site.org/doi/10.1/abc").as_deref(), Some("https://www.site.org/doi/pdf/10.1/abc?x=1&y=2"));
+        assert_eq!(
+            citation_pdf_url(html, "https://www.site.org/doi/10.1/abc").as_deref(),
+            Some("https://www.site.org/doi/pdf/10.1/abc?x=1&y=2")
+        );
     }
 
     #[test]
     fn builds_readable_file_names() {
-        let md = PdfMetadata { titulo: Some("MGIDI: toward an effective multivariate selection in biological experiments".into()), ano: Some(2021), autores: vec!["Tiago Olivoto".into()], ..Default::default() };
-        assert_eq!(file_name(&md), "Olivoto 2021 - MGIDI toward an effective multivariate selection in.pdf");
+        let md = PdfMetadata {
+            titulo: Some(
+                "MGIDI: toward an effective multivariate selection in biological experiments"
+                    .into(),
+            ),
+            ano: Some(2021),
+            autores: vec!["Tiago Olivoto".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            file_name(&md),
+            "Olivoto 2021 - MGIDI toward an effective multivariate selection in.pdf"
+        );
     }
 
     /// Com rede: LATTES_ONLINE=1 cargo test --lib doi::tests::online -- --nocapture
@@ -665,8 +858,17 @@ mod tests {
         if std::env::var("LATTES_ONLINE").is_err() {
             return;
         }
-        let opts: Vec<String> = ["Artigos completos", "Capítulos de livros"].iter().map(|s| s.to_string()).collect();
-        for d in ["10.1590/0103-8478cr20190123", "10.3390/agronomy12010042", "10.1093/bioinformatics/btaa981", "10.1016/j.heliyon.2024.e32763", "10.1007/s10681-025-03513-8"] {
+        let opts: Vec<String> = ["Artigos completos", "Capítulos de livros"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        for d in [
+            "10.1590/0103-8478cr20190123",
+            "10.3390/agronomy12010042",
+            "10.1093/bioinformatics/btaa981",
+            "10.1016/j.heliyon.2024.e32763",
+            "10.1007/s10681-025-03513-8",
+        ] {
             let t0 = std::time::Instant::now();
             match resolve(d, &opts, true) {
                 Ok(r) => println!(
@@ -688,7 +890,9 @@ mod tests {
                 Err(e) => println!("{} ERRO {}", d, e),
             }
         }
-        if let Ok(Some(d)) = find_doi_by_title("MGIDI: toward an effective multivariate selection in biological experiments") {
+        if let Ok(Some(d)) = find_doi_by_title(
+            "MGIDI: toward an effective multivariate selection in biological experiments",
+        ) {
             println!("por título: {}", d);
         }
     }

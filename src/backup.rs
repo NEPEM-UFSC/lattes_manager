@@ -100,8 +100,19 @@ pub fn data_folders(conn: Option<&Connection>, root: &Path) -> Vec<String> {
     if root.join(crate::commands::PHOTO_DIR).is_dir() {
         set.insert(crate::commands::PHOTO_DIR.to_string());
     }
-    let mut v: Vec<String> = set.into_iter().filter(|f| !f.eq_ignore_ascii_case("backups")).collect();
-    v.sort_by_key(|n| (n.split('_').next().and_then(|x| x.parse::<u32>().ok()).unwrap_or(999), n.clone()));
+    let mut v: Vec<String> = set
+        .into_iter()
+        .filter(|f| !f.eq_ignore_ascii_case("backups"))
+        .collect();
+    v.sort_by_key(|n| {
+        (
+            n.split('_')
+                .next()
+                .and_then(|x| x.parse::<u32>().ok())
+                .unwrap_or(999),
+            n.clone(),
+        )
+    });
     v
 }
 
@@ -110,7 +121,9 @@ fn walk_files(root: &Path, folders: &[String]) -> Vec<(String, PathBuf, u64)> {
     let mut out = Vec::new();
     let mut stack: Vec<PathBuf> = folders.iter().map(|f| root.join(f)).collect();
     while let Some(dir) = stack.pop() {
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for e in rd.flatten() {
             let p = e.path();
             let Ok(md) = e.metadata() else { continue };
@@ -119,11 +132,19 @@ fn walk_files(root: &Path, folders: &[String]) -> Vec<(String, PathBuf, u64)> {
             } else if md.is_file() {
                 let name = e.file_name().to_string_lossy().to_string();
                 // lixo do sistema
-                if name.eq_ignore_ascii_case("thumbs.db") || name.eq_ignore_ascii_case("desktop.ini") || name == ".DS_Store" || name.starts_with("~$") {
+                if name.eq_ignore_ascii_case("thumbs.db")
+                    || name.eq_ignore_ascii_case("desktop.ini")
+                    || name == ".DS_Store"
+                    || name.starts_with("~$")
+                {
                     continue;
                 }
                 if let Ok(rel) = p.strip_prefix(root) {
-                    let rel = rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect::<Vec<_>>().join("/");
+                    let rel = rel
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().to_string())
+                        .collect::<Vec<_>>()
+                        .join("/");
                     out.push((rel, p.clone(), md.len()));
                 }
             }
@@ -139,14 +160,24 @@ pub fn estimate(conn: &Connection, root: &Path) -> Estimate {
     Estimate {
         files: files.len(),
         bytes: files.iter().map(|f| f.2).sum(),
-        db_bytes: std::fs::metadata(root.join("lattes.db")).map(|m| m.len()).unwrap_or(0)
-            + std::fs::metadata(root.join("lattes.db-wal")).map(|m| m.len()).unwrap_or(0),
+        db_bytes: std::fs::metadata(root.join("lattes.db"))
+            .map(|m| m.len())
+            .unwrap_or(0)
+            + std::fs::metadata(root.join("lattes.db-wal"))
+                .map(|m| m.len())
+                .unwrap_or(0),
         folders,
     }
 }
 
 fn temp_path(tag: &str, ext: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("lattes_{}_{}_{}.{}", tag, std::process::id(), chrono::Local::now().format("%H%M%S%f"), ext))
+    std::env::temp_dir().join(format!(
+        "lattes_{}_{}_{}.{}",
+        tag,
+        std::process::id(),
+        chrono::Local::now().format("%H%M%S%f"),
+        ext
+    ))
 }
 
 /// Cópia consistente do banco em `target` (sem as páginas livres).
@@ -154,7 +185,8 @@ pub fn snapshot_db(conn: &Connection, target: &Path) -> Result<(), String> {
     if target.exists() {
         let _ = std::fs::remove_file(target);
     }
-    conn.execute("VACUUM INTO ?1", [target.to_string_lossy().to_string()]).map_err(|e| format!("Falha ao copiar o banco: {}", e))?;
+    conn.execute("VACUUM INTO ?1", [target.to_string_lossy().to_string()])
+        .map_err(|e| format!("Falha ao copiar o banco: {}", e))?;
     Ok(())
 }
 
@@ -170,7 +202,11 @@ pub fn write_zip(
 ) -> Result<BackupResult, String> {
     use zip::write::SimpleFileOptions;
     use zip::CompressionMethod;
-    let files = if include_files { walk_files(root, folders) } else { Vec::new() };
+    let files = if include_files {
+        walk_files(root, folders)
+    } else {
+        Vec::new()
+    };
     let manifest = Manifest {
         app: "Lattes Manager".into(),
         version: version.into(),
@@ -182,22 +218,46 @@ pub fn write_zip(
     };
     // grava num temporário ao lado e renomeia no fim: um backup interrompido não fica pela metade
     let tmp = dest.with_extension("zip.part");
-    let f = std::fs::File::create(&tmp).map_err(|e| format!("Não foi possível criar '{}': {}", dest.display(), e))?;
+    let f = std::fs::File::create(&tmp)
+        .map_err(|e| format!("Não foi possível criar '{}': {}", dest.display(), e))?;
     let mut zw = zip::ZipWriter::new(std::io::BufWriter::new(f));
-    let deflate = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated).large_file(true);
-    let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored).large_file(true);
+    let deflate = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .large_file(true);
+    let stored = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .large_file(true);
     let res = (|| -> Result<(), String> {
-        zw.start_file(MANIFEST, deflate).map_err(|e| e.to_string())?;
-        zw.write_all(serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?.as_bytes()).map_err(|e| e.to_string())?;
-        zw.start_file(DB_ENTRY, deflate).map_err(|e| e.to_string())?;
+        zw.start_file(MANIFEST, deflate)
+            .map_err(|e| e.to_string())?;
+        zw.write_all(
+            serde_json::to_string_pretty(&manifest)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
+        zw.start_file(DB_ENTRY, deflate)
+            .map_err(|e| e.to_string())?;
         let mut dbf = std::fs::File::open(snapshot).map_err(|e| e.to_string())?;
         std::io::copy(&mut dbf, &mut zw).map_err(|e| e.to_string())?;
         let total = files.len();
         for (i, (rel, abs, _)) in files.iter().enumerate() {
-            let ext = Path::new(rel).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let ext = Path::new(rel)
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
             // PDFs e imagens já são comprimidos: guardar direto é bem mais rápido
-            let opt = if ["pdf", "jpg", "jpeg", "png", "zip", "docx", "xlsx", "pptx", "gif", "webp", "mp4"].contains(&ext.as_str()) { stored } else { deflate };
-            zw.start_file(rel.as_str(), opt).map_err(|e| e.to_string())?;
+            let opt = if [
+                "pdf", "jpg", "jpeg", "png", "zip", "docx", "xlsx", "pptx", "gif", "webp", "mp4",
+            ]
+            .contains(&ext.as_str())
+            {
+                stored
+            } else {
+                deflate
+            };
+            zw.start_file(rel.as_str(), opt)
+                .map_err(|e| e.to_string())?;
             match std::fs::File::open(abs) {
                 Ok(mut src) => {
                     std::io::copy(&mut src, &mut zw).map_err(|e| format!("{}: {}", rel, e))?;
@@ -209,7 +269,10 @@ pub fn write_zip(
             }
         }
         let w = zw.finish().map_err(|e| e.to_string())?;
-        w.into_inner().map_err(|e| e.to_string())?.sync_all().map_err(|e| e.to_string())?;
+        w.into_inner()
+            .map_err(|e| e.to_string())?
+            .sync_all()
+            .map_err(|e| e.to_string())?;
         Ok(())
     })();
     if let Err(e) = res {
@@ -217,7 +280,8 @@ pub fn write_zip(
         return Err(e);
     }
     if dest.exists() {
-        std::fs::remove_file(dest).map_err(|e| format!("Não foi possível substituir '{}': {}", dest.display(), e))?;
+        std::fs::remove_file(dest)
+            .map_err(|e| format!("Não foi possível substituir '{}': {}", dest.display(), e))?;
     }
     std::fs::rename(&tmp, dest).map_err(|e| e.to_string())?;
     Ok(BackupResult {
@@ -229,29 +293,47 @@ pub fn write_zip(
 
 fn is_zip(path: &Path) -> bool {
     let mut sig = [0u8; 4];
-    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut sig)).is_ok() && sig == *b"PK\x03\x04"
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut sig))
+        .is_ok()
+        && sig == *b"PK\x03\x04"
 }
 
 fn is_sqlite(path: &Path) -> bool {
     let mut sig = [0u8; 16];
-    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut sig)).is_ok() && &sig == b"SQLite format 3\0"
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut sig))
+        .is_ok()
+        && &sig == b"SQLite format 3\0"
 }
 
 /// Contagem de registros por tabela de um banco de backup (só leitura).
 fn count_records(db: &Path) -> Result<Vec<(String, usize)>, String> {
-    let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
+    let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| e.to_string())?;
     let tables: Vec<String> = {
-        let mut st = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'").map_err(|e| e.to_string())?;
-        let v = st.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?.flatten().collect();
+        let mut st = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .map_err(|e| e.to_string())?;
+        let v = st
+            .query_map([], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .collect();
         v
     };
     if !tables.iter().any(|t| t == "producoes") {
         return Err("O arquivo não parece ser um banco do Lattes Manager".into());
     }
     let mut out = Vec::new();
-    for t in crate::db::schema::ENTITY_TABLES.iter().chain(["custom_records"].iter()) {
+    for t in crate::db::schema::ENTITY_TABLES
+        .iter()
+        .chain(["custom_records"].iter())
+    {
         if tables.iter().any(|x| x == t) {
-            let n: i64 = conn.query_row(&format!("SELECT COUNT(*) FROM {}", t), [], |r| r.get(0)).unwrap_or(0);
+            let n: i64 = conn
+                .query_row(&format!("SELECT COUNT(*) FROM {}", t), [], |r| r.get(0))
+                .unwrap_or(0);
             out.push((t.to_string(), n as usize));
         }
     }
@@ -262,7 +344,9 @@ fn count_records(db: &Path) -> Result<Vec<(String, usize)>, String> {
 fn extract_db(zip_path: &Path) -> Result<PathBuf, String> {
     let f = std::fs::File::open(zip_path).map_err(|e| e.to_string())?;
     let mut za = zip::ZipArchive::new(f).map_err(|e| format!("Arquivo .zip inválido: {}", e))?;
-    let mut entry = za.by_name(DB_ENTRY).map_err(|_| "O backup não contém o banco (lattes.db)".to_string())?;
+    let mut entry = za
+        .by_name(DB_ENTRY)
+        .map_err(|_| "O backup não contém o banco (lattes.db)".to_string())?;
     let tmp = temp_path("restore", "db");
     let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
@@ -297,14 +381,18 @@ pub fn inspect(path: &Path) -> Result<BackupInspection, String> {
     if is_zip(path) {
         ins.kind = "zip".into();
         let f = std::fs::File::open(path).map_err(|e| e.to_string())?;
-        let mut za = zip::ZipArchive::new(f).map_err(|e| format!("Arquivo .zip inválido: {}", e))?;
+        let mut za =
+            zip::ZipArchive::new(f).map_err(|e| format!("Arquivo .zip inválido: {}", e))?;
         if let Ok(mut m) = za.by_name(MANIFEST) {
             let mut s = String::new();
             let _ = m.read_to_string(&mut s);
             ins.manifest = serde_json::from_str(&s).ok();
         }
         ins.has_db = za.by_name(DB_ENTRY).is_ok();
-        ins.files = za.file_names().filter(|n| *n != MANIFEST && *n != DB_ENTRY && !n.ends_with('/')).count();
+        ins.files = za
+            .file_names()
+            .filter(|n| *n != MANIFEST && *n != DB_ENTRY && !n.ends_with('/'))
+            .count();
         if ins.has_db {
             let tmp = extract_db(path)?;
             let r = count_records(&tmp);
@@ -337,8 +425,12 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityReport, String> {
     if !is_zip(path) {
         if is_sqlite(path) {
             report.total_files_tested = 1;
-            let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
-            let chk: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap_or_else(|_| "falha".into());
+            let conn =
+                Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                    .map_err(|e| e.to_string())?;
+            let chk: String = conn
+                .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+                .unwrap_or_else(|_| "falha".into());
             report.db_check_ok = chk == "ok";
             report.db_records = count_records(path)?.iter().map(|c| c.1).sum();
             report.is_valid = report.db_check_ok;
@@ -379,7 +471,9 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityReport, String> {
                 Ok(0) => break,
                 Ok(_) => {}
                 Err(e) => {
-                    report.crc_errors.push(format!("Arquivo '{}' corrompido: {}", name, e));
+                    report
+                        .crc_errors
+                        .push(format!("Arquivo '{}' corrompido: {}", name, e));
                     break;
                 }
             }
@@ -389,14 +483,25 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityReport, String> {
     // Se tem lattes.db, verifica a consistência do banco
     if za.by_name(DB_ENTRY).is_ok() {
         let tmp = extract_db(path)?;
-        if let Ok(conn) = Connection::open_with_flags(&tmp, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
-            let chk: String = conn.query_row("PRAGMA integrity_check", [], |r| r.get(0)).unwrap_or_else(|_| "falha".into());
+        if let Ok(conn) =
+            Connection::open_with_flags(&tmp, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        {
+            let chk: String = conn
+                .query_row("PRAGMA integrity_check", [], |r| r.get(0))
+                .unwrap_or_else(|_| "falha".into());
             report.db_check_ok = chk == "ok";
-            report.db_records = count_records(&tmp).unwrap_or_default().iter().map(|c| c.1).sum();
+            report.db_records = count_records(&tmp)
+                .unwrap_or_default()
+                .iter()
+                .map(|c| c.1)
+                .sum();
 
             // Verifica se arquivos citados no banco estão no cofre
             for t in crate::db::schema::ENTITY_TABLES {
-                let sql = format!("SELECT path FROM {} WHERE path IS NOT NULL AND trim(path) != ''", t);
+                let sql = format!(
+                    "SELECT path FROM {} WHERE path IS NOT NULL AND trim(path) != ''",
+                    t
+                );
                 if let Ok(mut stmt) = conn.prepare(&sql) {
                     if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
                         for p in rows.flatten() {
@@ -469,7 +574,10 @@ pub fn prepare_db(path: &Path) -> Result<PathBuf, String> {
 pub fn swap_db(slot: &mut Connection, root: &Path, new_db: &Path) -> Result<(), String> {
     let db_path = root.join("lattes.db");
     // fecha o banco atual (checkpoint do WAL) trocando por um banco em memória
-    let old = std::mem::replace(slot, Connection::open_in_memory().map_err(|e| e.to_string())?);
+    let old = std::mem::replace(
+        slot,
+        Connection::open_in_memory().map_err(|e| e.to_string())?,
+    );
     drop(old);
     let keep = temp_path("before_swap", "db");
     let had = db_path.exists();
@@ -481,7 +589,8 @@ pub fn swap_db(slot: &mut Connection, root: &Path, new_db: &Path) -> Result<(), 
             let _ = std::fs::remove_file(root.join(format!("lattes.{}", ext)));
         }
         std::fs::copy(new_db, &db_path).map_err(|e| format!("Falha ao gravar o banco: {}", e))?;
-        crate::db::init_db(&db_path).map_err(|e| format!("Falha ao abrir o banco restaurado: {}", e))
+        crate::db::init_db(&db_path)
+            .map_err(|e| format!("Falha ao abrir o banco restaurado: {}", e))
     })();
     match result {
         Ok(conn) => {
@@ -503,7 +612,13 @@ pub fn swap_db(slot: &mut Connection, root: &Path, new_db: &Path) -> Result<(), 
 }
 
 /// Extrai os comprovantes do zip para a pasta de dados.
-pub fn restore_files(zip_path: &Path, root: &Path, overwrite: bool, report: &mut RestoreReport, mut progress: impl FnMut(usize, usize, &str)) -> Result<(), String> {
+pub fn restore_files(
+    zip_path: &Path,
+    root: &Path,
+    overwrite: bool,
+    report: &mut RestoreReport,
+    mut progress: impl FnMut(usize, usize, &str),
+) -> Result<(), String> {
     if !is_zip(zip_path) {
         return Ok(());
     }
@@ -523,7 +638,9 @@ pub fn restore_files(zip_path: &Path, root: &Path, overwrite: bool, report: &mut
             continue;
         }
         let Some(rel) = safe_rel(&name) else {
-            report.errors.push(format!("Ignorado (caminho inseguro): {}", name));
+            report
+                .errors
+                .push(format!("Ignorado (caminho inseguro): {}", name));
             continue;
         };
         let target = root.join(&rel);
@@ -536,7 +653,9 @@ pub fn restore_files(zip_path: &Path, root: &Path, overwrite: bool, report: &mut
                     continue;
                 }
             }
-            match std::fs::File::create(&target).and_then(|mut out| std::io::copy(&mut entry, &mut out)) {
+            match std::fs::File::create(&target)
+                .and_then(|mut out| std::io::copy(&mut entry, &mut out))
+            {
                 Ok(_) => report.files_written += 1,
                 Err(e) => report.errors.push(format!("{}: {}", name, e)),
             }
@@ -558,18 +677,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         let root = base.join("dados");
         std::fs::create_dir_all(root.join("5_producoes/artigos")).unwrap();
-        std::fs::write(root.join("5_producoes/artigos/001_a.pdf"), b"%PDF-1.4 teste").unwrap();
+        std::fs::write(
+            root.join("5_producoes/artigos/001_a.pdf"),
+            b"%PDF-1.4 teste",
+        )
+        .unwrap();
         std::fs::create_dir_all(root.join("backups")).unwrap();
         std::fs::write(root.join("backups/x.db"), b"nao entra").unwrap();
         let conn = crate::db::init_db(root.join("lattes.db")).unwrap();
-        conn.execute("INSERT INTO producoes (ano, tipo, titulo) VALUES (2023, 'Artigos completos', 'Teste')", []).unwrap();
+        conn.execute(
+            "INSERT INTO producoes (ano, tipo, titulo) VALUES (2023, 'Artigos completos', 'Teste')",
+            [],
+        )
+        .unwrap();
 
         let est = estimate(&conn, &root);
         assert_eq!(est.files, 1);
         let snap = base.join("snap.db");
         snapshot_db(&conn, &snap).unwrap();
         let dest = base.join("bk.zip");
-        let r = write_zip(&snap, &root, &est.folders, true, "9.9.9", &dest, |_, _, _| {}).unwrap();
+        let r = write_zip(
+            &snap,
+            &root,
+            &est.folders,
+            true,
+            "9.9.9",
+            &dest,
+            |_, _, _| {},
+        )
+        .unwrap();
         assert_eq!(r.files, 1);
 
         let ins = inspect(&dest).unwrap();
@@ -585,7 +721,9 @@ mod tests {
         let mut slot = crate::db::init_db(root2.join("lattes.db")).unwrap();
         let tmp = prepare_db(&dest).unwrap();
         swap_db(&mut slot, &root2, &tmp).unwrap();
-        let n: i64 = slot.query_row("SELECT COUNT(*) FROM producoes", [], |r| r.get(0)).unwrap();
+        let n: i64 = slot
+            .query_row("SELECT COUNT(*) FROM producoes", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 1);
         let mut rep = RestoreReport::default();
         restore_files(&dest, &root2, false, &mut rep, |_, _, _| {}).unwrap();
@@ -603,6 +741,9 @@ mod tests {
     fn rejects_unsafe_paths() {
         assert!(safe_rel("../x.pdf").is_none());
         assert!(safe_rel("/etc/passwd").is_none());
-        assert_eq!(safe_rel("5_producoes/a.pdf").unwrap(), PathBuf::from("5_producoes").join("a.pdf"));
+        assert_eq!(
+            safe_rel("5_producoes/a.pdf").unwrap(),
+            PathBuf::from("5_producoes").join("a.pdf")
+        );
     }
 }

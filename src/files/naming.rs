@@ -1,7 +1,7 @@
+use regex::Regex;
 use std::fs;
 use std::path::Path;
 use std::sync::LazyLock;
-use regex::Regex;
 
 static PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d{3,})_(.*)$").unwrap());
 static SCAN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d{3,})_").unwrap());
@@ -84,17 +84,23 @@ pub fn sanitize_windows_filename(name: &str) -> String {
 /// - Creates `target_folder` if it does not exist.
 /// - Scans `target_folder` entries with regex `^(\d{3})_` to find `max_prefix`.
 /// - Returns `format!("{:03}_{}", max_prefix + 1, sanitized)`. Empty folder returns `001_<sanitized>`.
-pub fn calculate_next_filename(target_folder: &Path, original_filename: &str) -> Result<String, String> {
+pub fn calculate_next_filename(
+    target_folder: &Path,
+    original_filename: &str,
+) -> Result<String, String> {
     let clean_base = strip_existing_prefix(original_filename);
     let sanitized = sanitize_windows_filename(&clean_base);
 
     if !target_folder.exists() {
-        fs::create_dir_all(target_folder).map_err(|e| format!("Failed to create folder {}: {}", target_folder.display(), e))?;
+        fs::create_dir_all(target_folder)
+            .map_err(|e| format!("Failed to create folder {}: {}", target_folder.display(), e))?;
     }
 
     let mut max_prefix = 0u32;
     if target_folder.is_dir() {
-        for entry in fs::read_dir(target_folder).map_err(|e| format!("Failed to read folder {}: {}", target_folder.display(), e))? {
+        for entry in fs::read_dir(target_folder)
+            .map_err(|e| format!("Failed to read folder {}: {}", target_folder.display(), e))?
+        {
             let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
             let fname = entry.file_name().to_string_lossy().to_string();
             if let Some(caps) = SCAN_RE.captures(&fname) {
@@ -177,8 +183,17 @@ fn push_part(parts: &mut Vec<String>, val: Option<String>) {
 /// Nome-base do comprovante a partir do registro (sem prefixo numérico nem extensão).
 /// Concatena de forma rica os campos mais descritivos para cada categoria (instituição, vínculo, cargo, título, descrição, orientando, etc.).
 pub fn record_base_name(category: &str, rec: &serde_json::Value) -> Option<String> {
-    let g = |k: &str| rec.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(String::from);
-    let ano = rec.get("ano").and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())));
+    let g = |k: &str| {
+        rec.get(k)
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    };
+    let ano = rec.get("ano").and_then(|v| {
+        v.as_i64()
+            .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+    });
 
     let mut parts = Vec::new();
 
@@ -249,7 +264,12 @@ pub fn record_base_name(category: &str, rec: &serde_json::Value) -> Option<Strin
         _ => {
             // "atuacao", "encargos" e categorias customizadas
             push_part(&mut parts, g("instituicao"));
-            push_part(&mut parts, g("enquadramento").or_else(|| g("vinculo")).or_else(|| g("cargo")));
+            push_part(
+                &mut parts,
+                g("enquadramento")
+                    .or_else(|| g("vinculo"))
+                    .or_else(|| g("cargo")),
+            );
             push_part(&mut parts, g("descricao").or_else(|| g("titulo")));
             if parts.is_empty() {
                 push_part(&mut parts, g("tipo"));
@@ -276,13 +296,19 @@ mod tests {
         assert_eq!(strip_existing_prefix("001_relatorio.pdf"), "relatorio.pdf");
         assert_eq!(strip_existing_prefix("042_tese.docx"), "tese.docx");
         assert_eq!(strip_existing_prefix("relatorio.pdf"), "relatorio.pdf");
-        assert_eq!(strip_existing_prefix("01_relatorio.pdf"), "01_relatorio.pdf");
+        assert_eq!(
+            strip_existing_prefix("01_relatorio.pdf"),
+            "01_relatorio.pdf"
+        );
         assert_eq!(strip_existing_prefix("1000_relatorio.pdf"), "relatorio.pdf");
     }
 
     #[test]
     fn test_sanitize_windows_filename() {
-        assert_eq!(sanitize_windows_filename("meu_arquivo . ...pdf"), "meu_arquivo.pdf");
+        assert_eq!(
+            sanitize_windows_filename("meu_arquivo . ...pdf"),
+            "meu_arquivo.pdf"
+        );
         assert_eq!(
             sanitize_windows_filename("Relatório: Análise/Projeto *2025*?<test>|final.pdf"),
             "Relatório_ Análise_Projeto _2025___test__final.pdf"
@@ -290,18 +316,39 @@ mod tests {
         assert_eq!(sanitize_windows_filename("   "), "arquivo");
         assert_eq!(sanitize_windows_filename(""), "arquivo");
         assert_eq!(sanitize_windows_filename("..."), "arquivo");
-        assert_eq!(sanitize_windows_filename("arquivo.tar.gz"), "arquivo.tar.gz");
-        assert_eq!(sanitize_windows_filename("dissertação_avaliação.pdf"), "dissertação_avaliação.pdf");
+        assert_eq!(
+            sanitize_windows_filename("arquivo.tar.gz"),
+            "arquivo.tar.gz"
+        );
+        assert_eq!(
+            sanitize_windows_filename("dissertação_avaliação.pdf"),
+            "dissertação_avaliação.pdf"
+        );
     }
 
     #[test]
     fn slugs_are_safe() {
-        assert_eq!(slugify("Análise de Trilha: milho (2024)", 60), "analise_de_trilha_milho_2024");
-        assert_eq!(slugify("MGIDI: toward an effective multivariate selection in biological experiments", 30), "mgidi_toward_an_effective");
+        assert_eq!(
+            slugify("Análise de Trilha: milho (2024)", 60),
+            "analise_de_trilha_milho_2024"
+        );
+        assert_eq!(
+            slugify(
+                "MGIDI: toward an effective multivariate selection in biological experiments",
+                30
+            ),
+            "mgidi_toward_an_effective"
+        );
         let rec = serde_json::json!({"aluno": "João da Silva", "titulo": "Seleção genômica"});
-        assert_eq!(record_base_name("bancas", &rec).as_deref(), Some("joao_da_silva_selecao_genomica"));
+        assert_eq!(
+            record_base_name("bancas", &rec).as_deref(),
+            Some("joao_da_silva_selecao_genomica")
+        );
         let rec = serde_json::json!({"disciplina": "Genética", "ano": 2024});
-        assert_eq!(record_base_name("disciplinas", &rec).as_deref(), Some("genetica_2024"));
+        assert_eq!(
+            record_base_name("disciplinas", &rec).as_deref(),
+            Some("genetica_2024")
+        );
         let rec = serde_json::json!({
             "instituicao": "UFSC",
             "enquadramento": "Supervisão de Laboratório",

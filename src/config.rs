@@ -32,7 +32,10 @@ pub struct DataDirInspection {
 /// Pasta de configurações do usuário em cada sistema
 /// (Windows: %APPDATA%, macOS: ~/Library/Application Support, Linux: $XDG_CONFIG_HOME ou ~/.config).
 fn config_base() -> PathBuf {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).map(PathBuf::from).ok();
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map(PathBuf::from)
+        .ok();
     if cfg!(windows) {
         if let Ok(a) = std::env::var("APPDATA") {
             return PathBuf::from(a);
@@ -76,11 +79,20 @@ pub fn category_folders(dir: &Path) -> Vec<String> {
             rd.flatten()
                 .filter(|e| e.path().is_dir())
                 .map(|e| e.file_name().to_string_lossy().to_string())
-                .filter(|n| n.split_once('_').map(|(a, _)| !a.is_empty() && a.chars().all(|c| c.is_ascii_digit())).unwrap_or(false))
+                .filter(|n| {
+                    n.split_once('_')
+                        .map(|(a, _)| !a.is_empty() && a.chars().all(|c| c.is_ascii_digit()))
+                        .unwrap_or(false)
+                })
                 .collect()
         })
         .unwrap_or_default();
-    v.sort_by_key(|n| n.split('_').next().and_then(|x| x.parse::<u32>().ok()).unwrap_or(999));
+    v.sort_by_key(|n| {
+        n.split('_')
+            .next()
+            .and_then(|x| x.parse::<u32>().ok())
+            .unwrap_or(999)
+    });
     v
 }
 
@@ -136,10 +148,19 @@ mod tests {
     #[test]
     fn detects_category_folders() {
         let tmp = std::env::temp_dir().join(format!("lattes_cfg_{}", std::process::id()));
-        for d in ["5_producoes", "10_orientacoes", "1_dados_gerais", "app", "x_y"] {
+        for d in [
+            "5_producoes",
+            "10_orientacoes",
+            "1_dados_gerais",
+            "app",
+            "x_y",
+        ] {
             std::fs::create_dir_all(tmp.join(d)).unwrap();
         }
-        assert_eq!(category_folders(&tmp), vec!["1_dados_gerais", "5_producoes", "10_orientacoes"]);
+        assert_eq!(
+            category_folders(&tmp),
+            vec!["1_dados_gerais", "5_producoes", "10_orientacoes"]
+        );
         let i = inspect(&tmp);
         assert!(i.exists && !i.has_db);
         let _ = std::fs::remove_dir_all(&tmp);
@@ -147,9 +168,14 @@ mod tests {
 
     #[test]
     fn config_roundtrip_json() {
-        let c = AppConfig { data_dir: Some(r"D:\dados".into()) };
+        let c = AppConfig {
+            data_dir: Some(r"D:\dados".into()),
+        };
         let s = serde_json::to_string(&c).unwrap();
         assert_eq!(serde_json::from_str::<AppConfig>(&s).unwrap(), c);
-        assert_eq!(serde_json::from_str::<AppConfig>("{}").unwrap(), AppConfig::default());
+        assert_eq!(
+            serde_json::from_str::<AppConfig>("{}").unwrap(),
+            AppConfig::default()
+        );
     }
 }

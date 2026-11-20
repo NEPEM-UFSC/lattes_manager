@@ -95,7 +95,9 @@ pub fn list_categories(conn: &Connection) -> Result<Vec<CustomCategory>> {
 }
 
 pub fn keys(conn: &Connection) -> Vec<String> {
-    list_categories(conn).map(|v| v.into_iter().map(|c| c.key).collect()).unwrap_or_default()
+    list_categories(conn)
+        .map(|v| v.into_iter().map(|c| c.key).collect())
+        .unwrap_or_default()
 }
 
 /// Contagem `(total, com_comprovante)` por chave de categoria personalizada.
@@ -111,7 +113,10 @@ pub fn counts_with_files(conn: &Connection) -> std::collections::HashMap<String,
         return std::collections::HashMap::new();
     };
     let Ok(rows) = st.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+        Ok((
+            r.get::<_, String>(0)?,
+            (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?),
+        ))
     }) else {
         return std::collections::HashMap::new();
     };
@@ -130,16 +135,39 @@ fn next_root_folder(root: &Path, name: &str) -> String {
 }
 
 /// Cria ou atualiza uma categoria (e acrescenta subcategorias novas).
-pub fn save_category(conn: &Connection, root: &Path, mut c: CustomCategory) -> std::result::Result<CustomCategory, String> {
+pub fn save_category(
+    conn: &Connection,
+    root: &Path,
+    mut c: CustomCategory,
+) -> std::result::Result<CustomCategory, String> {
     let name = c.name.trim().to_string();
     if name.chars().filter(|ch| ch.is_alphanumeric()).count() < 2 {
         return Err("Informe um nome para a categoria".into());
     }
     let builtin = [
-        "dados gerais", "dadosgerais", "formação", "formacao", "atuação", "atuacao",
-        "projetos", "produções", "producoes", "patentes", "inovação", "inovacao",
-        "educação e popularização de c&t", "educação e popularização", "educação", "educacao", "educacao_popularizacao",
-        "eventos", "orientações", "orientacoes", "bancas", "encargos", "disciplinas",
+        "dados gerais",
+        "dadosgerais",
+        "formação",
+        "formacao",
+        "atuação",
+        "atuacao",
+        "projetos",
+        "produções",
+        "producoes",
+        "patentes",
+        "inovação",
+        "inovacao",
+        "educação e popularização de c&t",
+        "educação e popularização",
+        "educação",
+        "educacao",
+        "educacao_popularizacao",
+        "eventos",
+        "orientações",
+        "orientacoes",
+        "bancas",
+        "encargos",
+        "disciplinas",
     ];
     if builtin.contains(&name.to_lowercase().as_str()) {
         return Err("Já existe uma categoria padrão com esse nome".into());
@@ -147,12 +175,20 @@ pub fn save_category(conn: &Connection, root: &Path, mut c: CustomCategory) -> s
     let existing: Option<(String, String)> = if c.key.is_empty() {
         None
     } else {
-        conn.query_row("SELECT name, folder FROM custom_categories WHERE key = ?1", [&c.key], |r| Ok((r.get(0)?, r.get(1)?)))
-            .optional()
-            .map_err(|e| e.to_string())?
+        conn.query_row(
+            "SELECT name, folder FROM custom_categories WHERE key = ?1",
+            [&c.key],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
     };
     let clash: Option<String> = conn
-        .query_row("SELECT key FROM custom_categories WHERE lower(name) = lower(?1)", [&name], |r| r.get(0))
+        .query_row(
+            "SELECT key FROM custom_categories WHERE lower(name) = lower(?1)",
+            [&name],
+            |r| r.get(0),
+        )
         .optional()
         .map_err(|e| e.to_string())?;
     if clash.as_deref().is_some_and(|k| k != c.key) {
@@ -163,7 +199,16 @@ pub fn save_category(conn: &Connection, root: &Path, mut c: CustomCategory) -> s
         None => {
             let mut key = format!("x_{}", slug(&name));
             let mut n = 2;
-            while conn.query_row("SELECT 1 FROM custom_categories WHERE key = ?1", [&key], |_| Ok(())).optional().map_err(|e| e.to_string())?.is_some() {
+            while conn
+                .query_row(
+                    "SELECT 1 FROM custom_categories WHERE key = ?1",
+                    [&key],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?
+                .is_some()
+            {
                 key = format!("x_{}_{}", slug(&name), n);
                 n += 1;
             }
@@ -171,7 +216,13 @@ pub fn save_category(conn: &Connection, root: &Path, mut c: CustomCategory) -> s
             if c.folder.trim().is_empty() {
                 c.folder = next_root_folder(root, &name);
             }
-            let pos: i64 = conn.query_row("SELECT COALESCE(MAX(position), 0) + 1 FROM custom_categories", [], |r| r.get(0)).map_err(|e| e.to_string())?;
+            let pos: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(position), 0) + 1 FROM custom_categories",
+                    [],
+                    |r| r.get(0),
+                )
+                .map_err(|e| e.to_string())?;
             conn.execute(
                 "INSERT INTO custom_categories (key, name, icon, subtitle, folder, title_label, desc_label, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![c.key, name, c.icon, c.subtitle, c.folder.trim(), c.title_label, c.desc_label, pos],
@@ -188,16 +239,30 @@ pub fn save_category(conn: &Connection, root: &Path, mut c: CustomCategory) -> s
             )
             .map_err(|e| e.to_string())?;
             if old_name != name {
-                conn.execute("UPDATE subfolder_mappings SET category_group = ?2 WHERE category_group = ?1", params![old_name, name])
-                    .map_err(|e| e.to_string())?;
+                conn.execute(
+                    "UPDATE subfolder_mappings SET category_group = ?2 WHERE category_group = ?1",
+                    params![old_name, name],
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
     }
     let folder = c.folder.trim().trim_end_matches('\\').to_string();
     let _ = std::fs::create_dir_all(crate::files::rel_join(root, &folder));
     // subcategorias: acrescenta as que ainda não existem (grupo = nome da categoria)
-    let mut tipos: Vec<String> = c.tipos.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).collect();
-    let has_any: i64 = conn.query_row("SELECT COUNT(*) FROM subfolder_mappings WHERE category_group = ?1", [&name], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let mut tipos: Vec<String> = c
+        .tipos
+        .iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let has_any: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM subfolder_mappings WHERE category_group = ?1",
+            [&name],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
     if tipos.is_empty() && has_any == 0 {
         tipos.push("Geral".into());
     }
@@ -219,23 +284,46 @@ pub fn save_category(conn: &Connection, root: &Path, mut c: CustomCategory) -> s
 }
 
 /// Exclui a categoria. Com registros, só se `force` (os arquivos no disco ficam).
-pub fn delete_category(conn: &Connection, key: &str, force: bool) -> std::result::Result<(), String> {
+pub fn delete_category(
+    conn: &Connection,
+    key: &str,
+    force: bool,
+) -> std::result::Result<(), String> {
     let name: String = conn
-        .query_row("SELECT name FROM custom_categories WHERE key = ?1", [key], |r| r.get(0))
+        .query_row(
+            "SELECT name FROM custom_categories WHERE key = ?1",
+            [key],
+            |r| r.get(0),
+        )
         .map_err(|_| "Categoria não encontrada".to_string())?;
-    let n: i64 = conn.query_row("SELECT COUNT(*) FROM custom_records WHERE category = ?1", [key], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let n: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM custom_records WHERE category = ?1",
+            [key],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
     if n > 0 && !force {
         return Err(format!("A categoria tem {} registro(s)", n));
     }
-    conn.execute("DELETE FROM custom_records WHERE category = ?1", [key]).map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM subfolder_mappings WHERE category_group = ?1", [&name]).map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM custom_categories WHERE key = ?1", [key]).map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM custom_records WHERE category = ?1", [key])
+        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM subfolder_mappings WHERE category_group = ?1",
+        [&name],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM custom_categories WHERE key = ?1", [key])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 pub fn reorder(conn: &Connection, keys: &[String]) -> Result<()> {
     for (i, k) in keys.iter().enumerate() {
-        conn.execute("UPDATE custom_categories SET position = ?2 WHERE key = ?1", params![k, i as i64])?;
+        conn.execute(
+            "UPDATE custom_categories SET position = ?2 WHERE key = ?1",
+            params![k, i as i64],
+        )?;
     }
     Ok(())
 }
@@ -262,35 +350,69 @@ fn row_to_dto(r: &rusqlite::Row) -> Result<RecordDto> {
         journal: None,
         qualis: None,
         aluno: None,
-        url: r.get::<_, Option<String>>(11).ok().flatten().filter(|s| !s.trim().is_empty()),
+        url: r
+            .get::<_, Option<String>>(11)
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty()),
         citations: None,
         attachments: Vec::new(),
         ..Default::default()
     })
 }
 
-const COLS: &str = "id, category, ano, tipo, identifier, file, folder, titulo, descricao, log, path, url";
+const COLS: &str =
+    "id, category, ano, tipo, identifier, file, folder, titulo, descricao, log, path, url";
 
-pub fn list(conn: &Connection, category: &str, search: Option<&str>, year: Option<i64>, tipo: Option<&str>) -> Result<Vec<RecordDto>> {
-    let mut st = conn.prepare(&format!("SELECT {} FROM custom_records WHERE category = ?1 ORDER BY ano DESC, id DESC", COLS))?;
-    let mut rows: Vec<RecordDto> = st.query_map([category], row_to_dto)?.collect::<Result<_>>()?;
+pub fn list(
+    conn: &Connection,
+    category: &str,
+    search: Option<&str>,
+    year: Option<i64>,
+    tipo: Option<&str>,
+) -> Result<Vec<RecordDto>> {
+    let mut st = conn.prepare(&format!(
+        "SELECT {} FROM custom_records WHERE category = ?1 ORDER BY ano DESC, id DESC",
+        COLS
+    ))?;
+    let mut rows: Vec<RecordDto> = st
+        .query_map([category], row_to_dto)?
+        .collect::<Result<_>>()?;
     crate::db::queries::populate_attachments_for_records(conn, category, &mut rows)?;
-    let s = search.map(|s| crate::db::fold(s.trim())).filter(|s| !s.is_empty());
+    let s = search
+        .map(|s| crate::db::fold(s.trim()))
+        .filter(|s| !s.is_empty());
     Ok(rows
         .into_iter()
         .filter(|r| year.is_none_or(|y| r.ano == Some(y)))
         .filter(|r| tipo.is_none_or(|t| t.trim().is_empty() || r.tipo.as_deref() == Some(t)))
         .filter(|r| {
             s.as_ref().is_none_or(|s| {
-                [&r.titulo, &r.descricao, &r.tipo, &r.identifier].iter().any(|f| f.as_ref().is_some_and(|v| crate::db::fold(v).contains(s.as_str())))
+                [&r.titulo, &r.descricao, &r.tipo, &r.identifier]
+                    .iter()
+                    .any(|f| {
+                        f.as_ref()
+                            .is_some_and(|v| crate::db::fold(v).contains(s.as_str()))
+                    })
             })
         })
         .collect())
 }
 
 pub fn get(conn: &Connection, category: &str, id: i64) -> Result<RecordDto> {
-    let mut rec = conn.query_row(&format!("SELECT {} FROM custom_records WHERE category = ?1 AND id = ?2", COLS), params![category, id], row_to_dto)?;
-    crate::db::queries::populate_attachments_for_records(conn, category, std::slice::from_mut(&mut rec))?;
+    let mut rec = conn.query_row(
+        &format!(
+            "SELECT {} FROM custom_records WHERE category = ?1 AND id = ?2",
+            COLS
+        ),
+        params![category, id],
+        row_to_dto,
+    )?;
+    crate::db::queries::populate_attachments_for_records(
+        conn,
+        category,
+        std::slice::from_mut(&mut rec),
+    )?;
     Ok(rec)
 }
 
@@ -298,8 +420,20 @@ fn now() -> String {
     chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
-pub fn insert(conn: &Connection, category: &str, data: &Value, file: Option<String>, path: Option<String>) -> Result<RecordDto> {
-    let exists: Option<i64> = conn.query_row("SELECT 1 FROM custom_categories WHERE key = ?1", [category], |r| r.get(0)).optional()?;
+pub fn insert(
+    conn: &Connection,
+    category: &str,
+    data: &Value,
+    file: Option<String>,
+    path: Option<String>,
+) -> Result<RecordDto> {
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM custom_categories WHERE key = ?1",
+            [category],
+            |r| r.get(0),
+        )
+        .optional()?;
     if exists.is_none() {
         return Err(rusqlite::Error::InvalidQuery);
     }
@@ -312,7 +446,9 @@ pub fn insert(conn: &Connection, category: &str, data: &Value, file: Option<Stri
     )?;
     let id = conn.last_insert_rowid();
     if let Some(arr) = data.get("attachments") {
-        if let Ok(atts) = serde_json::from_value::<Vec<crate::db::models::AttachmentDto>>(arr.clone()) {
+        if let Ok(atts) =
+            serde_json::from_value::<Vec<crate::db::models::AttachmentDto>>(arr.clone())
+        {
             let _ = crate::db::queries::sync_record_attachments(conn, category, id, &atts);
         }
     } else if file.is_some() || path.is_some() {
@@ -329,10 +465,23 @@ pub fn insert(conn: &Connection, category: &str, data: &Value, file: Option<Stri
     get(conn, category, id)
 }
 
-pub fn update(conn: &Connection, category: &str, id: i64, data: &Value, new_file: Option<String>, new_path: Option<String>) -> Result<RecordDto> {
+pub fn update(
+    conn: &Connection,
+    category: &str,
+    id: i64,
+    data: &Value,
+    new_file: Option<String>,
+    new_path: Option<String>,
+) -> Result<RecordDto> {
     let e = get(conn, category, id)?;
     let has_new_attachment = new_file.is_some() || new_path.is_some();
-    let pick_s = |k: &str, old: Option<String>| if data.get(k).is_some() { json_str(data, k) } else { old };
+    let pick_s = |k: &str, old: Option<String>| {
+        if data.get(k).is_some() {
+            json_str(data, k)
+        } else {
+            old
+        }
+    };
     let file = new_file.or_else(|| pick_s("file", e.file.clone()));
     let path = new_path.or_else(|| pick_s("path", e.path.clone()));
     let identifier = if data.get("identifier").is_some() {
@@ -342,7 +491,11 @@ pub fn update(conn: &Connection, category: &str, id: i64, data: &Value, new_file
     } else {
         e.identifier.clone()
     };
-    let ano = if data.get("ano").is_some() { json_i64(data, "ano") } else { e.ano };
+    let ano = if data.get("ano").is_some() {
+        json_i64(data, "ano")
+    } else {
+        e.ano
+    };
     conn.execute(
         "UPDATE custom_records SET ano = ?3, tipo = ?4, identifier = ?5, file = ?6, folder = ?7, titulo = ?8, descricao = ?9, log = ?10, path = ?11 WHERE category = ?1 AND id = ?2",
         params![
@@ -360,7 +513,9 @@ pub fn update(conn: &Connection, category: &str, id: i64, data: &Value, new_file
         ],
     )?;
     if let Some(arr) = data.get("attachments") {
-        if let Ok(atts) = serde_json::from_value::<Vec<crate::db::models::AttachmentDto>>(arr.clone()) {
+        if let Ok(atts) =
+            serde_json::from_value::<Vec<crate::db::models::AttachmentDto>>(arr.clone())
+        {
             let _ = crate::db::queries::sync_record_attachments(conn, category, id, &atts);
         }
     } else if has_new_attachment {
@@ -378,7 +533,10 @@ pub fn update(conn: &Connection, category: &str, id: i64, data: &Value, new_file
 }
 
 pub fn delete(conn: &Connection, category: &str, id: i64) -> Result<()> {
-    conn.execute("DELETE FROM custom_records WHERE category = ?1 AND id = ?2", params![category, id])?;
+    conn.execute(
+        "DELETE FROM custom_records WHERE category = ?1 AND id = ?2",
+        params![category, id],
+    )?;
     Ok(())
 }
 
@@ -393,19 +551,51 @@ mod tests {
         let root = std::env::temp_dir().join("lattes_custom_test");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("11_bancas")).unwrap();
-        let c = save_category(&conn, &root, CustomCategory { name: "Prêmios e Títulos".into(), tipos: vec!["Prêmio".into(), "Menção honrosa".into()], ..Default::default() }).unwrap();
+        let c = save_category(
+            &conn,
+            &root,
+            CustomCategory {
+                name: "Prêmios e Títulos".into(),
+                tipos: vec!["Prêmio".into(), "Menção honrosa".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(c.key, "x_premios_e_titulos");
         assert_eq!(c.folder, "12_premios_e_titulos");
-        assert!(root.join("12_premios_e_titulos").join("mencao_honrosa").is_dir());
+        assert!(root
+            .join("12_premios_e_titulos")
+            .join("mencao_honrosa")
+            .is_dir());
         let maps: i64 = conn.query_row("SELECT COUNT(*) FROM subfolder_mappings WHERE category_group = 'Prêmios e Títulos'", [], |r| r.get(0)).unwrap();
         assert_eq!(maps, 2);
 
-        let r = insert(&conn, &c.key, &json!({"ano": 2024, "tipo": "Prêmio", "titulo": "Melhor trabalho"}), None, None).unwrap();
+        let r = insert(
+            &conn,
+            &c.key,
+            &json!({"ano": 2024, "tipo": "Prêmio", "titulo": "Melhor trabalho"}),
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(r.category, c.key);
-        let r = update(&conn, &c.key, r.id, &json!({"descricao": "SBMP"}), None, None).unwrap();
+        let r = update(
+            &conn,
+            &c.key,
+            r.id,
+            &json!({"descricao": "SBMP"}),
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(r.titulo.as_deref(), Some("Melhor trabalho"));
         assert_eq!(r.descricao.as_deref(), Some("SBMP"));
-        assert_eq!(list(&conn, &c.key, Some("melhor"), None, None).unwrap().len(), 1);
+        assert_eq!(
+            list(&conn, &c.key, Some("melhor"), None, None)
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(delete_category(&conn, &c.key, false).is_err());
         delete_category(&conn, &c.key, true).unwrap();
         assert!(list_categories(&conn).unwrap().is_empty());

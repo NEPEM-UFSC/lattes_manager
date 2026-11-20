@@ -1,8 +1,8 @@
-use std::collections::HashSet;
-use std::time::Duration;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
+use std::time::Duration;
 
 use crate::files::linker::{dice, trigrams};
 use crate::migration::lattes_xml::normalize_title;
@@ -102,7 +102,10 @@ pub fn clean_author_id(input: &str) -> String {
     } else {
         s
     };
-    let clean = after_user.split(['&', '?', '#', ' ', '/']).next().unwrap_or(after_user);
+    let clean = after_user
+        .split(['&', '?', '#', ' ', '/'])
+        .next()
+        .unwrap_or(after_user);
     clean.trim().to_string()
 }
 
@@ -121,29 +124,55 @@ pub fn get_scholar_config(conn: &Connection) -> Result<ScholarConfig, String> {
             config.total_citations = parsed.get("total_citations").and_then(|v| v.as_i64());
             config.h_index = parsed.get("h_index").and_then(|v| v.as_i64());
             config.i10_index = parsed.get("i10_index").and_then(|v| v.as_i64());
-            config.author_name = parsed.get("author_name").and_then(|v| v.as_str()).map(|s| s.to_string());
-            config.last_sync = parsed.get("last_sync").and_then(|v| v.as_str()).map(|s| s.to_string());
+            config.author_name = parsed
+                .get("author_name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            config.last_sync = parsed
+                .get("last_sync")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             if let Some(arr) = parsed.get("graph").and_then(|g| g.as_array()) {
-                config.graph = arr.iter().filter_map(|it| {
-                    let year = it.get("year").and_then(|y| y.as_i64().or_else(|| y.as_str().and_then(|s| s.parse().ok())))?;
-                    let citations = it.get("citations").and_then(|c| c.as_i64().or_else(|| c.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0);
-                    Some(ScholarYearlyCitation { year, citations })
-                }).collect();
+                config.graph = arr
+                    .iter()
+                    .filter_map(|it| {
+                        let year = it.get("year").and_then(|y| {
+                            y.as_i64()
+                                .or_else(|| y.as_str().and_then(|s| s.parse().ok()))
+                        })?;
+                        let citations = it
+                            .get("citations")
+                            .and_then(|c| {
+                                c.as_i64()
+                                    .or_else(|| c.as_str().and_then(|s| s.parse().ok()))
+                            })
+                            .unwrap_or(0);
+                        Some(ScholarYearlyCitation { year, citations })
+                    })
+                    .collect();
             }
         }
     }
 
     // Se total_citations ainda for None ou 0, calcula fallback a partir dos registros de produções do banco local
     if config.total_citations.is_none() || config.total_citations == Some(0) {
-        if let Ok(mut stmt) = conn.prepare("SELECT citations FROM producoes WHERE citations > 0 ORDER BY citations DESC") {
-            let cites: Vec<i64> = stmt.query_map([], |r| r.get(0)).ok()
+        if let Ok(mut stmt) = conn
+            .prepare("SELECT citations FROM producoes WHERE citations > 0 ORDER BY citations DESC")
+        {
+            let cites: Vec<i64> = stmt
+                .query_map([], |r| r.get(0))
+                .ok()
                 .map(|rows| rows.filter_map(|r| r.ok()).collect())
                 .unwrap_or_default();
             if !cites.is_empty() {
                 let sum: i64 = cites.iter().sum();
                 config.total_citations = Some(sum);
                 if config.h_index.is_none() || config.h_index == Some(0) {
-                    let h = cites.iter().enumerate().take_while(|(i, &c)| c >= (*i as i64 + 1)).count() as i64;
+                    let h = cites
+                        .iter()
+                        .enumerate()
+                        .take_while(|(i, &c)| c >= (*i as i64 + 1))
+                        .count() as i64;
                     config.h_index = Some(h);
                 }
                 if config.i10_index.is_none() || config.i10_index == Some(0) {
@@ -158,7 +187,11 @@ pub fn get_scholar_config(conn: &Connection) -> Result<ScholarConfig, String> {
 }
 
 /// Salva ID do autor e SerpApi key no banco.
-pub fn save_scholar_config(conn: &Connection, author_id: &str, serpapi_key: &str) -> Result<(), String> {
+pub fn save_scholar_config(
+    conn: &Connection,
+    author_id: &str,
+    serpapi_key: &str,
+) -> Result<(), String> {
     let clean_id = clean_author_id(author_id);
     let key = serpapi_key.trim();
 
@@ -186,7 +219,10 @@ fn get_meta_string(conn: &Connection, key: &str) -> Result<String, rusqlite::Err
 }
 
 /// Faz a requisição à API do SerpApi e extrai dados do perfil e artigos.
-pub fn fetch_serpapi_scholar(author_id: &str, api_key: &str) -> Result<(ScholarAuthorInfo, Vec<ScholarArticle>), String> {
+pub fn fetch_serpapi_scholar(
+    author_id: &str,
+    api_key: &str,
+) -> Result<(ScholarAuthorInfo, Vec<ScholarArticle>), String> {
     let clean_id = clean_author_id(author_id);
     if clean_id.is_empty() {
         return Err("ID do Google Scholar não informado.".into());
@@ -214,10 +250,15 @@ pub fn fetch_serpapi_scholar(author_id: &str, api_key: &str) -> Result<(ScholarA
         let response = match agent.get(&url).call() {
             Ok(res) => res,
             Err(ureq::Error::Status(401, _)) => {
-                return Err("Chave SerpApi inválida ou não autorizada. Verifique sua chave no serpapi.com.".into());
+                return Err(
+                    "Chave SerpApi inválida ou não autorizada. Verifique sua chave no serpapi.com."
+                        .into(),
+                );
             }
             Err(ureq::Error::Status(404, _)) => {
-                return Err("Perfil de autor não encontrado no Google Scholar com o ID informado.".into());
+                return Err(
+                    "Perfil de autor não encontrado no Google Scholar com o ID informado.".into(),
+                );
             }
             Err(ureq::Error::Status(429, _)) => {
                 return Err("Limite de requisições do SerpApi atingido para este mês.".into());
@@ -230,7 +271,9 @@ pub fn fetch_serpapi_scholar(author_id: &str, api_key: &str) -> Result<(ScholarA
             }
         };
 
-        let json: Value = response.into_json().map_err(|e| format!("Resposta inválida do SerpApi: {}", e))?;
+        let json: Value = response
+            .into_json()
+            .map_err(|e| format!("Resposta inválida do SerpApi: {}", e))?;
 
         if let Some(err_msg) = json.get("error").and_then(|v| v.as_str()) {
             return Err(format!("SerpApi erro: {}", err_msg));
@@ -245,7 +288,8 @@ pub fn fetch_serpapi_scholar(author_id: &str, api_key: &str) -> Result<(ScholarA
         all_articles.extend(page_articles);
 
         // Se a página retornou menos de 100 ou não há paginação, não precisa buscar mais
-        let has_next = json.get("serpapi_pagination")
+        let has_next = json
+            .get("serpapi_pagination")
             .and_then(|p| p.get("next"))
             .is_some();
 
@@ -268,7 +312,8 @@ pub fn fetch_serpapi_scholar(author_id: &str, api_key: &str) -> Result<(ScholarA
 }
 
 pub fn parse_author_info(json: &Value) -> ScholarAuthorInfo {
-    let name = json.get("author")
+    let name = json
+        .get("author")
         .and_then(|a| a.get("name"))
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -320,7 +365,8 @@ pub fn parse_author_info(json: &Value) -> ScholarAuthorInfo {
         None
     };
 
-    let table_opt = json.get("cited_by")
+    let table_opt = json
+        .get("cited_by")
         .and_then(|c| c.get("table"))
         .or_else(|| json.get("cited_by_table"))
         .and_then(|t| t.as_array());
@@ -351,19 +397,25 @@ pub fn parse_author_info(json: &Value) -> ScholarAuthorInfo {
             if idx == 0 && total_citations == 0 {
                 if let Some(map) = row.as_object() {
                     if let Some((_, v)) = map.iter().next() {
-                        if let Some(c) = extract_metric(v) { total_citations = c; }
+                        if let Some(c) = extract_metric(v) {
+                            total_citations = c;
+                        }
                     }
                 }
             } else if idx == 1 && h_index == 0 {
                 if let Some(map) = row.as_object() {
                     if let Some((_, v)) = map.iter().next() {
-                        if let Some(h) = extract_metric(v) { h_index = h; }
+                        if let Some(h) = extract_metric(v) {
+                            h_index = h;
+                        }
                     }
                 }
             } else if idx == 2 && i10_index == 0 {
                 if let Some(map) = row.as_object() {
                     if let Some((_, v)) = map.iter().next() {
-                        if let Some(i) = extract_metric(v) { i10_index = i; }
+                        if let Some(i) = extract_metric(v) {
+                            i10_index = i;
+                        }
                     }
                 }
             }
@@ -371,7 +423,8 @@ pub fn parse_author_info(json: &Value) -> ScholarAuthorInfo {
     }
 
     // Extrair graph anual de citações do perfil
-    let graph_arr_opt = json.get("cited_by")
+    let graph_arr_opt = json
+        .get("cited_by")
         .and_then(|c| c.get("graph"))
         .or_else(|| json.get("graph"))
         .and_then(|g| g.as_array());
@@ -386,13 +439,16 @@ pub fn parse_author_info(json: &Value) -> ScholarAuthorInfo {
                     y.as_i64()
                 }
             });
-            let citations = item.get("citations").and_then(|c| {
-                if let Some(s) = c.as_str() {
-                    s.replace([',', '.', ' '], "").parse::<i64>().ok()
-                } else {
-                    c.as_i64()
-                }
-            }).unwrap_or(0);
+            let citations = item
+                .get("citations")
+                .and_then(|c| {
+                    if let Some(s) = c.as_str() {
+                        s.replace([',', '.', ' '], "").parse::<i64>().ok()
+                    } else {
+                        c.as_i64()
+                    }
+                })
+                .unwrap_or(0);
 
             if let Some(y) = year {
                 graph.push(ScholarYearlyCitation { year: y, citations });
@@ -418,7 +474,12 @@ pub fn parse_articles(json: &Value) -> Vec<ScholarArticle> {
     let mut res = Vec::new();
     if let Some(arr) = json.get("articles").and_then(|a| a.as_array()) {
         for it in arr {
-            let title = it.get("title").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+            let title = it
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if title.is_empty() {
                 continue;
             }
@@ -431,7 +492,8 @@ pub fn parse_articles(json: &Value) -> Vec<ScholarArticle> {
                 }
             });
 
-            let citations = it.get("cited_by")
+            let citations = it
+                .get("cited_by")
                 .and_then(|c| c.get("value"))
                 .and_then(|v| {
                     if let Some(n) = v.as_i64() {
@@ -444,10 +506,20 @@ pub fn parse_articles(json: &Value) -> Vec<ScholarArticle> {
                 })
                 .unwrap_or(0);
 
-            let link = it.get("link").and_then(|l| l.as_str()).map(|s| s.to_string());
-            let citation_id = it.get("citation_id").and_then(|l| l.as_str()).map(|s| s.to_string());
-            let authors = it.get("authors").and_then(|v| v.as_str()).map(|s| s.trim().to_string());
-            let publication = it.get("publication")
+            let link = it
+                .get("link")
+                .and_then(|l| l.as_str())
+                .map(|s| s.to_string());
+            let citation_id = it
+                .get("citation_id")
+                .and_then(|l| l.as_str())
+                .map(|s| s.to_string());
+            let authors = it
+                .get("authors")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string());
+            let publication = it
+                .get("publication")
                 .or_else(|| it.get("journal"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.trim().to_string());
@@ -667,7 +739,10 @@ pub fn get_unmatched_scholar_articles(
             return Err("ID do Google Scholar não configurado. Acesse Configurações > Google Scholar & APIs.".into());
         }
         if cfg.serpapi_key.is_empty() {
-            return Err("Chave SerpApi não configurada. Acesse Configurações > Google Scholar & APIs.".into());
+            return Err(
+                "Chave SerpApi não configurada. Acesse Configurações > Google Scholar & APIs."
+                    .into(),
+            );
         }
 
         let (_info, fetched) = fetch_serpapi_scholar(&cfg.author_id, &cfg.serpapi_key)?;
@@ -770,7 +845,9 @@ pub fn get_unmatched_scholar_articles(
 
     // Ordena os artigos ausentes: anos mais recentes primeiro, depois mais citados
     unmatched.sort_by(|a, b| {
-        b.year.unwrap_or(0).cmp(&a.year.unwrap_or(0))
+        b.year
+            .unwrap_or(0)
+            .cmp(&a.year.unwrap_or(0))
             .then_with(|| b.citations.cmp(&a.citations))
     });
 
@@ -795,7 +872,9 @@ mod tests {
             "X_12345AAAAJ"
         );
         assert_eq!(
-            clean_author_id("https://scholar.google.com.br/citations?hl=pt-BR&user=X_12345AAAAJ#top"),
+            clean_author_id(
+                "https://scholar.google.com.br/citations?hl=pt-BR&user=X_12345AAAAJ#top"
+            ),
             "X_12345AAAAJ"
         );
         assert_eq!(
@@ -874,8 +953,16 @@ mod tests {
         assert_eq!(cfg.serpapi_key, "secret_key_123");
 
         // Simula atualização direta com dados que viriam do Scholar
-        conn.execute("UPDATE producoes SET citations = ?1 WHERE id = ?2", params![78, id1]).unwrap();
-        conn.execute("UPDATE producoes SET citations = ?1 WHERE id = ?2", params![15, id2]).unwrap();
+        conn.execute(
+            "UPDATE producoes SET citations = ?1 WHERE id = ?2",
+            params![78, id1],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE producoes SET citations = ?1 WHERE id = ?2",
+            params![15, id2],
+        )
+        .unwrap();
 
         // Testa o fallback de cálculo automático a partir do banco de produções
         let cfg_after = get_scholar_config(&conn).unwrap();
