@@ -5,6 +5,7 @@ import { CATEGORY_SCHEMAS, escapeHtml, showToast, renderTipoBadge } from "../uti
 import { ProofPickerModal } from "./proofPicker.js";
 import { renderOpenAlexTool, renderOrcidSyncTool } from "./tools/academicTools.js";
 import { renderScoreCalculatorTool, renderBibExporterTool } from "./tools/scoreAndBibTools.js";
+import { renderPendenciasTool } from "./tools/pendenciasTool.js";
 
 // ---------- formatação de textos ----------
 const LOWER_PT = new Set(["a", "à", "ao", "aos", "as", "às", "com", "da", "das", "de", "do", "dos", "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para", "pela", "pelas", "pelo", "pelos", "por", "sem", "sob", "sobre", "um", "uma", "entre", "após", "contra", "y", "del", "la", "van", "von", "der", "di", "du", "le"]);
@@ -423,6 +424,7 @@ const TOOL_CLASSES = [
 // [id, icon, title, description, classId]
 const TOOLS = [
   // Sincronização & Comparação
+  ["pendencias", "📋", "Painel de pendências", "Veja os registros sem comprovante, com arquivo ausente, artigos sem DOI ou Qualis e campos vazios, com atalho para corrigir cada um.", "sync"],
   ["cross_check", "🔀", "Checagem Cruzada (BD × XML)", "Compare o banco de dados do software com o XML do Lattes por categoria: interseção (BD ∩ XML), união (BD ∪ XML), faltando no banco e sobrando no banco.", "sync"],
   ["orcid_sync", "🆔", "Sincronizador ORCID (BD × ORCID)", "Consulte a API pública do ORCID, compare com suas produções locais e importe artigos faltantes com 1 clique.", "sync"],
   ["timemachine", "🕰️", "Lattes Time Machine (Comparador)", "Compare o cadastro atual com um novo XML do Lattes (ou compare dois XMLs) e veja todas as novidades, alterações e exclusões.", "sync"],
@@ -452,12 +454,13 @@ const TOOLS = [
 ];
 
 export class ToolsView {
-  constructor({ container, onChanged, openLinker, fetchPdf, onCreateWithData }) {
+  constructor({ container, onChanged, openLinker, fetchPdf, onCreateWithData, openRecord }) {
     this.el = container;
     this.onChanged = onChanged;
     this.openLinker = openLinker;
     this.fetchPdf = fetchPdf;
     this.onCreateWithData = onCreateWithData;
+    this.openRecord = openRecord;
     this.active = null;
     this.activeClass = "all";
     this.states = {};
@@ -603,6 +606,7 @@ export class ToolsView {
 
   renderTool() {
     ({
+      pendencias: () => renderPendenciasTool(this),
       scholar: () => this.toolScholar(),
       scholar_unmatched: () => this.toolScholarUnmatched(),
       vassoura: () => this.toolVassoura(),

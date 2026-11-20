@@ -261,6 +261,10 @@ class App {
         if (toolKey) this.toolsView.open(toolKey);
       },
       onOpenTools: () => this.showTools(),
+      onOpenPendencias: () => {
+        this.showTools();
+        this.toolsView.open("pendencias");
+      },
       onOpenSubfolders: () => this.switchToSubpastasView(),
       onOpenSettings: () => this.showSettings(),
       onOpenAbout: () => this.showAbout(),
@@ -269,19 +273,13 @@ class App {
         this.recordModal.openCreate(cat, this.mappings);
       },
       onPreviewRecord: (rec) => this.previewer.open(rec),
-      onOpenRecentRecord: async (rec) => {
-        const cat = rec?.category || "producoes";
-        await this.switchCategory(cat);
-        if (rec?.id != null) {
-          const loaded = this.allRecords.find((x) => Number(x.id) === Number(rec.id)) || rec;
-          this.recordModal.openEdit(cat, loaded, this.mappings);
-        }
-      },
+      onOpenRecentRecord: (rec) => this.openRecordForEdit(rec?.category || "producoes", rec?.id, rec),
     });
     this.toolsView = new ToolsView({
       container: this.toolsContainer,
       openLinker: () => this.linker.open(),
       onCreateWithData: (cat, data, cb) => this.openCreateRecordWithData(cat, data, cb),
+      openRecord: (cat, id) => this.openRecordForEdit(cat, id),
       onChanged: async () => {
         await Promise.all([this.loadStats(), this.loadMappings()]);
         if (this.view === "home") this.homeView.show();
@@ -1040,6 +1038,15 @@ class App {
     if (isDadosGerais) {
       this.tableContainer.classList.add(`pf-mode-${mode}`);
     }
+  }
+
+  /** Abre a categoria e o registro para edição (usado pela tela inicial e pelas ferramentas). */
+  async openRecordForEdit(cat, id, fallback = null) {
+    await this.switchCategory(cat);
+    if (id == null) return;
+    const loaded = this.allRecords.find((x) => Number(x.id) === Number(id)) || fallback;
+    if (loaded) this.recordModal.openEdit(cat, loaded, this.mappings);
+    else showToast(`Registro #${id} não encontrado em ${cat}.`, "error");
   }
 
   async switchCategory(category) {

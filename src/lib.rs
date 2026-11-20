@@ -11,6 +11,7 @@ pub mod files;
 pub mod metadata;
 pub mod migration;
 pub mod pdf_compress;
+pub mod pendencias;
 pub mod scholar;
 pub mod tools;
 pub mod vassoura;

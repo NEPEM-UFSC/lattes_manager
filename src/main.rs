@@ -87,6 +87,7 @@ fn main() {
             commands::preview_file_renames,
             commands::apply_file_renames,
             commands::check_files,
+            commands::scan_pendencias,
             commands::clear_missing_links,
             commands::scan_root_folders,
             commands::remove_audited_folders,
