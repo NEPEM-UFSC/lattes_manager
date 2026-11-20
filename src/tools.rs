@@ -871,7 +871,7 @@ mod tests {
         assert!(std::fs::metadata(dir.join("t.xlsx")).unwrap().len() > 1000);
 
         let conn = crate::db::open_in_memory().unwrap();
-        std::fs::write(dir.join("5_producoes\\artigos\\007_Artigo Final (v2).pdf"), b"%PDF").unwrap();
+        std::fs::write(crate::files::rel_join(&dir, "5_producoes\\artigos\\007_Artigo Final (v2).pdf"), b"%PDF").unwrap();
         conn.execute(
             "INSERT INTO producoes (titulo, file, path, identifier, folder) VALUES ('Seleção genômica em milho', '007_Artigo Final (v2).pdf', '5_producoes\\artigos\\007_Artigo Final (v2).pdf', '10.1/x', '5_producoes\\artigos')",
             [],
@@ -882,13 +882,13 @@ mod tests {
         assert_eq!(items[0].new_path, "5_producoes\\artigos\\007_selecao_genomica_em_milho.pdf");
         let r = apply_renames(&conn, &dir, &items);
         assert_eq!(r.ok, 1, "{:?}", r.erros);
-        assert!(dir.join("5_producoes\\artigos\\007_selecao_genomica_em_milho.pdf").is_file());
+        assert!(crate::files::rel_join(&dir, "5_producoes\\artigos\\007_selecao_genomica_em_milho.pdf").is_file());
         let (ident, path): (String, String) = conn.query_row("SELECT identifier, path FROM producoes", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
         assert_eq!(ident, "10.1/x"); // DOI preservado
         assert!(path.ends_with("007_selecao_genomica_em_milho.pdf"));
         assert!(preview_renames(&conn, &dir).unwrap().is_empty());
 
-        std::fs::write(dir.join("5_producoes\\artigos\\solto.pdf"), b"x").unwrap();
+        std::fs::write(crate::files::rel_join(&dir, "5_producoes\\artigos\\solto.pdf"), b"x").unwrap();
         let fc = check_files(&conn, &dir).unwrap();
         assert_eq!(fc.orfaos, vec!["5_producoes\\artigos\\solto.pdf".to_string()]);
         assert!(fc.ausentes.is_empty());
@@ -918,8 +918,8 @@ mod tests {
             [],
         ).unwrap();
 
-        std::fs::write(dir.join("5_producoes\\artigos_completos\\001_artigo.pdf"), b"%PDF").unwrap();
-        std::fs::write(dir.join("5_producoes\\artigos_completos\\solto.pdf"), b"%PDF").unwrap();
+        std::fs::write(crate::files::rel_join(&dir, "5_producoes\\artigos_completos\\001_artigo.pdf"), b"%PDF").unwrap();
+        std::fs::write(crate::files::rel_join(&dir, "5_producoes\\artigos_completos\\solto.pdf"), b"%PDF").unwrap();
         conn.execute(
             "INSERT INTO producoes (ano, titulo, file, path, folder) VALUES (2025, 'Artigo 1', '001_artigo.pdf', '5_producoes\\artigos_completos\\001_artigo.pdf', '5_producoes\\artigos_completos\\')",
             [],
@@ -937,22 +937,22 @@ mod tests {
         let blocked = remove_audited_folders(&conn, &dir, &[r"5_producoes\artigos_completos".to_string()], false, true);
         assert_eq!(blocked.ok, 0);
         assert_eq!(blocked.erros.len(), 1);
-        assert!(dir.join(r"5_producoes\artigos_completos\001_artigo.pdf").is_file());
+        assert!(crate::files::rel_join(&dir, r"5_producoes\artigos_completos\001_artigo.pdf").is_file());
 
         // Remove empty unmapped folder
         let removed = remove_audited_folders(&conn, &dir, &[r"6_patentes\teste".to_string()], false, false);
         assert_eq!(removed.ok, 1, "{:?}", removed.erros);
-        assert!(!dir.join(r"6_patentes\teste").exists());
+        assert!(!crate::files::rel_join(&dir, r"6_patentes\teste").exists());
 
         // Delete orphan file safely
         let del_orphan = delete_orphan_files(&conn, &dir, &[r"5_producoes\artigos_completos\solto.pdf".to_string()]);
         assert_eq!(del_orphan.ok, 1, "{:?}", del_orphan.erros);
-        assert!(!dir.join(r"5_producoes\artigos_completos\solto.pdf").exists());
+        assert!(!crate::files::rel_join(&dir, r"5_producoes\artigos_completos\solto.pdf").exists());
 
         // Create missing mapped folder on disk
         let created = create_missing_mapped_folders(&dir, &[r"7_inovacao\produtos_tecnologicos".to_string()]);
         assert_eq!(created.ok, 1, "{:?}", created.erros);
-        assert!(dir.join(r"7_inovacao\produtos_tecnologicos").is_dir());
+        assert!(crate::files::rel_join(&dir, r"7_inovacao\produtos_tecnologicos").is_dir());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+#[cfg(any(windows, target_os = "macos"))]
 use std::process::Command;
 
 #[cfg(windows)]
@@ -29,7 +30,9 @@ pub fn reveal_in_explorer(full_path: &Path) -> Result<(), String> {
         return Err(format!("Path '{}' does not exist", full_path.display()));
     }
 
+    #[cfg(any(windows, target_os = "macos"))]
     let path_str = full_path.to_string_lossy();
+    #[cfg(any(windows, target_os = "macos"))]
     let clean_path = path_str.strip_prefix(r"\\?\").unwrap_or(path_str.as_ref());
 
     #[cfg(windows)]
@@ -106,7 +109,7 @@ mod tests {
         let root = Path::new(r"d:\Desktop\UFSC\lattes");
         let rel = r"5_producoes\artigos_completos\001_paper.pdf";
         let resolved = resolve_relative_path(root, rel);
-        assert!(resolved.ends_with(Path::new(r"5_producoes\artigos_completos\001_paper.pdf")));
+        assert!(resolved.ends_with(crate::files::rel_join(Path::new(""), r"5_producoes\artigos_completos\001_paper.pdf")));
     }
 
     #[test]
@@ -114,6 +117,6 @@ mod tests {
         let root = Path::new(r"d:\Desktop\UFSC\lattes");
         let rel = r"\11_bancas\doutorado\005_ata.pdf";
         let resolved = resolve_relative_path(root, rel);
-        assert!(resolved.ends_with(Path::new(r"11_bancas\doutorado\005_ata.pdf")));
+        assert!(resolved.ends_with(crate::files::rel_join(Path::new(""), r"11_bancas\doutorado\005_ata.pdf")));
     }
 }
