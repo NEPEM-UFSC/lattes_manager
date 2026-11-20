@@ -548,8 +548,8 @@ fn pack_sfnt_tables(sfnt_version: &[u8], mut kept: Vec<([u8; 4], Vec<u8>)>) -> V
             out.push(0);
         }
         let mut sum = 0u32;
-        for chunk in out[t_off as usize..].chunks_exact(4) {
-            sum = sum.wrapping_add(u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+        for &chunk in out[t_off as usize..].as_chunks::<4>().0 {
+            sum = sum.wrapping_add(u32::from_be_bytes(chunk));
         }
         let dir_off = 12 + i * 16;
         out[dir_off..dir_off + 4].copy_from_slice(tag);
@@ -1536,7 +1536,7 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                             } else if job.channels == 4 {
                                 let mut rgb_vec =
                                     Vec::with_capacity((job.w as usize) * (job.h as usize) * 3);
-                                for cmyk in pixels.chunks_exact(4) {
+                                for cmyk in pixels.as_chunks::<4>().0 {
                                     let c = cmyk[0] as u32;
                                     let m = cmyk[1] as u32;
                                     let y = cmyk[2] as u32;

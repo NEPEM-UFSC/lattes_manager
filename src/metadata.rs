@@ -116,8 +116,10 @@ fn pdf_string(o: &Object) -> Option<String> {
     };
     let s = if bytes.starts_with(&[0xFE, 0xFF]) {
         let u: Vec<u16> = bytes[2..]
-            .chunks_exact(2)
-            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&c| u16::from_be_bytes(c))
             .collect();
         String::from_utf16_lossy(&u)
     } else if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
