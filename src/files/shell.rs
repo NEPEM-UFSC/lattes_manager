@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+#[cfg(any(windows, target_os = "macos"))]
 use std::process::Command;
 
 #[cfg(windows)]
@@ -29,7 +30,9 @@ pub fn reveal_in_explorer(full_path: &Path) -> Result<(), String> {
         return Err(format!("Path '{}' does not exist", full_path.display()));
     }
 
+    #[cfg(any(windows, target_os = "macos"))]
     let path_str = full_path.to_string_lossy();
+    #[cfg(any(windows, target_os = "macos"))]
     let clean_path = path_str.strip_prefix(r"\\?\").unwrap_or(path_str.as_ref());
 
     #[cfg(windows)]
