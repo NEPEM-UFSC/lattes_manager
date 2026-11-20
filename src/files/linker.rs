@@ -160,10 +160,7 @@ pub fn dice(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
 }
 
 pub fn norm_rel(p: &str) -> String {
-    p.trim()
-        .replace('/', "\\")
-        .trim_matches('\\')
-        .to_lowercase()
+    super::to_db_rel(p.trim()).trim_matches('\\').to_lowercase()
 }
 
 pub fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
@@ -175,7 +172,7 @@ pub fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) {
         if p.is_dir() {
             walk(&p, root, out);
         } else if let Ok(rel) = p.strip_prefix(root) {
-            out.push(rel.to_string_lossy().replace('/', "\\"));
+            out.push(super::path_to_db_rel(rel));
         }
     }
 }
@@ -382,8 +379,11 @@ pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Resul
     for l in links {
         let table = normalize_category(&l.category)
             .ok_or_else(|| format!("Categoria inválida: {}", l.category))?;
-        let trimmed = l.path.trim().replace('/', "\\");
-        let path_obj = Path::new(&trimmed);
+        // `raw` pode ser um caminho absoluto do sistema (com `/` no Linux/macOS) ou relativo
+        // no formato do banco; só o relativo é convertido para `\`.
+        let raw = l.path.trim();
+        let trimmed = crate::files::to_db_rel(raw);
+        let path_obj = Path::new(raw);
 
         let (rel, file, folder) = if let Some(cached) = external_copy_cache.get(&trimmed) {
             cached.clone()
@@ -392,7 +392,7 @@ pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Resul
             let full_candidate = if path_obj.is_absolute() {
                 path_obj.to_path_buf()
             } else {
-                root.join(path_obj)
+                crate::files::rel_join(root, raw)
             };
 
             let path_canon = full_candidate.canonicalize().ok();
@@ -400,7 +400,7 @@ pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Resul
             if let Some(pc) = path_canon {
                 if pc.starts_with(&root_canon) {
                     let stripped = pc.strip_prefix(&root_canon).unwrap();
-                    let rel = stripped.to_string_lossy().replace('/', "\\");
+                    let rel = crate::files::path_to_db_rel(stripped);
                     let file = pc
                         .file_name()
                         .map(|f| f.to_string_lossy().to_string())
@@ -427,7 +427,7 @@ pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Resul
                 }
             } else {
                 // Tenta fallback com resolve_inside_root caso seja caminho relativo sem canonicalizar
-                let full = crate::commands::resolve_inside_root(root, &trimmed)?;
+                let full = crate::commands::resolve_inside_root(root, raw)?;
                 let file = full
                     .file_name()
                     .map(|f| f.to_string_lossy().to_string())
@@ -544,6 +544,72 @@ pub fn find_duplicates(conn: &Connection) -> Result<Vec<DupPair>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apply_links_accepts_absolute_and_relative_paths_on_any_os() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("curriculo");
+        let sub = crate::files::rel_join(&root, r"5_producoes\artigos");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("001_a.pdf"), b"%PDF").unwrap();
+        let ext = tmp.path().join("externo.pdf");
+        std::fs::write(&ext, b"%PDF").unwrap();
+
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute(
+            "INSERT INTO producoes (id, titulo) VALUES (1, 'A'), (2, 'B'), (3, 'C')",
+            [],
+        )
+        .unwrap();
+        let abs_inside = sub.join("001_a.pdf").to_string_lossy().to_string();
+        let links = vec![
+            // caminho relativo no formato do banco
+            LinkApply {
+                category: "producoes".into(),
+                id: 1,
+                path: r"5_producoes\artigos\001_a.pdf".into(),
+            },
+            // caminho absoluto do sistema, dentro da raiz
+            LinkApply {
+                category: "producoes".into(),
+                id: 2,
+                path: abs_inside,
+            },
+            // caminho absoluto do sistema, fora da raiz (copiado para a pasta da categoria)
+            LinkApply {
+                category: "producoes".into(),
+                id: 3,
+                path: ext.to_string_lossy().to_string(),
+            },
+        ];
+        assert_eq!(apply_links(&conn, &root, &links).unwrap(), 3);
+
+        let get = |id: i64| -> (String, String) {
+            conn.query_row(
+                "SELECT path, folder FROM producoes WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            get(1),
+            (
+                r"5_producoes\artigos\001_a.pdf".to_string(),
+                r"5_producoes\artigos\".to_string()
+            )
+        );
+        assert_eq!(
+            get(2),
+            (
+                r"5_producoes\artigos\001_a.pdf".to_string(),
+                r"5_producoes\artigos\".to_string()
+            )
+        );
+        let (p3, f3) = get(3);
+        assert_eq!(f3, r"5_producoes\");
+        assert!(crate::files::rel_join(&root, &p3).is_file(), "{}", p3);
+    }
 
     #[test]
     fn scores_truncated_filenames() {

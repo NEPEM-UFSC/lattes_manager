@@ -463,7 +463,7 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityReport, String> {
         };
         let name = entry.name().to_string();
         if !name.ends_with('/') {
-            zip_filenames.insert(name.replace('/', "\\").to_lowercase());
+            zip_filenames.insert(crate::files::to_db_rel(&name).to_lowercase());
         }
 
         loop {
@@ -505,7 +505,7 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityReport, String> {
                 if let Ok(mut stmt) = conn.prepare(&sql) {
                     if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
                         for p in rows.flatten() {
-                            let p_norm = p.replace('/', "\\").to_lowercase();
+                            let p_norm = crate::files::to_db_rel(&p).to_lowercase();
                             if !zip_filenames.contains(&p_norm) {
                                 report.missing_record_files.push(p);
                             }

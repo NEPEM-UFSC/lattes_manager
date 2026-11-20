@@ -309,7 +309,7 @@ pub fn clear_missing(conn: &Connection, root: &Path, items: &[MissingFile]) -> A
             res.erros.push(format!("#{}: categoria inválida", it.id));
             continue;
         };
-        let norm_path = it.path.trim().replace('/', "\\");
+        let norm_path = crate::files::to_db_rel(it.path.trim());
         let _ = conn.execute(
             "DELETE FROM record_attachments WHERE (category = ?1 OR category = ?2) AND record_id = ?3 AND (path = ?4 OR REPLACE(path, '/', '\\') = ?5)",
             params![&it.category, &table, it.id, &it.path, &norm_path],
@@ -722,9 +722,7 @@ pub fn scan_root_folders(conn: &Connection, root: &Path) -> Result<RootFolderAud
         let Ok(rel) = dir_path.strip_prefix(root) else {
             continue;
         };
-        let rel_path = rel
-            .to_string_lossy()
-            .replace('/', "\\")
+        let rel_path = crate::files::path_to_db_rel(rel)
             .trim_matches('\\')
             .to_string();
         if rel_path.is_empty() {
@@ -812,10 +810,7 @@ pub fn scan_root_folders(conn: &Connection, root: &Path) -> Result<RootFolderAud
     }
 
     for m in mappings {
-        let clean_rel = m
-            .folder
-            .trim()
-            .replace('/', "\\")
+        let clean_rel = crate::files::to_db_rel(m.folder.trim())
             .trim_matches('\\')
             .to_string();
         if clean_rel.is_empty() {
@@ -913,7 +908,11 @@ pub fn remove_audited_folders(
 
     let mut sorted: Vec<String> = rel_paths
         .iter()
-        .map(|s| s.trim().replace('/', "\\").trim_matches('\\').to_string())
+        .map(|s| {
+            crate::files::to_db_rel(s.trim())
+                .trim_matches('\\')
+                .to_string()
+        })
         .filter(|s| !s.is_empty())
         .collect();
     sorted.sort_by(|a, b| {
@@ -1012,7 +1011,8 @@ mod tests {
 
     #[test]
     fn xlsx_and_renames() {
-        let dir = std::env::temp_dir().join("lattes_tools_test");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let dir = tmpdir.path().join("lattes_tools_test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("5_producoes").join("artigos")).unwrap();
         let sheets = vec![Sheet {
@@ -1073,7 +1073,8 @@ mod tests {
 
     #[test]
     fn test_scan_and_clean_root_folders() {
-        let dir = std::env::temp_dir().join("lattes_folder_audit_test");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let dir = tmpdir.path().join("lattes_folder_audit_test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("6_patentes").join("patentes")).unwrap();
         std::fs::create_dir_all(dir.join("6_patentes").join("teste")).unwrap();

@@ -2541,7 +2541,8 @@ mod tests {
             .any(|i| i.category == "eventos" && i.titulo == "Congresso Brasileiro"));
 
         // Importar não-duplicados
-        let root_dir = std::env::temp_dir().join("lattes_xml_import_root");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root_dir = tmpdir.path().join("lattes_xml_import_root");
         let _ = std::fs::create_dir_all(&root_dir);
         let to_import: Vec<XmlProduction> =
             items.iter().filter(|i| !i.duplicate).cloned().collect();

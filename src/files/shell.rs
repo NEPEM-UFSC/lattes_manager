@@ -5,21 +5,22 @@ use std::process::Command;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-/// Formats the command-line argument for Windows Explorer file selection.
-/// Strips verbatim prefix `\\?\` if present and wraps path in double quotes: `/select,"<path>"`.
+/// Monta o argumento do Explorer do Windows para selecionar um arquivo: `/select,"<caminho>"`.
+/// Remove o prefixo `\\?\` quando presente.
 pub fn format_reveal_arg(full_path: &Path) -> String {
     let path_str = full_path.to_string_lossy();
     let clean_path = path_str.strip_prefix(r"\\?\").unwrap_or(path_str.as_ref());
     format!(r#"/select,"{}""#, clean_path)
 }
 
-/// Opens a file or path in the Windows system default viewer.
+/// Abre um arquivo no aplicativo padrão do sistema (Windows, macOS ou Linux).
 pub fn open_path(full_path: &Path) -> Result<(), String> {
     opener::open(full_path)
         .map_err(|e| format!("Failed to open path '{}': {}", full_path.display(), e))
 }
 
-/// Highlights / selects a file in Windows Explorer using `explorer.exe /select,"<path>"`.
+/// Mostra o arquivo no gerenciador de arquivos: selecionado no Explorer (Windows) ou no Finder
+/// (macOS); no Linux, abre a pasta que o contém.
 pub fn reveal_in_explorer(full_path: &Path) -> Result<(), String> {
     if !full_path.exists() {
         return Err(format!("Path '{}' does not exist", full_path.display()));
@@ -62,14 +63,14 @@ pub fn reveal_in_explorer(full_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens a directory in Windows Explorer.
+/// Abre uma pasta no gerenciador de arquivos do sistema.
 pub fn open_folder(folder_path: &Path) -> Result<(), String> {
     opener::open(folder_path)
         .map_err(|e| format!("Failed to open folder '{}': {}", folder_path.display(), e))
 }
 
-/// Resolves a portable relative path against `root_dir` into an absolute PathBuf.
-/// Normalizes leading slashes and canonicalizes if target exists on disk.
+/// Junta um caminho relativo do banco (com `\` ou `/`) a `root_dir`, em qualquer sistema.
+/// Ignora barras iniciais e canonicaliza o resultado quando ele existe no disco.
 pub fn resolve_relative_path(root_dir: &Path, rel_path: &str) -> PathBuf {
     let clean_rel = rel_path
         .trim()
