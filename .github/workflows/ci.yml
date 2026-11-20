@@ -37,15 +37,12 @@ jobs:
       - name: Testes
         run: cargo test --all-targets
 
-      # Informativos até o código ser formatado e os avisos zerados; depois, remover continue-on-error.
       - name: Formatação (rustfmt)
         if: runner.os == 'Linux'
-        continue-on-error: true
         run: cargo fmt --check
 
       - name: Lint (clippy)
         if: runner.os == 'Linux'
-        continue-on-error: true
         run: cargo clippy --all-targets -- -D warnings
 
   audit:

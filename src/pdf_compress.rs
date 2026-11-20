@@ -567,7 +567,7 @@ fn optimize_sfnt_font(raw: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let sfnt_version = &raw[0..4];
-    if sfnt_version != &[0, 1, 0, 0] && sfnt_version != b"true" && sfnt_version != b"OTTO" {
+    if sfnt_version != [0, 1, 0, 0] && sfnt_version != b"true" && sfnt_version != b"OTTO" {
         return None;
     }
     let num_tables = u16::from_be_bytes([raw[4], raw[5]]) as usize;
@@ -654,7 +654,7 @@ fn optimize_sfnt_font(raw: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn normalize_font_family(raw_name: &str) -> String {
-    let base = raw_name.split('+').last().unwrap_or(raw_name);
+    let base = raw_name.split('+').next_back().unwrap_or(raw_name);
     let mut s = base
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -684,7 +684,7 @@ struct ParsedTtfForMerge {
 }
 
 fn parse_ttf_for_merge(fid: ObjectId, stripped: &[u8]) -> Option<ParsedTtfForMerge> {
-    if stripped.len() < 12 || (&stripped[0..4] != &[0, 1, 0, 0] && &stripped[0..4] != b"true") {
+    if stripped.len() < 12 || (stripped[0..4] != [0, 1, 0, 0] && &stripped[0..4] != b"true") {
         return None;
     }
     let num_t = u16::from_be_bytes([stripped[4], stripped[5]]) as usize;
@@ -828,10 +828,10 @@ fn build_merged_ttf(bucket: &[ParsedTtfForMerge]) -> Option<Vec<u8>> {
 
     let mut new_glyf = Vec::new();
     let mut new_offsets = Vec::with_capacity(ng + 1);
-    for g in 0..ng {
+    for glyph in &merged_glyphs {
         new_offsets.push(new_glyf.len());
-        if !merged_glyphs[g].is_empty() {
-            new_glyf.extend_from_slice(&merged_glyphs[g]);
+        if !glyph.is_empty() {
+            new_glyf.extend_from_slice(glyph);
             while new_glyf.len() % 2 != 0 {
                 new_glyf.push(0);
             }
@@ -1133,7 +1133,7 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
                     raw_flate_decompress(&s.content).or_else(|| s.decompressed_content().ok())
                 {
                     if raw.len() >= 12
-                        && (&raw[0..4] == &[0, 1, 0, 0]
+                        && (raw[0..4] == [0, 1, 0, 0]
                             || &raw[0..4] == b"true"
                             || &raw[0..4] == b"OTTO")
                     {
@@ -1147,12 +1147,11 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
     let num_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
-        .min(8)
-        .max(1);
+        .clamp(1, 8);
 
     let mut font_replaced_count = 0usize;
     if !ttf_jobs.is_empty() {
-        let chunk_size = (ttf_jobs.len() + num_threads - 1) / num_threads;
+        let chunk_size = ttf_jobs.len().div_ceil(num_threads);
         let mut stripped_results: Vec<(ObjectId, String, Vec<u8>, usize)> =
             Vec::with_capacity(ttf_jobs.len());
         std::thread::scope(|s| {
@@ -1263,7 +1262,7 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
         }
 
         if !to_compress.is_empty() {
-            let c_chunk = (to_compress.len() + num_threads - 1) / num_threads;
+            let c_chunk = to_compress.len().div_ceil(num_threads);
             let mut comp_fonts: Vec<(ObjectId, Vec<u8>, usize, Option<usize>)> = Vec::new();
             std::thread::scope(|s| {
                 let mut handles = Vec::new();
@@ -1474,7 +1473,7 @@ fn compress_via_lopdf(bytes: &[u8]) -> Option<Vec<u8>> {
 
     let mut replaced_count = 0;
     if !jobs.is_empty() {
-        let chunk_size = (jobs.len() + num_threads - 1) / num_threads;
+        let chunk_size = jobs.len().div_ceil(num_threads);
         let mut thread_results: Vec<Vec<ImageResult>> = Vec::new();
 
         std::thread::scope(|s| {

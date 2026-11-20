@@ -126,8 +126,8 @@ impl GenericItem {
         let titulo = [&r.titulo, &r.descricao, &r.disciplina]
             .iter()
             .filter_map(|x| x.as_ref().filter(|s| !s.trim().is_empty()))
-            .cloned()
             .next()
+            .cloned()
             .unwrap_or_default();
         let nt = normalize_title(&titulo);
         let norm_key = format!("{}::{}::{}", cat, r.ano.unwrap_or(0), nt);
@@ -375,9 +375,9 @@ pub fn compare_lattes_versions(
     }
 
     // Ordena listas: adicionados por ano decrescente
-    added.sort_by(|a, b| b.ano.cmp(&a.ano));
-    modified.sort_by(|a, b| b.ano.cmp(&a.ano));
-    removed.sort_by(|a, b| b.ano.cmp(&a.ano));
+    added.sort_by_key(|x| std::cmp::Reverse(x.ano));
+    modified.sort_by_key(|x| std::cmp::Reverse(x.ano));
+    removed.sort_by_key(|x| std::cmp::Reverse(x.ano));
 
     // Monta sumário das categorias
     let mut categories_summary: Vec<DiffCategorySummary> = cat_stats
@@ -476,12 +476,13 @@ fn norm_doi(raw: Option<&str>) -> Option<String> {
 
 fn candidate_norm_titles_db(r: &crate::db::models::RecordDto) -> Vec<String> {
     let mut out = Vec::new();
-    for opt in [&r.titulo, &r.descricao, &r.disciplina, &r.instituicao] {
-        if let Some(s) = opt {
-            let nt = normalize_title(s);
-            if !nt.is_empty() && !out.contains(&nt) {
-                out.push(nt);
-            }
+    for s in [&r.titulo, &r.descricao, &r.disciplina, &r.instituicao]
+        .into_iter()
+        .flatten()
+    {
+        let nt = normalize_title(s);
+        if !nt.is_empty() && !out.contains(&nt) {
+            out.push(nt);
         }
     }
     out
@@ -507,6 +508,10 @@ fn candidate_norm_titles_xml(x: &XmlProduction) -> Vec<String> {
 
 /// Realiza a checagem cruzada completa entre o banco SQLite atual e um arquivo XML do Lattes,
 /// calculando Interseção (BD ∩ XML), Diferença XML \ BD, Diferença BD \ XML e União (BD ∪ XML) por categoria.
+/// Itens agrupados por categoria: (origem, item genérico, títulos candidatos, DOI, trigramas).
+type ItemsByCategory<T> =
+    HashMap<String, Vec<(T, GenericItem, Vec<String>, Option<String>, HashSet<String>)>>;
+
 pub fn cross_check_db_vs_xml(
     conn: &Connection,
     xml_path: &Path,
@@ -536,16 +541,7 @@ pub fn cross_check_db_vs_xml(
         parse_lattes_xml(xml_path).map_err(|e| format!("Erro ao ler XML do Lattes: {}", e))?;
 
     // Agrupa itens do XML por categoria normalizada (encargos e disciplinas -> atuacao)
-    let mut xml_by_cat: HashMap<
-        String,
-        Vec<(
-            XmlProduction,
-            GenericItem,
-            Vec<String>,
-            Option<String>,
-            HashSet<String>,
-        )>,
-    > = HashMap::new();
+    let mut xml_by_cat: ItemsByCategory<XmlProduction> = HashMap::new();
     for x in xml_raw {
         let g = GenericItem::from_xml(&x);
         let cands = candidate_norm_titles_xml(&x);
@@ -559,16 +555,7 @@ pub fn cross_check_db_vs_xml(
 
     // Carrega registros do banco atual por categoria
     let db_cats = crate::tools::all_categories(conn);
-    let mut db_by_cat: HashMap<
-        String,
-        Vec<(
-            crate::db::models::RecordDto,
-            GenericItem,
-            Vec<String>,
-            Option<String>,
-            HashSet<String>,
-        )>,
-    > = HashMap::new();
+    let mut db_by_cat: ItemsByCategory<crate::db::models::RecordDto> = HashMap::new();
     for cat in &db_cats {
         if let Ok(recs) = queries::get_records(conn, cat, None, None, None) {
             let entry = db_by_cat.entry(cat.clone()).or_default();

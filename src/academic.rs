@@ -399,7 +399,7 @@ pub fn build_and_apply_openalex_report(
     let total_citations: i64 = cited_vec.iter().sum();
     let mut h_index = 0i64;
     for (idx, c) in cited_vec.iter().enumerate() {
-        if *c >= (idx as i64) + 1 {
+        if *c > (idx as i64) {
             h_index = (idx as i64) + 1;
         } else {
             break;

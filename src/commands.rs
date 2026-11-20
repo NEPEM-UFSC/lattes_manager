@@ -33,7 +33,7 @@ pub fn get_records_impl(
 /// Pasta de comprovantes válida: `5_producoes\artigos_completos\` (não o marcador "folder").
 pub fn valid_folder(f: &str) -> bool {
     let t = f.trim().trim_matches(|c| c == '\\' || c == '/');
-    let first = t.split(|c| c == '\\' || c == '/').next().unwrap_or("");
+    let first = t.split(['\\', '/']).next().unwrap_or("");
     !t.is_empty()
         && first
             .split_once('_')
@@ -45,10 +45,7 @@ pub fn valid_folder(f: &str) -> bool {
 /// evitando que arquivos sejam salvos diretamente na pasta raiz da categoria (ex: `11_bancas\`).
 pub fn valid_subfolder(f: &str) -> bool {
     let t = f.trim().trim_matches(|c| c == '\\' || c == '/');
-    let parts: Vec<&str> = t
-        .split(|c| c == '\\' || c == '/')
-        .filter(|s| !s.is_empty())
-        .collect();
+    let parts: Vec<&str> = t.split(['\\', '/']).filter(|s| !s.is_empty()).collect();
     if parts.len() < 2 {
         return false;
     }

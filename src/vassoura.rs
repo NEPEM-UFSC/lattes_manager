@@ -170,8 +170,8 @@ pub fn scan_vassoura(
             let titulo = [&r.titulo, &r.descricao, &r.disciplina]
                 .iter()
                 .filter_map(|x| x.as_ref().filter(|s| !s.trim().is_empty()))
-                .cloned()
                 .next()
+                .cloned()
                 .unwrap_or_default();
 
             if titulo.trim().is_empty() {
@@ -181,8 +181,8 @@ pub fn scan_vassoura(
             let extra = [&r.aluno, &r.journal, &r.curso]
                 .iter()
                 .filter_map(|x| x.as_ref().filter(|s| !s.trim().is_empty()))
-                .cloned()
-                .next();
+                .next()
+                .cloned();
 
             let all_text = format!(
                 "{} {} {}",
@@ -420,7 +420,7 @@ pub fn scan_vassoura(
     }
 
     // Ordena pelo score decrescente
-    matches.sort_by(|a, b| b.score.cmp(&a.score));
+    matches.sort_by_key(|m| std::cmp::Reverse(m.score));
     Ok(matches)
 }
 

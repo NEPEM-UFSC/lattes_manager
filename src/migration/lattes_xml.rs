@@ -1839,9 +1839,7 @@ fn handle_profile_element(
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
                 .join("/");
-            p.rg = if rg.is_empty() {
-                rg
-            } else if org.is_empty() {
+            p.rg = if rg.is_empty() || org.is_empty() {
                 rg
             } else {
                 format!("{} {}", rg, org)
@@ -1941,7 +1939,7 @@ fn handle_profile_element(
                         !p.instituicao.is_empty() && ap_inst.eq_ignore_ascii_case(&p.instituicao);
                     let ano_ini = g("ANO-INICIO").parse::<i64>().unwrap_or(0);
                     let score = (current, same_inst, emp, ano_ini);
-                    let replace = best_vinculo.as_ref().map_or(true, |b| score > b.score);
+                    let replace = best_vinculo.as_ref().is_none_or(|b| score > b.score);
                     if replace {
                         let regime = if g("FLAG-DEDICACAO-EXCLUSIVA") == "SIM" {
                             "Dedicação Exclusiva".to_string()

@@ -1148,7 +1148,7 @@ mod tests {
             );
         }
         let mut e: Vec<_> = errs.into_iter().collect();
-        e.sort_by(|a, b| b.1.cmp(&a.1));
+        e.sort_by_key(|x| std::cmp::Reverse(x.1));
         println!("erros mais comuns: {:?}", &e[..e.len().min(8)]);
     }
 

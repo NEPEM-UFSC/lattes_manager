@@ -634,7 +634,7 @@ fn count_tree_real_files(dir: &Path) -> usize {
     count
 }
 
-fn walk_disk_dirs(dir: &Path, root: &Path, is_root: bool, out: &mut Vec<PathBuf>) {
+fn walk_disk_dirs(dir: &Path, is_root: bool, out: &mut Vec<PathBuf>) {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return;
     };
@@ -651,7 +651,7 @@ fn walk_disk_dirs(dir: &Path, root: &Path, is_root: bool, out: &mut Vec<PathBuf>
             continue;
         }
         out.push(p.clone());
-        walk_disk_dirs(&p, root, false, out);
+        walk_disk_dirs(&p, false, out);
     }
 }
 
@@ -715,7 +715,7 @@ pub fn scan_root_folders(conn: &Connection, root: &Path) -> Result<RootFolderAud
     let (referenced_files, records_by_folder) = collect_referenced_state(conn)?;
 
     let mut disk_dirs = Vec::new();
-    walk_disk_dirs(root, root, true, &mut disk_dirs);
+    walk_disk_dirs(root, true, &mut disk_dirs);
     audit.total_disk_folders = disk_dirs.len();
 
     for dir_path in disk_dirs {
@@ -849,16 +849,16 @@ pub fn scan_root_folders(conn: &Connection, root: &Path) -> Result<RootFolderAud
 
     audit
         .empty_folders
-        .sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+        .sort_by_key(|a| a.rel_path.to_lowercase());
     audit
         .unmapped_folders
-        .sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+        .sort_by_key(|a| a.rel_path.to_lowercase());
     audit
         .folders_with_unlinked_files
-        .sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+        .sort_by_key(|a| a.rel_path.to_lowercase());
     audit
         .missing_disk_folders
-        .sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+        .sort_by_key(|a| a.rel_path.to_lowercase());
 
     Ok(audit)
 }
