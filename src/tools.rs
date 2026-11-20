@@ -1011,7 +1011,8 @@ mod tests {
 
     #[test]
     fn xlsx_and_renames() {
-        let dir = std::env::temp_dir().join("lattes_tools_test");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let dir = tmpdir.path().join("lattes_tools_test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("5_producoes").join("artigos")).unwrap();
         let sheets = vec![Sheet {
@@ -1072,7 +1073,8 @@ mod tests {
 
     #[test]
     fn test_scan_and_clean_root_folders() {
-        let dir = std::env::temp_dir().join("lattes_folder_audit_test");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let dir = tmpdir.path().join("lattes_folder_audit_test");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("6_patentes").join("patentes")).unwrap();
         std::fs::create_dir_all(dir.join("6_patentes").join("teste")).unwrap();

@@ -548,7 +548,8 @@ mod tests {
     #[test]
     fn custom_category_roundtrip() {
         let conn = crate::db::open_in_memory().unwrap();
-        let root = std::env::temp_dir().join("lattes_custom_test");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().join("lattes_custom_test");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("11_bancas")).unwrap();
         let c = save_category(

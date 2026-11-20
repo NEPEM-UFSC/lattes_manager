@@ -3027,7 +3027,8 @@ mod tests {
     fn test_atuacao_record_crud() {
         let db = Mutex::new(crate::db::open_in_memory().unwrap());
         crate::db::schema::create_tables(&db.lock().unwrap()).unwrap();
-        let root = std::env::temp_dir().join("test_atuacao_root");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().join("test_atuacao_root");
         let _ = std::fs::create_dir_all(&root);
 
         let data = json!({
@@ -3087,7 +3088,8 @@ mod tests {
     fn test_inovacao_and_educacao_crud() {
         let db = Mutex::new(crate::db::open_in_memory().unwrap());
         crate::db::schema::create_tables(&db.lock().unwrap()).unwrap();
-        let root = std::env::temp_dir().join("test_inovacao_and_educacao_crud");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().join("test_inovacao_and_educacao_crud");
         let _ = std::fs::create_dir_all(&root);
 
         let in_data = json!({
@@ -3190,7 +3192,8 @@ mod tests {
         assert_eq!(migrated_folder, r"3_atuacao\areas_extras\");
 
         // add_subfolder_mapping must also be idempotent
-        let root = std::env::temp_dir().join("test_idempotent_subfolders_root");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let root = tmpdir.path().join("test_idempotent_subfolders_root");
         let _ = std::fs::create_dir_all(&root);
         let db = Mutex::new(conn);
         let first = add_subfolder_mapping_impl(

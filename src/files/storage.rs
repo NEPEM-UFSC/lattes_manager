@@ -155,7 +155,8 @@ mod tests {
 
     #[test]
     fn test_save_attached_file() {
-        let base_dir = std::env::temp_dir().join("lattes_test_storage");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let base_dir = tmpdir.path().join("lattes_test_storage");
         let _ = fs::remove_dir_all(&base_dir);
         fs::create_dir_all(&base_dir).unwrap();
 
@@ -196,7 +197,8 @@ mod tests {
 
     #[test]
     fn test_save_non_existent_source_fails() {
-        let base_dir = std::env::temp_dir().join("lattes_test_storage_non_existent");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let base_dir = tmpdir.path().join("lattes_test_storage_non_existent");
         let target_subfolder = base_dir.join("11_bancas");
         let fake_source = base_dir.join("does_not_exist.pdf");
 

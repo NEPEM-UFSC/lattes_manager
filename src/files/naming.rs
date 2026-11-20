@@ -362,7 +362,8 @@ mod tests {
 
     #[test]
     fn test_calculate_next_filename_empty_and_populated() {
-        let temp_dir = std::env::temp_dir().join("lattes_test_naming");
+        let tmpdir = tempfile::tempdir().unwrap();
+        let temp_dir = tmpdir.path().join("lattes_test_naming");
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).unwrap();
 
