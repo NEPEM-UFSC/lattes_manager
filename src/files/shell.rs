@@ -106,7 +106,7 @@ mod tests {
         let root = Path::new(r"d:\Desktop\UFSC\lattes");
         let rel = r"5_producoes\artigos_completos\001_paper.pdf";
         let resolved = resolve_relative_path(root, rel);
-        assert!(resolved.ends_with(Path::new(r"5_producoes\artigos_completos\001_paper.pdf")));
+        assert!(resolved.ends_with(crate::files::rel_join(Path::new(""), r"5_producoes\artigos_completos\001_paper.pdf")));
     }
 
     #[test]
@@ -114,6 +114,6 @@ mod tests {
         let root = Path::new(r"d:\Desktop\UFSC\lattes");
         let rel = r"\11_bancas\doutorado\005_ata.pdf";
         let resolved = resolve_relative_path(root, rel);
-        assert!(resolved.ends_with(Path::new(r"11_bancas\doutorado\005_ata.pdf")));
+        assert!(resolved.ends_with(crate::files::rel_join(Path::new(""), r"11_bancas\doutorado\005_ata.pdf")));
     }
 }

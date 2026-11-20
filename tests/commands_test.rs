@@ -215,7 +215,7 @@ fn test_update_record_and_file_replacement() {
     )
     .expect("Create initial project");
 
-    let original_file = root_path.join(rec.path.as_ref().unwrap());
+    let original_file = lattes_app::files::rel_join(root_path, rec.path.as_ref().unwrap());
     assert!(original_file.exists());
 
     // 2. Update metadata and replace attached file
@@ -251,7 +251,7 @@ fn test_update_record_and_file_replacement() {
 
     // Verify v1 is retained (safety principle) and v2 is created
     assert!(original_file.exists(), "Original file must be retained");
-    let new_file = root_path.join(&updated.attachments[1].path);
+    let new_file = lattes_app::files::rel_join(root_path, &updated.attachments[1].path);
     assert!(new_file.exists(), "New file must exist");
 }
 
@@ -282,7 +282,7 @@ fn test_delete_record_retention_vs_removal() {
     )
     .unwrap();
 
-    let soft_path = root_path.join(rec_soft.path.unwrap());
+    let soft_path = lattes_app::files::rel_join(root_path, &rec_soft.path.unwrap());
     assert!(soft_path.exists());
 
     commands::delete_record_impl(&db, root_path, "dadosgerais", rec_soft.id, false)
@@ -311,7 +311,7 @@ fn test_delete_record_retention_vs_removal() {
     )
     .unwrap();
 
-    let hard_path = root_path.join(rec_hard.path.unwrap());
+    let hard_path = lattes_app::files::rel_join(root_path, &rec_hard.path.unwrap());
     assert!(hard_path.exists());
 
     commands::delete_record_impl(&db, root_path, "dadosgerais", rec_hard.id, true)
@@ -337,7 +337,7 @@ fn test_subfolder_mappings_and_stats() {
 
     assert_eq!(map1.category_group, "Produções");
     assert_eq!(map1.description, "Artigos Internacionais");
-    assert!(root_path.join(r"5_producoes\artigos_internacionais").exists());
+    assert!(lattes_app::files::rel_join(root_path, r"5_producoes\artigos_internacionais").exists());
 
     let _map2 = commands::add_subfolder_mapping_impl(
         &db,
@@ -382,7 +382,7 @@ fn test_open_and_reveal_error_handling() {
     // open_folder creates folder if missing
     let target_sub = r"nova_pasta\subfolder";
     let _ = commands::open_folder_impl(root_path, target_sub);
-    assert!(root_path.join(target_sub).exists());
+    assert!(lattes_app::files::rel_join(root_path, target_sub).exists());
 }
 
 #[test]

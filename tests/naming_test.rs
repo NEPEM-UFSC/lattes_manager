@@ -225,7 +225,7 @@ fn test_shell_resolve_relative_path() {
     let resolved = resolve_relative_path(&root, rel);
     assert_eq!(
         resolved,
-        root.join(r"5_producoes\artigos_completos\001_paper.pdf")
+        lattes_app::files::rel_join(&root, r"5_producoes\artigos_completos\001_paper.pdf")
     );
 
     // Leading backslash
@@ -233,7 +233,7 @@ fn test_shell_resolve_relative_path() {
     let resolved_slash = resolve_relative_path(&root, rel_slash);
     assert_eq!(
         resolved_slash,
-        root.join(r"11_bancas\doutorado\005_ata.pdf")
+        lattes_app::files::rel_join(&root, r"11_bancas\doutorado\005_ata.pdf")
     );
 }
 
