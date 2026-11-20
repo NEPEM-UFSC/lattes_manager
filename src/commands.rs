@@ -135,7 +135,7 @@ fn with_valid_folder(
     let from_path = existing
         .and_then(|e| e.path.as_deref())
         .and_then(|p| {
-            p.replace('/', "\\")
+            crate::files::to_db_rel(p)
                 .rsplit_once('\\')
                 .map(|(d, _)| format!("{}\\", d))
         })
@@ -315,7 +315,7 @@ pub fn create_record_impl(
             if p.is_absolute() {
                 return false;
             }
-            let att_norm = att.path.replace('/', "\\").to_lowercase();
+            let att_norm = crate::files::to_db_rel(&att.path).to_lowercase();
             for src in &files_to_attach {
                 let src_name = src
                     .file_name()
@@ -325,7 +325,7 @@ pub fn create_record_impl(
                 if att.file.to_lowercase() == src_name {
                     return false;
                 }
-                if src.to_string_lossy().to_lowercase().replace('/', "\\") == att_norm {
+                if crate::files::path_to_db_rel(src).to_lowercase() == att_norm {
                     return false;
                 }
             }
@@ -483,7 +483,7 @@ pub fn update_record_impl(
             if p.is_absolute() {
                 return false;
             }
-            let att_norm = att.path.replace('/', "\\").to_lowercase();
+            let att_norm = crate::files::to_db_rel(&att.path).to_lowercase();
             for src in &files_to_attach {
                 let src_name = src
                     .file_name()
@@ -493,7 +493,7 @@ pub fn update_record_impl(
                 if att.file.to_lowercase() == src_name {
                     return false;
                 }
-                if src.to_string_lossy().to_lowercase().replace('/', "\\") == att_norm {
+                if crate::files::path_to_db_rel(src).to_lowercase() == att_norm {
                     return false;
                 }
             }
@@ -885,9 +885,7 @@ pub fn add_subfolder_mapping_impl(
     description: &str,
     folder: &str,
 ) -> Result<SubfolderMappingDto, String> {
-    let clean_folder = folder
-        .trim()
-        .replace('/', "\\")
+    let clean_folder = crate::files::to_db_rel(folder.trim())
         .trim_start_matches('\\')
         .to_string();
 
@@ -1330,9 +1328,7 @@ pub fn update_subfolder_mapping(
     description: String,
     folder: String,
 ) -> Result<(), String> {
-    let clean = folder
-        .trim()
-        .replace('/', "\\")
+    let clean = crate::files::to_db_rel(folder.trim())
         .trim_start_matches('\\')
         .to_string();
     let full = crate::files::rel_join(&state.root_dir, &clean);

@@ -442,12 +442,8 @@ pub fn apply_vassoura(
         }
 
         // Subpasta de destino
-        let clean_folder = it
-            .suggested_folder
-            .replace('/', "\\")
-            .trim_matches('\\')
-            .to_string();
-        let target_dir = root.join(&clean_folder);
+        let clean_folder = crate::files::normalize_db_rel(&it.suggested_folder);
+        let target_dir = crate::files::rel_join(root, &clean_folder);
         if let Err(e) = std::fs::create_dir_all(&target_dir) {
             res.errors
                 .push(format!("Falha ao criar pasta '{}': {}", clean_folder, e));
@@ -554,5 +550,41 @@ impl VassouraApplyItem {
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| self.file_path.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_creates_nested_subfolder_on_any_os() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("curriculo");
+        std::fs::create_dir_all(&root).unwrap();
+        let src = tmp.path().join("baixado.pdf");
+        std::fs::write(&src, b"%PDF").unwrap();
+
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute("INSERT INTO producoes (id, titulo) VALUES (1, 'A')", [])
+            .unwrap();
+        let items = vec![VassouraApplyItem {
+            file_path: src.to_string_lossy().to_string(),
+            category: "producoes".into(),
+            record_id: 1,
+            suggested_folder: r"5_producoes\artigos\".into(),
+            suggested_filename: "001_a.pdf".into(),
+        }];
+        let r = apply_vassoura(&conn, &root, &items, false).unwrap();
+        assert_eq!(r.ok, 1, "{:?}", r.errors);
+        assert!(root
+            .join("5_producoes")
+            .join("artigos")
+            .join("001_a.pdf")
+            .is_file());
+        let path: String = conn
+            .query_row("SELECT path FROM producoes WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(path, r"5_producoes\artigos\001_a.pdf");
     }
 }

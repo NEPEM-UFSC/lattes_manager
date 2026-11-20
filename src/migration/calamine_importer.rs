@@ -28,7 +28,7 @@ pub fn relativize_path(path_str: Option<&str>) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    let unified = trimmed.replace('/', "\\");
+    let unified = crate::files::to_db_rel(trimmed);
 
     // Match .*lattes[\\/](.*)
     let re_lattes = RE_LATTES
@@ -59,7 +59,7 @@ pub fn fix_file_folder(
             .unwrap_or(true)
     };
     let p = path
-        .map(|p| p.replace('/', "\\"))
+        .map(crate::files::to_db_rel)
         .filter(|p| !p.trim().is_empty());
     let file = if placeholder(&file, "file") {
         p.as_deref()

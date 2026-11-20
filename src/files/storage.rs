@@ -19,9 +19,7 @@ pub struct RelativeAttachment {
 pub fn compute_relative_path(path: &Path, root_dir: &Path) -> String {
     // 1. Try direct strip_prefix
     if let Ok(rel) = path.strip_prefix(root_dir) {
-        return rel
-            .to_string_lossy()
-            .replace('/', "\\")
+        return super::path_to_db_rel(rel)
             .trim_start_matches('\\')
             .to_string();
     }
@@ -29,9 +27,7 @@ pub fn compute_relative_path(path: &Path, root_dir: &Path) -> String {
     // 2. Try canonicalized versions
     if let (Ok(c_path), Ok(c_root)) = (path.canonicalize(), root_dir.canonicalize()) {
         if let Ok(rel) = c_path.strip_prefix(&c_root) {
-            return rel
-                .to_string_lossy()
-                .replace('/', "\\")
+            return super::path_to_db_rel(rel)
                 .trim_start_matches('\\')
                 .to_string();
         }
@@ -40,8 +36,7 @@ pub fn compute_relative_path(path: &Path, root_dir: &Path) -> String {
     // 3. Fallback: normalize slashes and relativize via migration path normalizer
     let path_str = path.to_string_lossy().to_string();
     crate::migration::calamine_importer::relativize_path(Some(&path_str)).unwrap_or_else(|| {
-        path_str
-            .replace('/', "\\")
+        super::to_db_rel(&path_str)
             .trim_start_matches('\\')
             .to_string()
     })
