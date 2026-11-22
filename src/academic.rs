@@ -391,6 +391,9 @@ pub fn build_and_apply_openalex_report(
         });
     }
 
+    if update_citations {
+        crate::qualis::store_issn(conn, rows, parsed);
+    }
     if update_citations && updated_citations_count > 0 {
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
     }

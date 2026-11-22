@@ -452,3 +452,91 @@ pub fn get_unmatched_scholar_articles(
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::scholar::get_unmatched_scholar_articles(&conn, force_refresh.unwrap_or(false))
 }
+
+// ==========================================
+// QUALIS OFICIAL DA CAPES
+// ==========================================
+
+#[tauri::command]
+pub fn pick_qualis_file() -> Result<Option<String>, String> {
+    Ok(rfd::FileDialog::new()
+        .set_title("Selecionar a planilha do Qualis (Plataforma Sucupira)")
+        .add_filter(
+            "Planilhas (*.xlsx, *.xls, *.ods, *.csv)",
+            &["xlsx", "xls", "ods", "csv"],
+        )
+        .add_filter("Todos os Arquivos (*.*)", &["*"])
+        .pick_file()
+        .map(|p| p.to_string_lossy().to_string()))
+}
+
+/// Lê a planilha e compara com os artigos. Com várias áreas na planilha e `area` vazia, devolve
+/// só as áreas (sem itens) para a tela pedir a escolha.
+#[tauri::command(async)]
+pub fn qualis_preview(
+    state: tauri::State<'_, AppState>,
+    path: String,
+    area: Option<String>,
+) -> Result<crate::qualis::QualisPreview, String> {
+    let table = crate::qualis::read_table(Path::new(path.trim()))?;
+    if !table.areas.is_empty() && area.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        return Ok(crate::qualis::QualisPreview {
+            areas: table.areas,
+            colunas: table.colunas,
+            entradas: table.entries.len(),
+            ignoradas: table.ignoradas,
+            ..Default::default()
+        });
+    }
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::qualis::preview(&conn, &table, area.as_deref())
+}
+
+#[tauri::command(async)]
+pub fn qualis_apply(
+    state: tauri::State<'_, AppState>,
+    items: Vec<crate::qualis::ApplyItem>,
+) -> Result<crate::qualis::ApplyResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(crate::qualis::apply(&conn, &items))
+}
+
+/// Busca na OpenAlex o ISSN dos artigos com DOI que ainda não têm ISSN.
+#[tauri::command(async)]
+pub async fn fill_issn_openalex(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::qualis::IssnFill, String> {
+    let rows: Vec<_> = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        let missing: std::collections::HashSet<i64> = {
+            let mut st = conn
+                .prepare("SELECT id FROM producoes WHERE issn IS NULL OR TRIM(issn) = ''")
+                .map_err(|e| e.to_string())?;
+            let ids = st
+                .query_map([], |r| r.get::<_, i64>(0))
+                .map_err(|e| e.to_string())?;
+            ids.flatten().collect()
+        };
+        crate::academic::load_producoes_with_doi(&conn)?
+            .into_iter()
+            .filter(|r| missing.contains(&r.id))
+            .collect()
+    };
+    let mut out = crate::qualis::IssnFill {
+        consultados: rows.len(),
+        ..Default::default()
+    };
+    if rows.is_empty() {
+        return Ok(out);
+    }
+    let dois: Vec<String> = rows.iter().map(|r| r.doi.clone()).collect();
+    let (parsed, errors) = tauri::async_runtime::spawn_blocking(move || {
+        crate::academic::fetch_openalex_for_dois(&dois)
+    })
+    .await
+    .map_err(|e| format!("Falha ao consultar OpenAlex: {}", e))?;
+    out.erros = errors;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    out.preenchidos = crate::qualis::store_issn(&conn, &rows, &parsed);
+    Ok(out)
+}

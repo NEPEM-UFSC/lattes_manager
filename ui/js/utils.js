@@ -509,6 +509,7 @@ export const CATEGORY_SCHEMAS = {
         options: ["", "A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"],
       },
       { name: "citations", label: "Citações (Google Scholar)", type: "number", required: false, placeholder: "0", width: "half" },
+      { name: "issn", label: "ISSN do periódico", type: "text", required: false, placeholder: "0000-0000", width: "half" },
     ],
   },
 

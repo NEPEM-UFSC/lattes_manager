@@ -407,7 +407,7 @@ pub fn list_producoes(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<ProducoesRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url, citations FROM producoes WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url, citations, issn FROM producoes WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -754,7 +754,7 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
         }
         "producoes" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url, citations FROM producoes WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url, citations, issn FROM producoes WHERE id = ?1",
             )?;
             stmt.query_row([id], ProducoesRecord::from_row)
                 .map(Into::into)?
@@ -914,9 +914,10 @@ pub fn insert_record(
             let journal = json_str(data, "journal");
             let qualis = json_str(data, "qualis");
             let citations = data.get("citations").and_then(|c| c.as_i64());
+            let issn = json_str(data, "issn").and_then(|s| crate::qualis::normalize_issn(&s));
             conn.execute(
-                "INSERT INTO producoes (ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-                params![ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations],
+                "INSERT INTO producoes (ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations, issn) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations, issn],
             )?;
         }
         "orientacoes" | "bancas" => {
@@ -1189,9 +1190,14 @@ pub fn update_record(
             } else {
                 existing.citations
             };
+            let issn = if data.get("issn").is_some() {
+                json_str(data, "issn").and_then(|s| crate::qualis::normalize_issn(&s))
+            } else {
+                existing.issn
+            };
             conn.execute(
-                "UPDATE producoes SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, titulo = ?6, journal = ?7, qualis = ?8, log = ?9, path = ?10, citations = ?11 WHERE id = ?12",
-                params![ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations, id],
+                "UPDATE producoes SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, titulo = ?6, journal = ?7, qualis = ?8, log = ?9, path = ?10, citations = ?11, issn = ?12 WHERE id = ?13",
+                params![ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, citations, issn, id],
             )?;
         }
         "orientacoes" | "bancas" => {
