@@ -6,6 +6,7 @@ pub mod config;
 pub mod custom;
 pub mod db;
 pub mod diff;
+pub mod discentes;
 pub mod doi;
 pub mod files;
 pub mod metadata;

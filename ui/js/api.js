@@ -304,6 +304,24 @@ function mockHandler(cmd, args = {}) {
       };
     }
 
+    case "sync_autores_xml":
+      return { no_xml: 140, atualizadas: 128, sem_correspondencia: 12 };
+
+    case "discentes_report": {
+      const d = (orientacao_id, aluno, nivel, ano_orientacao, confianca, autor = aluno, fora_periodo = false) => ({ orientacao_id, aluno, nivel, ano_orientacao, autor, confianca, fora_periodo });
+      return {
+        total_producoes: 145,
+        com_autores: 128,
+        orientados: 27,
+        anos_com_autores: [{ ano: 2024, total: 18 }, { ano: 2023, total: 22 }, { ano: 2022, total: 15 }],
+        itens: [
+          { id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, tipo: "Artigos completos", journal: "Pesquisa Agropecuária Brasileira", qualis: "A3", discentes: [d(11, "Maria Alice Santos", "Dissertação de mestrado", 2024, "alta"), d(12, "João Pedro Lima", "Tese de doutorado", 2025, "media", "LIMA, J. P.")] },
+          { id: 102, titulo: "Índices multivariados para seleção", ano: 2023, tipo: "Artigos completos", journal: "Crop Science", qualis: "A1", discentes: [d(11, "Maria Alice Santos", "Dissertação de mestrado", 2024, "alta")] },
+          { id: 103, titulo: "Interação genótipo × ambiente em soja", ano: 2022, tipo: "Resumos expandidos", journal: "Congresso Brasileiro de Melhoramento", qualis: null, discentes: [d(13, "Carla Souza", "Iniciação Científica", 2010, "alta", "Carla Souza", true)] },
+        ],
+      };
+    }
+
     case "qualis_apply":
       return { ok: (args.items || []).length, erros: [] };
 
@@ -331,7 +349,7 @@ function mockHandler(cmd, args = {}) {
 }
 
 // Comandos que não alteram registros; qualquer outro invalida o cache de get_all_records.
-const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
+const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|discentes_report|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
 let allRecordsCache = null;
 
 async function getAllRecordsCached() {
@@ -533,6 +551,8 @@ export const api = {
   qualisPreview: (path, area = null) => invokeCommand("qualis_preview", { path, area }),
   qualisApply: (items) => invokeCommand("qualis_apply", { items }),
   fillIssnOpenalex: () => invokeCommand("fill_issn_openalex"),
+  syncAutoresXml: (xmlPath = null) => invokeCommand("sync_autores_xml", { xmlPath }),
+  discentesReport: () => invokeCommand("discentes_report"),
   clearMissingLinks: (items) => invokeCommand("clear_missing_links", { items }),
   scanRootFolders: () => invokeCommand("scan_root_folders"),
   removeAuditedFolders: (relPaths, removeMappings = false, deleteUnlinkedFiles = false) =>

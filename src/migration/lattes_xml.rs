@@ -12,7 +12,7 @@ fn default_category() -> String {
     "producoes".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct XmlProduction {
     pub tipo: String,
     pub folder: String,
@@ -36,6 +36,18 @@ pub struct XmlProduction {
     pub disciplina: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
+    /// Autores da produção, na ordem de autoria do XML.
+    #[serde(default)]
+    pub autores: Vec<XmlAutor>,
+}
+
+/// Autor de uma produção no XML do Lattes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct XmlAutor {
+    pub nome: String,
+    /// Nome para citação ("SILVA, M. A."); pode trazer várias formas separadas por ";".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub citacao: Option<String>,
 }
 
 impl XmlProduction {
@@ -63,6 +75,7 @@ impl XmlProduction {
             curso: None,
             disciplina: None,
             url: None,
+            autores: Vec::new(),
         }
     }
 }
@@ -881,9 +894,31 @@ struct Builder {
     detail: HashMap<String, String>,
     registro: HashMap<String, String>,
     extra: HashMap<String, String>,
+    /// (ordem de autoria, autor)
+    autores: Vec<(i64, XmlAutor)>,
 }
 
 impl Builder {
+    /// Guarda um elemento AUTORES (nome completo, nome para citação e ordem).
+    fn push_autor(&mut self, a: &HashMap<String, String>) {
+        let nome = a
+            .get("NOME-COMPLETO-DO-AUTOR")
+            .map(|s| clean_text(s))
+            .unwrap_or_default();
+        let citacao = a
+            .get("NOME-PARA-CITACAO")
+            .map(|s| clean_text(s))
+            .filter(|s| !s.is_empty());
+        if nome.is_empty() && citacao.is_none() {
+            return;
+        }
+        let ordem = a
+            .get("ORDEM-DE-AUTORIA")
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .unwrap_or(i64::MAX);
+        self.autores.push((ordem, XmlAutor { nome, citacao }));
+    }
+
     fn finish(self) -> Option<XmlProduction> {
         let mut tipo = self.tipo;
         let mut folder = self.folder;
@@ -929,6 +964,9 @@ impl Builder {
                 item.journal = journal.map(|j| clean_text(&j));
                 item.doi = pick_doi_fallback(&self.basic);
                 item.url = url;
+                let mut autores = self.autores;
+                autores.sort_by_key(|(o, _)| *o);
+                item.autores = autores.into_iter().map(|(_, a)| a).collect();
                 Some(item)
             }
             "orientacoes" => {
@@ -1491,6 +1529,8 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                         b.registro.extend(attrs_of(&e));
                     } else if name == "INFORMACOES-ADICIONAIS" {
                         b.extra.extend(attrs_of(&e));
+                    } else if name == "AUTORES" {
+                        b.push_autor(&attrs_of(&e));
                     }
                 } else if let Some((cat, elem, tipo, folder)) = lookup_kind(&name) {
                     current = Some(Builder {
@@ -1503,6 +1543,7 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                         detail: HashMap::new(),
                         registro: HashMap::new(),
                         extra: HashMap::new(),
+                        autores: Vec::new(),
                     });
                 } else {
                     let a = attrs_of(&e);
@@ -1582,6 +1623,8 @@ pub fn parse_lattes_xml(path: &Path) -> Result<Vec<XmlProduction>, String> {
                         b.registro.extend(attrs_of(&e));
                     } else if name == "INFORMACOES-ADICIONAIS" {
                         b.extra.extend(attrs_of(&e));
+                    } else if name == "AUTORES" {
+                        b.push_autor(&attrs_of(&e));
                     }
                 } else {
                     let a = attrs_of(&e);
@@ -2120,6 +2163,11 @@ fn mapping_folders(conn: &Connection) -> HashMap<(String, String), String> {
     m
 }
 
+/// Autores em JSON para a coluna `producoes.autores` (`None` se o XML não trouxe autores).
+pub fn autores_json(autores: &[XmlAutor]) -> Option<String> {
+    (!autores.is_empty()).then(|| serde_json::to_string(autores).unwrap_or_default())
+}
+
 /// Insere os itens selecionados nas suas respectivas categorias. Cria mapeamentos de subpasta para tipos novos.
 /// Retorna a quantidade inserida.
 pub fn import_items(
@@ -2220,8 +2268,8 @@ pub fn import_items(
             }
             _ => {
                 tx.execute(
-                    "INSERT INTO producoes (ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, '', ?7, NULL, ?8)",
-                    params![it.ano, it.tipo, it.doi, folder, it.titulo, it.journal, log, it.url],
+                    "INSERT INTO producoes (ano, tipo, identifier, file, folder, titulo, journal, qualis, log, path, url, autores) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, '', ?7, NULL, ?8, ?9)",
+                    params![it.ano, it.tipo, it.doi, folder, it.titulo, it.journal, log, it.url, autores_json(&it.autores)],
                 )
             }
         }
@@ -2393,6 +2441,47 @@ mod tests {
         assert_eq!(prof.cargo, "Professor Titular");
         assert_eq!(prof.regime, "40");
         assert_eq!(prof.admissao, "03/2019");
+    }
+
+    #[test]
+    fn reads_authors_in_order_and_imports_them() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<CURRICULO-VITAE DATA-ATUALIZACAO="14112026">
+  <PRODUCAO-BIBLIOGRAFICA>
+    <ARTIGOS-PUBLICADOS>
+      <ARTIGO-PUBLICADO SEQUENCIA-PRODUCAO="1">
+        <DADOS-BASICOS-DO-ARTIGO TITULO-DO-ARTIGO="Artigo com alunos" ANO-DO-ARTIGO="2024" DOI="10.1000/al"/>
+        <DETALHAMENTO-DO-ARTIGO TITULO-DO-PERIODICO-OU-REVISTA="Revista"/>
+        <AUTORES NOME-COMPLETO-DO-AUTOR="Segundo Autor" NOME-PARA-CITACAO="AUTOR, S." ORDEM-DE-AUTORIA="2"/>
+        <AUTORES NOME-COMPLETO-DO-AUTOR="Primeira Autora" NOME-PARA-CITACAO="AUTORA, P.;AUTORA, PRIMEIRA" ORDEM-DE-AUTORIA="1"/>
+      </ARTIGO-PUBLICADO>
+    </ARTIGOS-PUBLICADOS>
+  </PRODUCAO-BIBLIOGRAFICA>
+</CURRICULO-VITAE>"#;
+        let p = write_temp_xml("autores.xml", xml);
+        let items = parse_lattes_xml(&p).unwrap();
+        let art = items
+            .iter()
+            .find(|i| i.titulo == "Artigo com alunos")
+            .unwrap();
+        let nomes: Vec<&str> = art.autores.iter().map(|a| a.nome.as_str()).collect();
+        assert_eq!(nomes, vec!["Primeira Autora", "Segundo Autor"]);
+        assert_eq!(
+            art.autores[0].citacao.as_deref(),
+            Some("AUTORA, P.;AUTORA, PRIMEIRA")
+        );
+
+        let mut conn = crate::db::open_in_memory().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            import_items(&mut conn, tmp.path(), std::slice::from_ref(art)).unwrap(),
+            1
+        );
+        let json: String = conn
+            .query_row("SELECT autores FROM producoes", [], |r| r.get(0))
+            .unwrap();
+        let back: Vec<XmlAutor> = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, art.autores);
     }
 
     #[test]
