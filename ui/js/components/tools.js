@@ -454,13 +454,14 @@ const TOOLS = [
 ];
 
 export class ToolsView {
-  constructor({ container, onChanged, openLinker, fetchPdf, onCreateWithData, openRecord }) {
+  constructor({ container, onChanged, openLinker, fetchPdf, onCreateWithData, openRecord, openReport }) {
     this.el = container;
     this.onChanged = onChanged;
     this.openLinker = openLinker;
     this.fetchPdf = fetchPdf;
     this.onCreateWithData = onCreateWithData;
     this.openRecord = openRecord;
+    this.openReport = openReport;
     this.active = null;
     this.activeClass = "all";
     this.states = {};

@@ -378,6 +378,7 @@ export async function renderScoreCalculatorTool(view) {
           </div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button type="button" class="btn btn-primary btn-sm" id="sc-export-xlsx">📊 Exportar Planilha (.xlsx)</button>
+            <button type="button" class="btn btn-primary btn-sm" id="sc-package" ${detailed.length ? "" : "disabled"} title="Exporta a planilha de pontuação e abre o gerador de PDF só com os registros que pontuam neste período">📦 Pacote do interstício</button>
             <button type="button" class="btn btn-secondary btn-sm" id="sc-copy">📋 Copiar Resumo</button>
           </div>
         </div>
@@ -688,10 +689,11 @@ export async function renderScoreCalculatorTool(view) {
       }
     });
 
-    view.el.querySelector("#sc-export-xlsx")?.addEventListener("click", async () => {
+    // Exporta a planilha; devolve true se foi gravada.
+    const exportXlsx = async () => {
       try {
         const dest = await api.selectSavePath("pontuacao_curriculo.xlsx", "xlsx");
-        if (!dest) return;
+        if (!dest) return false;
         const resumoSheet = {
           name: "Resumo Pontuação",
           title: `${st.activeBarema.name} (${periodText})`,
@@ -729,9 +731,27 @@ export async function renderScoreCalculatorTool(view) {
         };
         await api.exportXlsx([resumoSheet, detalhesSheet]);
         showToast("Planilha de pontuação exportada com sucesso!", "success");
+        return true;
       } catch (e) {
         showToast(`Erro ao exportar Excel: ${e}`, "error");
+        return false;
       }
+    };
+    view.el.querySelector("#sc-export-xlsx")?.addEventListener("click", exportXlsx);
+
+    // Pacote: planilha + gerador de PDF restrito aos registros que pontuam no período.
+    view.el.querySelector("#sc-package")?.addEventListener("click", async () => {
+      await exportXlsx();
+      if (!view.openReport) return;
+      const withProof = detailed.filter((it) => it.hasProof).length;
+      if (withProof < detailed.length) {
+        showToast(`${detailed.length - withProof} registro(s) pontuados estão sem comprovante e aparecerão no PDF marcados como "sem comprovante".`, "info", 6000);
+      }
+      view.openReport({
+        title: `Comprovantes · ${st.activeBarema.name}`,
+        periodLabel: periodText,
+        items: detailed.map((it) => ({ category: it.category, id: it.id })),
+      });
     });
   }
 
