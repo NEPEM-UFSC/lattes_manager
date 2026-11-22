@@ -282,6 +282,34 @@ function mockHandler(cmd, args = {}) {
       mockState.settings[args.key] = args.value;
       return null;
 
+    case "pick_qualis_file":
+      return "/mock/Qualis_Periodicos.xlsx";
+
+    case "qualis_preview": {
+      const base = { areas: ["AGRONOMIA", "BIODIVERSIDADE", "CIÊNCIAS AGRÁRIAS I"], colunas: { issn: "ISSN", titulo: "TÍTULO", estrato: "ESTRATO", area: "ÁREA DE AVALIAÇÃO" }, entradas: 3120, ignoradas: 4 };
+      if (!args.area) return { ...base, total_artigos: 0, itens: [], sem_correspondencia: [] };
+      return {
+        ...base,
+        entradas: 1040,
+        total_artigos: 5,
+        itens: [
+          { id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, journal: "Pesquisa Agropecuária Brasileira", issn: "0100-204X", atual: "B1", oficial: "A3", via: "issn", issn_tabela: "0100-204X" },
+          { id: 102, titulo: "Índices multivariados para seleção", ano: 2023, journal: "Crop Science", issn: null, atual: null, oficial: "A1", via: "titulo", issn_tabela: "0011-183X" },
+          { id: 103, titulo: "Interação genótipo × ambiente em soja", ano: 2022, journal: "Euphytica", issn: "0014-2336", atual: "A2", oficial: "A2", via: "issn", issn_tabela: "0014-2336" },
+        ],
+        sem_correspondencia: [
+          { id: 104, titulo: "Artigo em revista local", ano: 2021, journal: "Revista Local de Agronomia", issn: null },
+          { id: 105, titulo: "Artigo sem revista", ano: 2020, journal: null, issn: null },
+        ],
+      };
+    }
+
+    case "qualis_apply":
+      return { ok: (args.items || []).length, erros: [] };
+
+    case "fill_issn_openalex":
+      return { consultados: 4, preenchidos: 3, erros: [] };
+
     case "scan_pendencias": {
       const itens = [
         { category: "producoes", id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, tipo: "Artigos completos", kind: "sem_doi", detalhe: null },
@@ -303,7 +331,7 @@ function mockHandler(cmd, args = {}) {
 }
 
 // Comandos que não alteram registros; qualquer outro invalida o cache de get_all_records.
-const KEEPS_RECORDS = /^(ping|scan_pendencias|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
+const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
 let allRecordsCache = null;
 
 async function getAllRecordsCached() {
@@ -501,6 +529,10 @@ export const api = {
   applyFileRenames: (items) => invokeCommand("apply_file_renames", { items }),
   checkFiles: () => invokeCommand("check_files"),
   scanPendencias: () => invokeCommand("scan_pendencias"),
+  pickQualisFile: () => invokeCommand("pick_qualis_file"),
+  qualisPreview: (path, area = null) => invokeCommand("qualis_preview", { path, area }),
+  qualisApply: (items) => invokeCommand("qualis_apply", { items }),
+  fillIssnOpenalex: () => invokeCommand("fill_issn_openalex"),
   clearMissingLinks: (items) => invokeCommand("clear_missing_links", { items }),
   scanRootFolders: () => invokeCommand("scan_root_folders"),
   removeAuditedFolders: (relPaths, removeMappings = false, deleteUnlinkedFiles = false) =>

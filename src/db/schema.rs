@@ -400,6 +400,8 @@ CREATE TABLE IF NOT EXISTS educacao_popularizacao (
 CREATE INDEX IF NOT EXISTS idx_educacao_ano ON educacao_popularizacao(ano);
 CREATE INDEX IF NOT EXISTS idx_educacao_ano_tipo ON educacao_popularizacao(ano, tipo);
 "#,
+    // 8: ISSN da revista das produções (para o Qualis oficial da CAPES)
+    "ALTER TABLE producoes ADD COLUMN issn TEXT;",
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

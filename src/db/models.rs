@@ -48,6 +48,13 @@ fn optional_citations(row: &Row<'_>) -> Option<i64> {
     row.get::<_, Option<i64>>("citations").ok().flatten()
 }
 
+fn optional_issn(row: &Row<'_>) -> Option<String> {
+    row.get::<_, Option<String>>("issn")
+        .ok()
+        .flatten()
+        .filter(|s| !s.trim().is_empty())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct DadosGeraisRecord {
     pub id: i64,
@@ -345,6 +352,7 @@ pub struct ProducoesRecord {
     pub path: Option<String>,
     pub url: Option<String>,
     pub citations: Option<i64>,
+    pub issn: Option<String>,
 }
 
 impl ProducoesRecord {
@@ -363,6 +371,7 @@ impl ProducoesRecord {
             path: row.get("path")?,
             url: optional_url(row),
             citations: optional_citations(row),
+            issn: optional_issn(row),
         })
     }
 }
@@ -539,6 +548,9 @@ pub struct RecordDto {
     pub url: Option<String>,
     /// Citações extraídas do Google Scholar (aplicável principalmente a produções).
     pub citations: Option<i64>,
+    /// ISSN da revista (produções), no formato 0000-0000.
+    #[serde(default)]
+    pub issn: Option<String>,
     /// Lista de comprovantes anexados ao registro (para suporte a múltiplos comprovantes).
     #[serde(default)]
     pub attachments: Vec<AttachmentDto>,
@@ -731,6 +743,7 @@ impl From<ProducoesRecord> for RecordDto {
             path: r.path,
             url: r.url,
             citations: r.citations,
+            issn: r.issn,
             ..Default::default()
         }
     }

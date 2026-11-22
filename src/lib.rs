@@ -12,6 +12,7 @@ pub mod metadata;
 pub mod migration;
 pub mod pdf_compress;
 pub mod pendencias;
+pub mod qualis;
 pub mod scholar;
 pub mod tools;
 pub mod vassoura;

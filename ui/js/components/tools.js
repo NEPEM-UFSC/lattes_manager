@@ -6,6 +6,7 @@ import { ProofPickerModal } from "./proofPicker.js";
 import { renderOpenAlexTool, renderOrcidSyncTool } from "./tools/academicTools.js";
 import { renderScoreCalculatorTool, renderBibExporterTool } from "./tools/scoreAndBibTools.js";
 import { renderPendenciasTool } from "./tools/pendenciasTool.js";
+import { renderQualisTool } from "./tools/qualisTool.js";
 
 // ---------- formatação de textos ----------
 const LOWER_PT = new Set(["a", "à", "ao", "aos", "as", "às", "com", "da", "das", "de", "do", "dos", "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para", "pela", "pelas", "pelo", "pelos", "por", "sem", "sob", "sobre", "um", "uma", "entre", "após", "contra", "y", "del", "la", "van", "von", "der", "di", "du", "le"]);
@@ -437,6 +438,7 @@ const TOOLS = [
   ["scholar", "🎓", "Citações Google Scholar (SerpApi)", "Extraia métricas (índice H, i10 e citações) e atualize os artigos publicados no banco de dados automaticamente.", "producoes"],
   ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref.", "producoes"],
   ["pdfs", "⚡", "Baixar PDFs pelos DOIs (lote)", "Itera sobre as produções sem comprovante (ex.: após importar XML), resolve os DOIs de acesso aberto e salva os PDFs na pasta de Produções.", "producoes"],
+  ["qualis_oficial", "🏛️", "Qualis oficial da CAPES", "Leia a planilha oficial do Qualis (Plataforma Sucupira) e preencha o estrato dos artigos pelo ISSN ou pelo nome da revista, conferindo cada mudança.", "producoes"],
   ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista.", "producoes"],
 
   // Comprovantes & Arquivos
@@ -608,6 +610,7 @@ export class ToolsView {
   renderTool() {
     ({
       pendencias: () => renderPendenciasTool(this),
+      qualis_oficial: () => renderQualisTool(this),
       scholar: () => this.toolScholar(),
       scholar_unmatched: () => this.toolScholarUnmatched(),
       vassoura: () => this.toolVassoura(),
