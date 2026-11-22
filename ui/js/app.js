@@ -280,6 +280,7 @@ class App {
       openLinker: () => this.linker.open(),
       onCreateWithData: (cat, data, cb) => this.openCreateRecordWithData(cat, data, cb),
       openRecord: (cat, id) => this.openRecordForEdit(cat, id),
+      openReport: (pkg) => this.reportBuilder.open(pkg),
       onChanged: async () => {
         await Promise.all([this.loadStats(), this.loadMappings()]);
         if (this.view === "home") this.homeView.show();

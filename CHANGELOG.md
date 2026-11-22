@@ -1,5 +1,10 @@
 # Histórico de versões
 
+## Não lançado
+
+### Funcionalidade
+- Pacote do interstício (Simulador de Pontuação): exporta a planilha de pontuação e abre o gerador de comprovantes já restrito aos registros que pontuam no período, com o título do barema e o período na capa. Projetos e atividades que começaram antes do interstício e terminam dentro dele também entram, como na pontuação.
+
 ## 1.1.0
 
 ### Funcionalidade

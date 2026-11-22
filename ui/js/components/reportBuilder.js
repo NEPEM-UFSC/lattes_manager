@@ -146,9 +146,15 @@ export class ReportBuilder {
     this.order = "tipo"; // tipo = por atividade (ordem do Lattes)
     this.presets = [];
     this.busy = false;
+    this.pkg = null; // pacote de interstício: { title, periodLabel, ids: Map(cat -> Set(id)) }
   }
 
-  async open() {
+  /**
+   * Abre o gerador. `pkg` (opcional) restringe o PDF a registros exatos, como os que pontuam
+   * num interstício: { title, periodLabel, items: [{ category, id }] }.
+   */
+  async open(pkg = null) {
+    this.pkg = null;
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `<div class="modal-dialog rb-dialog"><div class="loading-state" style="display:flex"><div class="spinner"></div><span>Carregando dados do currículo...</span></div></div>`;
     try {
@@ -187,6 +193,7 @@ export class ReportBuilder {
       // ordem salva antes da v1.7 era "Ano ↓" por padrão: passa a valer a ordem por atividade
       if (last?.sel) this.applySel(last.sel, last.from, last.to, last.orderV === 2 ? last.order : "tipo");
       else this.preset("artigos");
+      if (pkg?.items?.length) this.applyPkg(pkg);
       this.render();
     } catch (err) {
       this.close();
@@ -224,7 +231,32 @@ export class ReportBuilder {
     api.setSetting(ORDER_KEY, { cats: this.catOrder, tipos: this.tipoOrder }).catch(() => { });
   }
 
+  /** Seleciona exatamente os registros do pacote (categorias e subcategorias em que eles estão). */
+  applyPkg(pkg) {
+    const ids = new Map();
+    for (const it of pkg.items) {
+      if (!CATEGORY_SCHEMAS[it.category]) continue;
+      if (!ids.has(it.category)) ids.set(it.category, new Set());
+      ids.get(it.category).add(Number(it.id));
+    }
+    this.sel = {};
+    for (const [cat, set] of ids) {
+      const tipos = (this.data[cat] || []).filter((r) => set.has(Number(r.id))).map((r) => r.tipo || "Sem tipo");
+      this.sel[cat] = new Set(tipos);
+    }
+    this.pkg = { title: pkg.title || "", periodLabel: pkg.periodLabel || "", ids };
+    if (pkg.title) this.form.title = pkg.title;
+  }
+
+  /** O registro entra no PDF? Com pacote, vale a lista exata; sem, as subcategorias e o período. */
+  picks(cat, r, set) {
+    if (!set.has(r.tipo || "Sem tipo")) return false;
+    if (this.pkg) return Boolean(this.pkg.ids.get(cat)?.has(Number(r.id)));
+    return this.inRange(r);
+  }
+
   applySel(sel, from, to, order) {
+    this.pkg = null;
     this.sel = {};
     for (const [k, v] of Object.entries(sel || {})) if (CATEGORY_SCHEMAS[k]) this.sel[k] = new Set(v);
     if (from && this.years.includes(from)) this.from = from;
@@ -233,6 +265,7 @@ export class ReportBuilder {
   }
 
   preset(kind) {
+    this.pkg = null;
     this.sel = {};
     const prod = this.tiposOf("producoes").map(([t]) => t);
     if (kind === "tudo") {
@@ -265,7 +298,7 @@ export class ReportBuilder {
       const schema = CATEGORY_SCHEMAS[cat];
       const set = this.sel[cat];
       if (!set || !set.size) continue;
-      const recs = (this.data[cat] || []).filter((r) => set.has(r.tipo || "Sem tipo") && this.inRange(r));
+      const recs = (this.data[cat] || []).filter((r) => this.picks(cat, r, set));
       if (!recs.length) continue;
       // atividade (ordem das subcategorias) → ano mais recente → título; nunca a ordem de cadastro
       const pos = new Map(this.tiposOf(cat).map(([t], i) => [t, i]));
@@ -307,7 +340,7 @@ export class ReportBuilder {
         const nSel = tipos.filter(([t]) => set.has(t)).length;
         const all = nSel === tipos.length;
         const some = nSel > 0 && !all;
-        const n = (this.data[cat] || []).filter((r) => set.has(r.tipo || "Sem tipo") && this.inRange(r)).length;
+        const n = (this.data[cat] || []).filter((r) => this.picks(cat, r, set)).length;
         const isOpen = this.open_.has(cat);
         return `<div class="rb-cat ${set.size ? "on" : ""} ${isOpen ? "open" : ""}" data-key="${escapeHtml(cat)}" style="--c:${PALETTE[cat] || "#6366f1"}">
           <div class="rb-cat-h">
@@ -347,6 +380,11 @@ export class ReportBuilder {
         </header>
         <div class="rb-body">
           <section class="rb-main">
+            ${this.pkg ? `<div class="rb-block rb-pkg" role="status">
+              <div><b>📦 Pacote de interstício</b> · ${escapeHtml(this.pkg.periodLabel)}</div>
+              <p>Só entram os ${[...this.pkg.ids.values()].reduce((a, s) => a + s.size, 0)} registros que pontuam no barema. Desmarque categorias para tirar seções inteiras.</p>
+              <button type="button" class="rb-link" data-x="leave-pkg">Sair do pacote e escolher livremente</button>
+            </div>` : ""}
             <div class="rb-block">
               <div class="rb-label">Modelos rápidos</div>
               <div class="rb-presets">
@@ -364,10 +402,11 @@ export class ReportBuilder {
             <div class="rb-block rb-row">
               <div>
                 <div class="rb-label">Período</div>
-                <div class="rb-period">
-                  <select id="rb-from" class="form-select">${yearOpts(this.from)}</select>
+                <div class="rb-period">${this.pkg
+        ? `<span>${escapeHtml(this.pkg.periodLabel)} · do barema</span>`
+        : `<select id="rb-from" class="form-select">${yearOpts(this.from)}</select>
                   <span>até</span>
-                  <select id="rb-to" class="form-select">${yearOpts(this.to)}</select>
+                  <select id="rb-to" class="form-select">${yearOpts(this.to)}</select>`}
                 </div>
               </div>
               <div>
@@ -444,6 +483,10 @@ export class ReportBuilder {
     const o = this.overlay;
     o.querySelectorAll('[data-x="close"]').forEach((b) => b.addEventListener("click", () => this.close()));
     o.querySelectorAll("[data-ind]").forEach((c) => (c.indeterminate = true));
+    o.querySelector('[data-x="leave-pkg"]')?.addEventListener("click", () => {
+      this.pkg = null;
+      this.render();
+    });
     o.querySelectorAll("[data-preset]").forEach((b) =>
       b.addEventListener("click", () => {
         this.preset(b.dataset.preset);
@@ -481,12 +524,12 @@ export class ReportBuilder {
       }
       this.render();
     });
-    o.querySelector("#rb-from").addEventListener("change", (e) => {
+    o.querySelector("#rb-from")?.addEventListener("change", (e) => {
       this.from = Number(e.target.value);
       if (this.from > this.to) this.to = this.from;
       this.render();
     });
-    o.querySelector("#rb-to").addEventListener("change", (e) => {
+    o.querySelector("#rb-to")?.addEventListener("change", (e) => {
       this.to = Number(e.target.value);
       if (this.to < this.from) this.from = this.to;
       this.render();
@@ -633,7 +676,7 @@ export class ReportBuilder {
       return showToast(`Erro: ${e}`, "error");
     }
     if (!target) return;
-    api.setSetting(LAST_KEY, this.snapshot()).catch(() => { });
+    if (!this.pkg) api.setSetting(LAST_KEY, this.snapshot()).catch(() => { });
 
     this.busy = true;
     const dlg = this.overlay.querySelector(".rb-dialog");
@@ -654,7 +697,7 @@ export class ReportBuilder {
     try {
       await loadLibs();
       const first = this.years[0], last = this.years[this.years.length - 1];
-      const periodLabel = this.from === first && this.to === last ? `${first} – ${last} (todo o período)` : `${this.from} – ${this.to}`;
+      const periodLabel = this.pkg?.periodLabel || (this.from === first && this.to === last ? `${first} – ${last} (todo o período)` : `${this.from} – ${this.to}`);
       const rows = this.profileOptions().filter(([k]) => this.form.include[k]).map(([, l, v]) => [l, v]);
       const res = await (await import("../pdf/buildReport.js")).buildReport({
         profile: { nome: this.form.nome, resumo: this.form.resumo, rows, photo: this.form.includeFoto && this.photo ? this.photo.bytes : null },

@@ -495,3 +495,24 @@ body.sorting-active, body.sorting-active * { cursor: grabbing !important; user-s
 .rb-qr-note { margin: 0; font-size: calc(11.5px * var(--font-scale, 1)); color: var(--text-secondary); line-height: 1.45; }
 .rb-qr-cols { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(11.5px * var(--font-scale, 1)); font-weight: 600; color: var(--text-secondary); }
 .rb-qr-cols .seg button { min-width: 34px; }
+
+/* Pacote de interstício (aberto pelo Simulador de Pontuação) */
+.rb-pkg {
+  border: 1px solid var(--primary);
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rb-pkg p {
+  margin: 0;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-secondary);
+}
+
+.rb-pkg .rb-link {
+  align-self: flex-start;
+}
