@@ -1,5 +1,11 @@
 # Histórico de versões
 
+## Não lançado
+
+### Distribuição
+- Licença MIT.
+- Cada release traz `SHA256SUMS.txt` e um atestado de origem do GitHub (`gh attestation verify`) para os instaladores dos três sistemas.
+
 ## 1.2.0
 
 ### Funcionalidade
