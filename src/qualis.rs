@@ -47,7 +47,7 @@ pub struct QualisEntry {
 }
 
 /// Cabeçalhos encontrados na planilha (como estão escritos nela).
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Colunas {
     pub issn: String,
     pub titulo: Option<String>,
@@ -211,6 +211,302 @@ fn table_from_rows(rows: &[Vec<String>]) -> Option<QualisTable> {
     None
 }
 
+// ---------------- Tabela qualis_capes no banco ----------------
+
+/// Chave para comparar nomes de revista: sem o que está entre parênteses ("(ONLINE)",
+/// "(IMPRESSO)", "(1986)"…), sem "the" inicial e normalizada. Assim "Agronomy Journal" e
+/// "AGRONOMY JOURNAL (ONLINE)" são a mesma revista.
+pub fn journal_key(raw: &str) -> String {
+    let mut depth = 0usize;
+    let plain: String = raw
+        .chars()
+        .map(|c| match c {
+            '(' | '[' => {
+                depth += 1;
+                ' '
+            }
+            ')' | ']' => {
+                depth = depth.saturating_sub(1);
+                ' '
+            }
+            _ if depth > 0 => ' ',
+            c => c,
+        })
+        .collect();
+    let n = normalize_journal(&plain);
+    let n = n.strip_prefix("the ").map(str::to_string).unwrap_or(n);
+    // suporte escrito sem parênteses ("... online", "... impresso")
+    for suf in [
+        " online",
+        " impresso",
+        " print",
+        " eletronica",
+        " electronic",
+    ] {
+        if let Some(base) = n.strip_suffix(suf) {
+            if !base.is_empty() {
+                return base.to_string();
+            }
+        }
+    }
+    n
+}
+
+/// Dados da última importação da planilha.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QualisInfo {
+    pub arquivo: String,
+    pub area: Option<String>,
+    pub importado_em: String,
+    pub entradas: usize,
+    pub ignoradas: usize,
+    #[serde(default)]
+    pub colunas: Option<Colunas>,
+}
+
+const INFO_KEY: &str = "qualis_capes.info";
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ImportResult {
+    /// Preenchido quando a planilha tem várias áreas e nenhuma foi escolhida (nada é gravado).
+    pub areas: Vec<String>,
+    pub info: Option<QualisInfo>,
+}
+
+/// Substitui o conteúdo de `qualis_capes` pelas entradas da planilha (da área escolhida, se houver).
+pub fn store_table(
+    conn: &Connection,
+    table: &QualisTable,
+    area: Option<&str>,
+    arquivo: &str,
+) -> Result<ImportResult, String> {
+    let area = area.map(str::trim).filter(|a| !a.is_empty());
+    if !table.areas.is_empty() && area.is_none() {
+        return Ok(ImportResult {
+            areas: table.areas.clone(),
+            info: None,
+        });
+    }
+    let entries: Vec<&QualisEntry> = table
+        .entries
+        .iter()
+        .filter(|e| area.is_none() || e.area.as_deref() == area)
+        .collect();
+    if entries.is_empty() {
+        return Err("Nenhum periódico com estrato encontrado na planilha.".into());
+    }
+    let info = QualisInfo {
+        arquivo: arquivo.to_string(),
+        area: area.map(str::to_string),
+        importado_em: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+        entradas: entries.len(),
+        ignoradas: table.ignoradas,
+        colunas: Some(table.colunas.clone()),
+    };
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM qualis_capes", [])
+        .map_err(|e| e.to_string())?;
+    {
+        let mut st = tx
+            .prepare("INSERT INTO qualis_capes (issn, titulo, titulo_chave, estrato, area) VALUES (?1, ?2, ?3, ?4, ?5)")
+            .map_err(|e| e.to_string())?;
+        for e in &entries {
+            st.execute(params![
+                e.issn,
+                e.titulo.trim(),
+                journal_key(&e.titulo),
+                e.estrato,
+                e.area
+            ])
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.execute(
+        "INSERT OR REPLACE INTO app_metadata (key, value) VALUES (?1, ?2)",
+        params![INFO_KEY, serde_json::to_string(&info).unwrap_or_default()],
+    )
+    .map_err(|e| e.to_string())?;
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(ImportResult {
+        areas: Vec::new(),
+        info: Some(info),
+    })
+}
+
+/// Informações da tabela importada, ou `None` se ainda não houve importação.
+pub fn info(conn: &Connection) -> Option<QualisInfo> {
+    let n: i64 = conn
+        .query_row("SELECT count(*) FROM qualis_capes", [], |r| r.get(0))
+        .ok()?;
+    if n == 0 {
+        return None;
+    }
+    let mut info: QualisInfo = conn
+        .query_row(
+            "SELECT value FROM app_metadata WHERE key = ?1",
+            [INFO_KEY],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|v| serde_json::from_str(&v).ok())
+        .unwrap_or_default();
+    info.entradas = n as usize;
+    Some(info)
+}
+
+pub fn load_entries(conn: &Connection) -> Result<Vec<QualisEntry>, String> {
+    let mut st = conn
+        .prepare("SELECT issn, titulo, estrato, area FROM qualis_capes ORDER BY titulo")
+        .map_err(|e| e.to_string())?;
+    let rows = st
+        .query_map([], |r| {
+            Ok(QualisEntry {
+                issn: r.get(0)?,
+                titulo: r.get(1)?,
+                estrato: r.get(2)?,
+                area: r.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(rows.flatten().collect())
+}
+
+/// Índice das entradas por ISSN e pelo nome da revista. Um nome que aponta para estratos
+/// diferentes (revistas distintas com o mesmo nome) fica fora do índice por nome.
+struct Index<'a> {
+    by_issn: HashMap<&'a str, &'a QualisEntry>,
+    by_key: HashMap<String, Option<&'a QualisEntry>>,
+}
+
+impl<'a> Index<'a> {
+    fn new(entries: &'a [QualisEntry]) -> Self {
+        let mut by_issn = HashMap::new();
+        let mut by_key: HashMap<String, Option<&QualisEntry>> = HashMap::new();
+        for e in entries {
+            if let Some(i) = &e.issn {
+                by_issn.entry(i.as_str()).or_insert(e);
+            }
+            let k = journal_key(&e.titulo);
+            if k.is_empty() {
+                continue;
+            }
+            by_key
+                .entry(k)
+                .and_modify(|cur| {
+                    if cur.is_some_and(|c| c.estrato != e.estrato) {
+                        *cur = None;
+                    }
+                })
+                .or_insert(Some(e));
+        }
+        Self { by_issn, by_key }
+    }
+
+    /// Procura pelo ISSN; se não achar, pelo nome da revista.
+    fn find(
+        &self,
+        issn: Option<&str>,
+        journal: Option<&str>,
+    ) -> Option<(&'a QualisEntry, &'static str)> {
+        issn.and_then(normalize_issn)
+            .and_then(|i| self.by_issn.get(i.as_str()).copied())
+            .map(|e| (e, "issn"))
+            .or_else(|| {
+                let k = journal_key(journal?);
+                if k.is_empty() {
+                    return None;
+                }
+                self.by_key
+                    .get(&k)
+                    .copied()
+                    .flatten()
+                    .map(|e| (e, "titulo"))
+            })
+    }
+}
+
+/// Estrato oficial de uma revista (por um dos ISSNs ou pelo nome), se a tabela foi importada.
+pub fn lookup(conn: &Connection, issns: &[String], journal: Option<&str>) -> Option<QualisEntry> {
+    let entries = load_entries(conn).ok()?;
+    let idx = Index::new(&entries);
+    issns
+        .iter()
+        .find_map(|i| idx.find(Some(i), None))
+        .or_else(|| idx.find(None, journal))
+        .map(|(e, _)| e.clone())
+}
+
+/// Busca na tabela importada por ISSN ou por palavras do nome da revista.
+pub fn search(conn: &Connection, query: &str, limit: usize) -> Result<Vec<QualisEntry>, String> {
+    let entries = load_entries(conn)?;
+    if let Some(issn) = normalize_issn(query) {
+        return Ok(entries
+            .into_iter()
+            .filter(|e| e.issn.as_deref() == Some(issn.as_str()))
+            .collect());
+    }
+    let words: Vec<String> = normalize_journal(query)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
+    if words.is_empty() {
+        return Ok(Vec::new());
+    }
+    let key = journal_key(query);
+    let mut hits: Vec<(u8, QualisEntry)> = entries
+        .into_iter()
+        .filter_map(|e| {
+            let n = normalize_journal(&e.titulo);
+            if !words.iter().all(|w| n.contains(w.as_str())) {
+                return None;
+            }
+            let k = journal_key(&e.titulo);
+            let rank = if k == key {
+                0
+            } else if k.starts_with(&key) {
+                1
+            } else {
+                2
+            };
+            Some((rank, e))
+        })
+        .collect();
+    hits.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.titulo.cmp(&b.1.titulo)));
+    Ok(hits.into_iter().take(limit).map(|(_, e)| e).collect())
+}
+
+/// Periódico da tabela com o número de artigos do banco que caem nele.
+#[derive(Debug, Clone, Serialize)]
+pub struct QualisRow {
+    pub issn: Option<String>,
+    pub titulo: String,
+    pub estrato: String,
+    pub area: Option<String>,
+    pub artigos: usize,
+}
+
+/// Todos os periódicos da tabela importada, com a contagem de artigos do banco em cada um.
+pub fn list(conn: &Connection) -> Result<Vec<QualisRow>, String> {
+    let entries = load_entries(conn)?;
+    let idx = Index::new(&entries);
+    let mut counts: HashMap<*const QualisEntry, usize> = HashMap::new();
+    for a in load_artigos(conn)? {
+        if let Some((e, _)) = idx.find(a.issn.as_deref(), a.journal.as_deref()) {
+            *counts.entry(e as *const _).or_default() += 1;
+        }
+    }
+    Ok(entries
+        .iter()
+        .map(|e| QualisRow {
+            issn: e.issn.clone(),
+            titulo: e.titulo.clone(),
+            estrato: e.estrato.clone(),
+            area: e.area.clone(),
+            artigos: counts.get(&(e as *const _)).copied().unwrap_or(0),
+        })
+        .collect())
+}
+
 // ---------------- Comparação com o banco ----------------
 
 #[derive(Debug, Clone, Serialize)]
@@ -222,10 +518,12 @@ pub struct QualisMatch {
     pub issn: Option<String>,
     pub atual: Option<String>,
     pub oficial: String,
-    /// "issn" ou "titulo": como o artigo foi encontrado na planilha.
+    /// "issn" ou "titulo": como o artigo foi encontrado na tabela.
     pub via: String,
-    /// ISSN da planilha, gravado no artigo se ele ainda não tiver um.
+    /// ISSN da tabela, gravado no artigo se ele ainda não tiver um.
     pub issn_tabela: Option<String>,
+    /// Nome da revista como está na tabela da CAPES.
+    pub titulo_tabela: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -242,10 +540,7 @@ pub struct QualisPreview {
     pub total_artigos: usize,
     pub itens: Vec<QualisMatch>,
     pub sem_correspondencia: Vec<SemCorrespondencia>,
-    pub areas: Vec<String>,
-    pub colunas: Colunas,
-    pub entradas: usize,
-    pub ignoradas: usize,
+    pub info: Option<QualisInfo>,
 }
 
 struct Artigo {
@@ -287,57 +582,20 @@ fn load_artigos(conn: &Connection) -> Result<Vec<Artigo>, String> {
         .collect())
 }
 
-/// Compara os artigos do banco com a planilha. Com várias áreas na planilha, `area` é obrigatória.
-pub fn preview(
-    conn: &Connection,
-    table: &QualisTable,
-    area: Option<&str>,
-) -> Result<QualisPreview, String> {
-    let area = area.map(str::trim).filter(|a| !a.is_empty());
-    if !table.areas.is_empty() && area.is_none() {
-        return Err("A planilha tem várias áreas de avaliação: escolha a sua.".into());
-    }
-    let entries: Vec<&QualisEntry> = table
-        .entries
-        .iter()
-        .filter(|e| area.is_none() || e.area.as_deref() == area)
-        .collect();
-    let mut by_issn: HashMap<&str, &QualisEntry> = HashMap::new();
-    let mut by_title: HashMap<String, &QualisEntry> = HashMap::new();
-    for e in &entries {
-        if let Some(i) = &e.issn {
-            by_issn.entry(i.as_str()).or_insert(e);
-        }
-        let t = normalize_journal(&e.titulo);
-        if !t.is_empty() {
-            by_title.entry(t).or_insert(e);
-        }
-    }
-
+/// Compara os artigos do banco com a tabela `qualis_capes` importada.
+pub fn preview(conn: &Connection) -> Result<QualisPreview, String> {
+    let info =
+        info(conn).ok_or("Importe a planilha do Qualis antes de comparar com os artigos.")?;
+    let entries = load_entries(conn)?;
+    let idx = Index::new(&entries);
     let artigos = load_artigos(conn)?;
     let mut out = QualisPreview {
         total_artigos: artigos.len(),
-        areas: table.areas.clone(),
-        colunas: table.colunas.clone(),
-        entradas: entries.len(),
-        ignoradas: table.ignoradas,
+        info: Some(info),
         ..Default::default()
     };
     for a in artigos {
-        let hit = a
-            .issn
-            .as_deref()
-            .and_then(|i| by_issn.get(i))
-            .map(|e| (e, "issn"))
-            .or_else(|| {
-                a.journal
-                    .as_deref()
-                    .map(normalize_journal)
-                    .filter(|t| !t.is_empty())
-                    .and_then(|t| by_title.get(&t))
-                    .map(|e| (e, "titulo"))
-            });
-        match hit {
+        match idx.find(a.issn.as_deref(), a.journal.as_deref()) {
             Some((e, via)) => out.itens.push(QualisMatch {
                 id: a.id,
                 titulo: a.titulo,
@@ -348,6 +606,7 @@ pub fn preview(
                 oficial: e.estrato.clone(),
                 via: via.to_string(),
                 issn_tabela: e.issn.clone(),
+                titulo_tabela: e.titulo.clone(),
             }),
             None => out.sem_correspondencia.push(SemCorrespondencia {
                 id: a.id,
@@ -567,7 +826,12 @@ mod tests {
             ("1234-5678", "Revista A", "A1", None),
             ("0100-204X", "PESQUISA AGROPECUARIA BRASILEIRA", "A2", None),
         ]);
-        let p = preview(&conn, &t, None).unwrap();
+        assert!(
+            preview(&conn).is_err(),
+            "sem importação não há o que comparar"
+        );
+        store_table(&conn, &t, None, "qualis.xlsx").unwrap();
+        let p = preview(&conn).unwrap();
         assert_eq!(p.total_artigos, 3);
         assert_eq!(p.itens.len(), 2);
         assert_eq!(
@@ -673,9 +937,84 @@ mod tests {
             ("1234-5678", "Revista A", "A1", Some("AGRONOMIA")),
             ("1234-5678", "Revista A", "B2", Some("BIODIVERSIDADE")),
         ]);
-        assert!(preview(&conn, &t, None).is_err());
-        let p = preview(&conn, &t, Some("BIODIVERSIDADE")).unwrap();
+        // sem área escolhida, só devolve as áreas e não grava nada
+        let r = store_table(&conn, &t, None, "q.xlsx").unwrap();
+        assert_eq!(r.areas.len(), 2);
+        assert!(info(&conn).is_none());
+        let r = store_table(&conn, &t, Some("BIODIVERSIDADE"), "q.xlsx").unwrap();
+        assert_eq!(r.info.unwrap().entradas, 1);
+        let p = preview(&conn).unwrap();
         assert_eq!(p.itens[0].oficial, "B2");
-        assert_eq!(p.entradas, 1);
+        let i = info(&conn).unwrap();
+        assert_eq!((i.entradas, i.area.as_deref()), (1, Some("BIODIVERSIDADE")));
+    }
+
+    #[test]
+    fn same_journal_gets_one_estrato_even_with_other_issn() {
+        // Caso real: a planilha só tem o ISSN online (1435-0645, "AGRONOMY JOURNAL (ONLINE)"),
+        // e os artigos têm o ISSN impresso (0002-1962) e Qualis antigos diferentes.
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            INSERT INTO producoes (id, ano, tipo, titulo, journal, issn, qualis) VALUES
+              (1, 2022, 'Artigos completos', 'P1', 'Agronomy Journal', '0002-1962', 'B5'),
+              (2, 2019, 'Artigos completos', 'P2', 'Agronomy Journal', '0002-1962', 'SQ'),
+              (3, 2016, 'Artigos completos', 'P3', 'AGRONOMY JOURNAL', NULL, 'A1'),
+              (4, 2020, 'Artigos completos', 'P4', 'Agronomy', NULL, NULL),
+              (5, 2020, 'Artigos completos', 'P5', 'Revista Ambígua', NULL, NULL);
+            "#,
+        )
+        .unwrap();
+        let t = table(vec![
+            ("1435-0645", "AGRONOMY JOURNAL (ONLINE)", "A3", None),
+            ("2073-4395", "AGRONOMY", "A2", None),
+            (
+                "1679-9275",
+                "ACTA SCIENTIARUM. AGRONOMY (IMPRESSO)",
+                "A4",
+                None,
+            ),
+            (
+                "1807-8621",
+                "ACTA SCIENTIARUM. AGRONOMY (ONLINE)",
+                "A4",
+                None,
+            ),
+            ("1111-1111", "REVISTA AMBIGUA", "A1", None),
+            ("2222-2222", "REVISTA AMBIGUA (ONLINE)", "C", None),
+        ]);
+        store_table(&conn, &t, None, "q.xlsx").unwrap();
+        let p = preview(&conn).unwrap();
+        let est = |id: i64| {
+            p.itens
+                .iter()
+                .find(|m| m.id == id)
+                .map(|m| m.oficial.clone())
+        };
+        assert_eq!(est(1).as_deref(), Some("A3"));
+        assert_eq!(est(2).as_deref(), Some("A3"));
+        assert_eq!(est(3).as_deref(), Some("A3"));
+        assert_eq!(est(4).as_deref(), Some("A2"));
+        // nomes iguais com estratos diferentes não são adivinhados
+        assert_eq!(est(5), None);
+        assert_eq!(
+            lookup(&conn, &["0002-1962".into()], Some("Agronomy Journal"))
+                .map(|e| e.estrato)
+                .as_deref(),
+            Some("A3")
+        );
+        let rows = list(&conn).unwrap();
+        assert_eq!(rows.len(), 6);
+        let n = |t: &str| rows.iter().find(|r| r.titulo == t).unwrap().artigos;
+        assert_eq!(n("AGRONOMY JOURNAL (ONLINE)"), 3);
+        assert_eq!(n("AGRONOMY"), 1);
+        assert_eq!(n("REVISTA AMBIGUA"), 0);
+        let s = search(&conn, "agronomy", 10).unwrap();
+        assert_eq!(s[0].titulo, "AGRONOMY");
+        assert_eq!(search(&conn, "14350645", 10).unwrap()[0].estrato, "A3");
+        assert_eq!(
+            journal_key("The Agronomy Journal (Online)"),
+            "agronomy journal"
+        );
     }
 }

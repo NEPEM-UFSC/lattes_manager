@@ -509,7 +509,10 @@ pub fn extract(
 
 /// Sugestões que dependem do banco (Qualis da revista, duplicatas). Rápido; feito com o banco travado.
 pub fn enrich_from_db(conn: &Connection, md: &mut PdfMetadata) {
-    md.qualis_sugerido = md.journal.as_deref().and_then(|j| suggest_qualis(conn, j));
+    // Qualis oficial da CAPES (tabela importada) tem prioridade sobre o histórico do banco
+    md.qualis_sugerido = crate::qualis::lookup(conn, &md.issn, md.journal.as_deref())
+        .map(|e| e.estrato)
+        .or_else(|| md.journal.as_deref().and_then(|j| suggest_qualis(conn, j)));
     md.duplicata = find_duplicate(conn, md.doi.as_deref(), md.titulo.as_deref());
 }
 

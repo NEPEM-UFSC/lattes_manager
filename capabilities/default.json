@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissões da janela principal (eventos de arrastar-e-soltar arquivos)",
+  "description": "Permissões da janela principal (eventos de arrastar-e-soltar arquivos, tela cheia da rede de coautoria)",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "core:window:allow-set-fullscreen"]
 }

@@ -8,6 +8,7 @@ import { renderScoreCalculatorTool, renderBibExporterTool } from "./tools/scoreA
 import { renderPendenciasTool } from "./tools/pendenciasTool.js";
 import { renderQualisTool } from "./tools/qualisTool.js";
 import { renderDiscentesTool } from "./tools/discentesTool.js";
+import { renderBiblioTool } from "./tools/biblioTool.js";
 import { renderDiagnosticoTool } from "./tools/diagnosticoTool.js";
 
 // ---------- formatação de textos ----------
@@ -441,7 +442,8 @@ const TOOLS = [
   ["dois", "🔗", "Extrair DOI dos artigos", "Varre as produções sem DOI: lê o DOI de dentro do PDF anexado e, se não houver, procura pelo título na Crossref.", "producoes"],
   ["pdfs", "⚡", "Baixar PDFs pelos DOIs (lote)", "Itera sobre as produções sem comprovante (ex.: após importar XML), resolve os DOIs de acesso aberto e salva os PDFs na pasta de Produções.", "producoes"],
   ["discentes", "🎓", "Produção com discentes", "Veja quais produções têm seus orientados como coautores, por ano e nível, a partir dos autores do XML do Lattes, e exporte para Excel.", "producoes"],
-  ["qualis_oficial", "🏛️", "Qualis oficial da CAPES", "Leia a planilha oficial do Qualis (Plataforma Sucupira) e preencha o estrato dos artigos pelo ISSN ou pelo nome da revista, conferindo cada mudança.", "producoes"],
+  ["bibliometria", "🕸️", "Bibliometria e rede de coautoria", "Importe os autores de todas as produções do XML do Lattes e analise coautores, posição de autoria, evolução da colaboração e a rede de colaboração, com exportação para Excel, Gephi e VOSviewer.", "producoes"],
+  ["qualis_oficial", "🏛️", "Qualis oficial da CAPES", "Importe a planilha oficial do Qualis (Plataforma Sucupira) para o banco, consulte o estrato de qualquer revista e padronize o Qualis dos artigos pelo ISSN ou pelo nome da revista, conferindo cada mudança.", "producoes"],
   ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista.", "producoes"],
 
   // Comprovantes & Arquivos
@@ -616,6 +618,7 @@ export class ToolsView {
       pendencias: () => renderPendenciasTool(this),
       qualis_oficial: () => renderQualisTool(this),
       discentes: () => renderDiscentesTool(this),
+      bibliometria: () => renderBiblioTool(this),
       diagnostico: () => renderDiagnosticoTool(this),
       scholar: () => this.toolScholar(),
       scholar_unmatched: () => this.toolScholarUnmatched(),

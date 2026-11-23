@@ -54,6 +54,9 @@ pub struct XmlAutor {
     /// Nome para citação ("SILVA, M. A."); pode trazer várias formas separadas por ";".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub citacao: Option<String>,
+    /// ID do currículo Lattes do autor (NRO-ID-CNPQ), quando o XML traz.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lattes_id: Option<String>,
 }
 
 impl XmlProduction {
@@ -924,7 +927,18 @@ impl Builder {
             .get("ORDEM-DE-AUTORIA")
             .and_then(|s| s.trim().parse::<i64>().ok())
             .unwrap_or(i64::MAX);
-        self.autores.push((ordem, XmlAutor { nome, citacao }));
+        let lattes_id = a
+            .get("NRO-ID-CNPQ")
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.len() == 16 && s.bytes().all(|c| c.is_ascii_digit()));
+        self.autores.push((
+            ordem,
+            XmlAutor {
+                nome,
+                citacao,
+                lattes_id,
+            },
+        ));
     }
 
     fn finish(self) -> Option<XmlProduction> {

@@ -96,6 +96,29 @@ const mockState = {
   settings: {},
 };
 
+/** Dados fictícios da bibliometria (modo navegador, sem o app). */
+function mockBiblio() {
+  let s = 42;
+  const r = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const nomes = ["Tiago Olivoto", "Maicon Nardino", "Velci Queiróz de Souza", "Ivan Ricardo Carvalho", "Diego Nicolau Follmann", "Mauricio Ferrari", "Vinicius Jardel Szareski", "Alessandro Dal'Col Lúcio", "Alan Junior de Pelegrin", "Maria Inês Diel", "Daniela Meira", "Denise Schmidt", "Bruno Giacomini Sari", "Carine Meier", "José Eduardo Pimentel e Silva", "Matheus Lopes Machado", "Alice Maria Trois", "Rafael Tunes de Resende", "Gustavo Henrique Demari", "Volmir Sergio Marchioro", "Braulio Otomar Caron", "Luis Antonio Klein", "Keli Souza da Silva", "Paulo Romero Oliveira Sousa", "Kamilly Vitoria Siqueira Tonet", "Ana Paula Lima", "Carlos Eduardo Assoni", "Fernanda Costa", "Lucas Peixoto", "Yunbi Xu"];
+  const autores = nomes.map((nome, i) => ({ id: i + 1, chave: `k${i + 1}`, nome, eu: i === 0, lattes_id: null, formas: i % 4 === 1 ? [nome, nome.toUpperCase()] : [nome], orientado: [14, 15, 16, 23, 24].includes(i) ? { aluno: nome, niveis: [i % 2 ? "Iniciação Científica" : "Dissertação de mestrado"], confianca: "alta" } : null }));
+  const grupos = [[1, 2, 3, 4, 5, 6, 8, 9], [7, 10, 11, 12, 13, 19, 20], [14, 15, 16, 23, 24, 26], [17, 18, 25, 27, 28, 29]];
+  const tipos = ["Artigos completos", "Artigos completos", "Resumos simples", "Resumos expandidos", "Capítulos de livros"];
+  const producoes = [];
+  for (let i = 0; i < 90; i++) {
+    const g = grupos[Math.floor(r() * grupos.length)];
+    const k = 1 + Math.floor(r() * 6);
+    const ids = [1];
+    while (ids.length < k) {
+      const pick = r() < 0.85 ? g[Math.floor(r() * g.length)] : 2 + Math.floor(r() * 29);
+      if (!ids.includes(pick)) ids.push(pick);
+    }
+    if (r() < 0.4) ids.push(ids.shift());
+    producoes.push({ id: i + 1, ano: 2012 + Math.floor(r() * 14), tipo: tipos[Math.floor(r() * tipos.length)], titulo: `Produção de exemplo ${i + 1}`, journal: r() < 0.6 ? "Agronomy Journal" : null, qualis: null, autores: ids });
+  }
+  return { autores, producoes, mesclas: [{ chave: "silva|j.", destino: "silva|jose", nome: "J. Silva", nome_destino: "José Eduardo Pimentel e Silva" }], total_producoes: 98, sem_autores: 8 };
+}
+
 function mockHandler(cmd, args = {}) {
   console.info(`[IPC Browser Mock] -> ${cmd}`, args);
 
@@ -286,17 +309,35 @@ function mockHandler(cmd, args = {}) {
     case "pick_qualis_file":
       return "/mock/Qualis_Periodicos.xlsx";
 
+    case "qualis_import": {
+      if (!args.area) return { areas: ["AGRONOMIA", "BIODIVERSIDADE", "CIÊNCIAS AGRÁRIAS I"], info: null };
+      mockState.qualisInfo = { arquivo: "Qualis_Periodicos.xlsx", area: args.area, importado_em: "2026-11-23 10:00", entradas: 1040, ignoradas: 4, colunas: { issn: "ISSN", titulo: "TÍTULO", estrato: "ESTRATO", area: "ÁREA DE AVALIAÇÃO" } };
+      return { areas: [], info: mockState.qualisInfo };
+    }
+
+    case "qualis_info":
+      return mockState.qualisInfo ?? null;
+
+    case "qualis_list":
+      return [
+        { issn: "1435-0645", titulo: "AGRONOMY JOURNAL (ONLINE)", estrato: "A3", area: null, artigos: 8 },
+        { issn: "2073-4395", titulo: "AGRONOMY", estrato: "A2", area: null, artigos: 0 },
+        { issn: "0100-204X", titulo: "PESQUISA AGROPECUÁRIA BRASILEIRA", estrato: "A3", area: null, artigos: 3 },
+        { issn: "0011-183X", titulo: "CROP SCIENCE", estrato: "A1", area: null, artigos: 2 },
+        { issn: "1983-6430", titulo: "A FÍSICA NA ESCOLA (ONLINE)", estrato: "A4", area: null, artigos: 0 },
+        { issn: "2594-8245", titulo: "A BRUXA", estrato: "C", area: null, artigos: 0 },
+        { issn: "1406-894X", titulo: "AGRONOMY RESEARCH", estrato: "B1", area: null, artigos: 1 },
+      ];
+
     case "qualis_preview": {
-      const base = { areas: ["AGRONOMIA", "BIODIVERSIDADE", "CIÊNCIAS AGRÁRIAS I"], colunas: { issn: "ISSN", titulo: "TÍTULO", estrato: "ESTRATO", area: "ÁREA DE AVALIAÇÃO" }, entradas: 3120, ignoradas: 4 };
-      if (!args.area) return { ...base, total_artigos: 0, itens: [], sem_correspondencia: [] };
+      if (!mockState.qualisInfo) throw "Importe a planilha do Qualis antes de comparar com os artigos.";
       return {
-        ...base,
-        entradas: 1040,
+        info: mockState.qualisInfo,
         total_artigos: 5,
         itens: [
-          { id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, journal: "Pesquisa Agropecuária Brasileira", issn: "0100-204X", atual: "B1", oficial: "A3", via: "issn", issn_tabela: "0100-204X" },
-          { id: 102, titulo: "Índices multivariados para seleção", ano: 2023, journal: "Crop Science", issn: null, atual: null, oficial: "A1", via: "titulo", issn_tabela: "0011-183X" },
-          { id: 103, titulo: "Interação genótipo × ambiente em soja", ano: 2022, journal: "Euphytica", issn: "0014-2336", atual: "A2", oficial: "A2", via: "issn", issn_tabela: "0014-2336" },
+          { id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, journal: "Pesquisa Agropecuária Brasileira", issn: "0100-204X", atual: "B1", oficial: "A3", via: "issn", issn_tabela: "0100-204X", titulo_tabela: "PESQUISA AGROPECUÁRIA BRASILEIRA" },
+          { id: 102, titulo: "Índices multivariados para seleção", ano: 2023, journal: "Crop Science", issn: null, atual: null, oficial: "A1", via: "titulo", issn_tabela: "0011-183X", titulo_tabela: "CROP SCIENCE" },
+          { id: 103, titulo: "Interação genótipo × ambiente em soja", ano: 2022, journal: "Euphytica", issn: "0014-2336", atual: "A2", oficial: "A2", via: "issn", issn_tabela: "0014-2336", titulo_tabela: "EUPHYTICA" },
         ],
         sem_correspondencia: [
           { id: 104, titulo: "Artigo em revista local", ano: 2021, journal: "Revista Local de Agronomia", issn: null },
@@ -349,6 +390,16 @@ function mockHandler(cmd, args = {}) {
     case "sync_autores_xml":
       return { no_xml: 140, atualizadas: 128, sem_correspondencia: 12 };
 
+    case "biblio_import":
+      return { no_xml: 230, atualizadas: 12, sem_correspondencia: 3 };
+
+    case "biblio_data":
+      return mockBiblio();
+
+    case "biblio_merge":
+    case "biblio_unmerge":
+      return 1;
+
     case "discentes_report": {
       const d = (orientacao_id, aluno, nivel, ano_orientacao, confianca, autor = aluno, fora_periodo = false) => ({ orientacao_id, aluno, nivel, ano_orientacao, autor, confianca, fora_periodo });
       return {
@@ -391,7 +442,7 @@ function mockHandler(cmd, args = {}) {
 }
 
 // Comandos que não alteram registros; qualquer outro invalida o cache de get_all_records.
-const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|discentes_report|classify_diagnostics|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
+const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|qualis_import|qualis_info|qualis_list|biblio_data|discentes_report|classify_diagnostics|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
 let allRecordsCache = null;
 
 async function getAllRecordsCached() {
@@ -592,10 +643,17 @@ export const api = {
   checkFiles: () => invokeCommand("check_files"),
   scanPendencias: () => invokeCommand("scan_pendencias"),
   pickQualisFile: () => invokeCommand("pick_qualis_file"),
-  qualisPreview: (path, area = null) => invokeCommand("qualis_preview", { path, area }),
+  qualisImport: (path, area = null) => invokeCommand("qualis_import", { path, area }),
+  qualisInfo: () => invokeCommand("qualis_info"),
+  qualisList: () => invokeCommand("qualis_list"),
+  qualisPreview: () => invokeCommand("qualis_preview"),
   qualisApply: (items) => invokeCommand("qualis_apply", { items }),
   fillIssnOpenalex: () => invokeCommand("fill_issn_openalex"),
   syncAutoresXml: (xmlPath = null) => invokeCommand("sync_autores_xml", { xmlPath }),
+  biblioImport: (xmlPath = null) => invokeCommand("biblio_import", { xmlPath }),
+  biblioData: () => invokeCommand("biblio_data"),
+  biblioMerge: (chaves, destino) => invokeCommand("biblio_merge", { chaves, destino }),
+  biblioUnmerge: (chave) => invokeCommand("biblio_unmerge", { chave }),
   discentesReport: () => invokeCommand("discentes_report"),
   classifyDiagnostics: () => invokeCommand("classify_diagnostics"),
   findSimilarRecords: (category, titulo, ano = null, excludeId = null) => invokeCommand("find_similar_records", { category, titulo, ano, excludeId }),

@@ -413,6 +413,44 @@ UPDATE orientacoes SET situacao = CASE
     WHEN LOWER(COALESCE(folder, '') || ' ' || COALESCE(path, '')) LIKE '%concluidas%' THEN 'Concluída'
     ELSE NULL END;
 "#,
+    // 11: Qualis oficial da CAPES importado da planilha (uma linha por ISSN/periódico)
+    r#"
+CREATE TABLE IF NOT EXISTS qualis_capes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issn TEXT,
+    titulo TEXT NOT NULL,
+    titulo_chave TEXT NOT NULL,
+    estrato TEXT NOT NULL,
+    area TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_qualis_capes_issn ON qualis_capes(issn);
+CREATE INDEX IF NOT EXISTS idx_qualis_capes_chave ON qualis_capes(titulo_chave);
+"#,
+    // 12: bibliometria — autores das produções identificados como pessoas, autoria de cada
+    // produção e mesclas manuais de nomes (que sobrevivem à reconstrução das duas primeiras)
+    r#"
+CREATE TABLE IF NOT EXISTS autores (
+    id INTEGER PRIMARY KEY,
+    chave TEXT NOT NULL UNIQUE,
+    nome TEXT NOT NULL,
+    eu INTEGER NOT NULL DEFAULT 0,
+    lattes_id TEXT,
+    formas TEXT
+);
+CREATE TABLE IF NOT EXISTS producao_autores (
+    producao_id INTEGER NOT NULL,
+    ordem INTEGER NOT NULL,
+    autor_id INTEGER NOT NULL,
+    nome TEXT,
+    citacao TEXT,
+    PRIMARY KEY (producao_id, ordem)
+);
+CREATE INDEX IF NOT EXISTS idx_producao_autores_autor ON producao_autores(autor_id);
+CREATE TABLE IF NOT EXISTS autor_mesclas (
+    chave TEXT PRIMARY KEY,
+    destino TEXT NOT NULL
+);
+"#,
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

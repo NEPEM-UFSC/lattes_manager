@@ -19,8 +19,8 @@ export const PALETTE = {
   disciplinas: "#0891b2",
 };
 const SERIES = ["#6366f1", "#06b6d4", "#f59e0b", "#ec4899", "#10b981", "#8b5cf6", "#f97316", "#3b82f6", "#ef4444", "#14b8a6", "#a855f7", "#84cc16"];
-const QUALIS_ORDER = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"];
-const QUALIS_COLOR = ["#059669", "#0d9488", "#16a34a", "#65a30d", "#2563eb", "#4f46e5", "#7c3aed", "#9333ea", "#a21caf", "#d97706", "#94a3b8"];
+export const QUALIS_ORDER = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"];
+export const QUALIS_COLOR = ["#059669", "#0d9488", "#16a34a", "#65a30d", "#2563eb", "#4f46e5", "#7c3aed", "#9333ea", "#a21caf", "#d97706", "#94a3b8"];
 
 const label = (k) => CATEGORY_SCHEMAS[k]?.group || k;
 const fmt = (n) => Number(n).toLocaleString("pt-BR");
@@ -750,7 +750,7 @@ function smooth(pts) {
   return d;
 }
 
-function arc(cx, cy, R, r, a0, a1) {
+export function arc(cx, cy, R, r, a0, a1) {
   if (a1 - a0 >= Math.PI * 2 - 0.02) a1 = a0 + Math.PI * 2 - 0.02;
   const large = a1 - a0 > Math.PI ? 1 : 0;
   const p = (rad, a) => `${cx + rad * Math.cos(a)},${cy + rad * Math.sin(a)}`;

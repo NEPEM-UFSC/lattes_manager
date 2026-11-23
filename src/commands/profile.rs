@@ -112,6 +112,12 @@ pub fn select_save_path(
         Some("ris") => ("Salvar arquivo RIS", "RIS (*.ris)", "ris"),
         Some("txt") => ("Salvar referências em texto", "Texto (*.txt)", "txt"),
         Some("json") => ("Salvar barema de pontuação", "JSON (*.json)", "json"),
+        Some("graphml") => (
+            "Salvar rede (Gephi, Cytoscape, VOSviewer)",
+            "GraphML (*.graphml)",
+            "graphml",
+        ),
+        Some("svg") => ("Salvar imagem", "Imagem SVG (*.svg)", "svg"),
         _ => ("Salvar comprovantes em PDF", "PDF (*.pdf)", "pdf"),
     };
     let picked = rfd::FileDialog::new()

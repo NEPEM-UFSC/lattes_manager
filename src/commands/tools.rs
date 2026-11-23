@@ -470,26 +470,49 @@ pub fn pick_qualis_file() -> Result<Option<String>, String> {
         .map(|p| p.to_string_lossy().to_string()))
 }
 
-/// Lê a planilha e compara com os artigos. Com várias áreas na planilha e `area` vazia, devolve
-/// só as áreas (sem itens) para a tela pedir a escolha.
+/// Importa a planilha para a tabela `qualis_capes` (substitui a importação anterior). Com várias
+/// áreas na planilha e `area` vazia, não grava nada e devolve as áreas para a tela pedir a escolha.
 #[tauri::command(async)]
-pub fn qualis_preview(
+pub fn qualis_import(
     state: tauri::State<'_, AppState>,
     path: String,
     area: Option<String>,
-) -> Result<crate::qualis::QualisPreview, String> {
-    let table = crate::qualis::read_table(Path::new(path.trim()))?;
-    if !table.areas.is_empty() && area.as_deref().map(str::trim).unwrap_or("").is_empty() {
-        return Ok(crate::qualis::QualisPreview {
-            areas: table.areas,
-            colunas: table.colunas,
-            entradas: table.entries.len(),
-            ignoradas: table.ignoradas,
-            ..Default::default()
-        });
-    }
+) -> Result<crate::qualis::ImportResult, String> {
+    let path = Path::new(path.trim());
+    let table = crate::qualis::read_table(path)?;
+    let arquivo = path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    crate::qualis::preview(&conn, &table, area.as_deref())
+    crate::qualis::store_table(&conn, &table, area.as_deref(), &arquivo)
+}
+
+/// Dados da tabela do Qualis importada (ou `null` se ainda não houve importação).
+#[tauri::command]
+pub fn qualis_info(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<crate::qualis::QualisInfo>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    Ok(crate::qualis::info(&conn))
+}
+
+/// Todos os periódicos da tabela do Qualis, com quantos artigos do banco caem em cada um.
+#[tauri::command(async)]
+pub fn qualis_list(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<crate::qualis::QualisRow>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::qualis::list(&conn)
+}
+
+/// Compara os artigos com a tabela do Qualis importada.
+#[tauri::command(async)]
+pub fn qualis_preview(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::qualis::QualisPreview, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::qualis::preview(&conn)
 }
 
 #[tauri::command(async)]

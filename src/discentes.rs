@@ -93,13 +93,13 @@ pub fn sync_authors(conn: &Connection, items: &[XmlProduction]) -> Result<Author
 
 // ---------------- Comparação de nomes ----------------
 
-const PARTICLES: &[&str] = &[
+pub(crate) const PARTICLES: &[&str] = &[
     "de", "da", "do", "das", "dos", "e", "del", "della", "di", "du", "van", "von", "der", "la",
     "le",
 ];
 
 /// Palavras do nome sem acentos, pontuação e partículas ("de", "da"...).
-fn tokens(name: &str) -> Vec<String> {
+pub(crate) fn tokens(name: &str) -> Vec<String> {
     crate::db::fold(name)
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { ' ' })
@@ -141,7 +141,7 @@ pub enum Confianca {
 }
 
 /// O autor é o aluno? `aluno` já em palavras (ver `tokens`).
-fn match_author(aluno: &[String], autor: &XmlAutor) -> Option<Confianca> {
+pub(crate) fn match_author(aluno: &[String], autor: &XmlAutor) -> Option<Confianca> {
     let (first, last) = (aluno.first()?, aluno.last()?);
     if aluno.len() < 2 {
         return None;
@@ -217,11 +217,11 @@ pub struct DiscentesReport {
     pub itens: Vec<ProducaoComDiscente>,
 }
 
-struct Orientacao {
-    id: i64,
-    ano: Option<i64>,
-    tipo: String,
-    aluno: String,
+pub(crate) struct Orientacao {
+    pub(crate) id: i64,
+    pub(crate) ano: Option<i64>,
+    pub(crate) tipo: String,
+    pub(crate) aluno: String,
 }
 
 fn fora_periodo(prod: Option<i64>, orient: Option<i64>) -> bool {
@@ -231,8 +231,11 @@ fn fora_periodo(prod: Option<i64>, orient: Option<i64>) -> bool {
     }
 }
 
-pub fn report(conn: &Connection) -> Result<DiscentesReport, String> {
-    // alunos agrupados pelo nome normalizado (o mesmo aluno pode ter IC, mestrado e doutorado)
+/// Alunos das orientações agrupados pelo nome normalizado (o mesmo aluno pode ter IC,
+/// mestrado e doutorado).
+pub(crate) fn load_alunos(
+    conn: &Connection,
+) -> Result<HashMap<Vec<String>, Vec<Orientacao>>, String> {
     let mut alunos: HashMap<Vec<String>, Vec<Orientacao>> = HashMap::new();
     {
         let mut st = conn
@@ -255,7 +258,11 @@ pub fn report(conn: &Connection) -> Result<DiscentesReport, String> {
             }
         }
     }
+    Ok(alunos)
+}
 
+pub fn report(conn: &Connection) -> Result<DiscentesReport, String> {
+    let alunos = load_alunos(conn)?;
     let mut out = DiscentesReport {
         orientados: alunos.len(),
         ..Default::default()
@@ -352,6 +359,7 @@ mod tests {
         XmlAutor {
             nome: nome.into(),
             citacao: citacao.map(Into::into),
+            lattes_id: None,
         }
     }
 

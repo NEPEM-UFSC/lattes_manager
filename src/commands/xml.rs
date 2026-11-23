@@ -201,6 +201,47 @@ pub fn sync_autores_xml(
     crate::discentes::sync_authors(&conn, &items)
 }
 
+/// Bibliometria: lê os autores do XML do Lattes, grava nas produções e reconstrói as tabelas
+/// de autores e autoria.
+#[tauri::command(async)]
+pub fn biblio_import(
+    state: tauri::State<'_, AppState>,
+    xml_path: Option<String>,
+) -> Result<crate::discentes::AuthorSync, String> {
+    let r = sync_autores_xml(state.clone(), xml_path)?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::bibliometria::rebuild(&conn)?;
+    Ok(r)
+}
+
+/// Dados da bibliometria (autores identificados e autoria de cada produção), reconstruídos a
+/// partir das produções do banco.
+#[tauri::command(async)]
+pub fn biblio_data(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::bibliometria::BiblioData, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::bibliometria::rebuild(&conn)
+}
+
+/// Marca os autores `chaves` como a mesma pessoa que `destino`.
+#[tauri::command(async)]
+pub fn biblio_merge(
+    state: tauri::State<'_, AppState>,
+    chaves: Vec<String>,
+    destino: String,
+) -> Result<usize, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::bibliometria::merge(&conn, &chaves, &destino)
+}
+
+/// Desfaz uma mescla manual de autores.
+#[tauri::command(async)]
+pub fn biblio_unmerge(state: tauri::State<'_, AppState>, chave: String) -> Result<usize, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::bibliometria::unmerge(&conn, &chave)
+}
+
 #[tauri::command(async)]
 pub fn discentes_report(
     state: tauri::State<'_, AppState>,
