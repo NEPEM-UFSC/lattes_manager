@@ -23,6 +23,17 @@ Os instaladores estão em [Releases](https://github.com/NEPEM-UFSC/lattes_manage
 
 Os instaladores ainda não têm assinatura de código. Por isso, o Windows pode mostrar o aviso do SmartScreen ("Mais informações" › "Executar assim mesmo"). No macOS, abra o app pela primeira vez com clique direito › "Abrir".
 
+### Conferir um download
+
+Cada release traz o arquivo `SHA256SUMS.txt` e um atestado de origem do GitHub, que comprovam que o instalador foi gerado por este repositório e não foi alterado:
+
+```sh
+sha256sum -c SHA256SUMS.txt --ignore-missing                              # integridade (Linux/macOS)
+gh attestation verify <instalador> --repo NEPEM-UFSC/lattes_manager      # origem (GitHub CLI)
+```
+
+No Windows, `Get-FileHash <instalador>` mostra a soma para comparar com o `SHA256SUMS.txt`.
+
 ## Compilar
 
 Requisitos: [Rust](https://rustup.rs) estável e o Tauri CLI 2 (`cargo install tauri-cli --version "^2"` ou `npm install -g @tauri-apps/cli`). No Linux, instale também as dependências do WebKitGTK listadas em [.github/workflows/ci.yml](.github/workflows/ci.yml).
@@ -46,3 +57,7 @@ A interface fica em `ui/` (HTML, CSS e JavaScript, sem bundler). O backend fica 
 ## Autoria
 
 Prof. Dr. Tiago Olivoto, LEMGAD/NEPEM/UFSC.
+
+## Licença
+
+[MIT](LICENSE). Os componentes de terceiros incluídos em `ui/vendor/` (pdf.js, tesseract.js, pdf-lib, fontkit e qrcode) mantêm as licenças dos seus projetos de origem; a do pdf.js (Apache-2.0) está em `ui/vendor/pdfjs/LICENSE`.
