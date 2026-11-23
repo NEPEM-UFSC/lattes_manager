@@ -1,5 +1,14 @@
 # Histórico de versões
 
+## Não lançado
+
+### Identificação de comprovantes (PDF e imagem)
+- O papel descrito no documento (ouvinte, apresentação de trabalho, palestra, organização, avaliação, banca de TCC/mestrado/doutorado/qualificação, coorientação) escolhe o tipo dentro da categoria e aparece entre as informações encontradas.
+- Comprovante com DOI é ligado direto à produção de mesmo DOI ("mesmo DOI"), e a busca por registros parecidos olha as três categorias mais prováveis.
+- Aviso quando o documento não cita o seu nome (do Perfil), no cadastro e na importação em lote.
+- O ano sugerido passa a ser o da atividade ("realizado em", "no período de", "defendida no dia"), não o da emissão do certificado.
+- Pistas pelo emissor: certificados da Even3, Doity e Sympla apontam para Eventos; Sigaa (turmas) para Disciplinas; Sigpex para Projetos.
+
 ## 1.2.0
 
 ### Funcionalidade

@@ -493,6 +493,20 @@ fn cues(f: &str, raw: &str) -> HashMap<&'static str, f64> {
     if has("premio") || has("mencao honrosa") || has("homenagem") {
         add("dadosgerais", 2.0);
     }
+    // plataformas que emitem certificados de eventos ("even3" tem número: procura no texto bruto)
+    let bruto = crate::db::fold(raw);
+    if bruto.contains("even3") || has("doity") || has("sympla") || has("inscricao") && has("evento")
+    {
+        add("eventos", 3.0);
+    }
+    // sistemas acadêmicos: Sigaa (turmas e disciplinas), Sigpex (projetos de extensão)
+    if has("sigaa") && (has("turma") || has("disciplina") || has("docente")) {
+        add("atuacao", 3.0);
+        add("disciplinas", 3.0);
+    }
+    if has("sigpex") || has("notes ufsc") {
+        add("projetos", 3.0);
+    }
     b
 }
 
@@ -514,6 +528,8 @@ pub struct Fields {
     pub disciplina: Option<String>,
     pub curso: Option<String>,
     pub doi: Option<String>,
+    /// Papel do pesquisador descrito no documento ("Apresentação de trabalho", "Banca de mestrado"...).
+    pub papel: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -523,6 +539,8 @@ pub struct RecordMatch {
     pub label: String,
     pub ano: Option<i64>,
     pub score: f64,
+    /// "doi" (mesmo DOI no documento e no registro) ou "texto" (palavras em comum).
+    pub via: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -534,6 +552,8 @@ pub struct Analysis {
     pub registros: Vec<RecordMatch>,
     pub treino: usize,
     pub nome_arquivo: String,
+    /// O documento cita o pesquisador (nome do Perfil)? `None` se o Perfil não tem nome.
+    pub cita_usuario: Option<bool>,
 }
 
 /// Classifica: categorias ordenadas, cada uma com o melhor tipo.
@@ -943,18 +963,34 @@ pub fn extract_fields(text: &str) -> Fields {
         .parse::<i64>()
         .unwrap_or(2100)
         + 1;
-    let years: Vec<i64> = r[0]
+    // (ano, citado logo depois de "realizado em", "no período de"... = data da atividade)
+    // o contexto de cada data vai do fim da data anterior (ou 70 caracteres antes) até ela
+    let mut prev_end = 0usize;
+    let years: Vec<(i64, bool)> = r[0]
         .captures_iter(text)
-        .filter_map(|c| c.get(1).or(c.get(2)))
-        .filter_map(|m| m.as_str().parse().ok())
-        .filter(|y| *y <= max_year)
+        .filter_map(|c| {
+            let whole = c.get(0)?;
+            let m = c.get(1).or(c.get(2))?;
+            let start = whole.start();
+            let mut from = start.saturating_sub(70).max(prev_end);
+            while !text.is_char_boundary(from) {
+                from += 1;
+            }
+            prev_end = whole.end();
+            let y: i64 = m.as_str().parse().ok()?;
+            Some((y, is_activity_date(&text[from..start])))
+        })
+        .filter(|(y, _)| *y <= max_year)
         .collect();
-    // data do documento costuma ser a última citada (local e data, assinatura)
+    // a data da atividade vale mais que a da emissão; sem ela, a mais recente (local e data, assinatura)
     f.ano = years
         .iter()
+        .filter(|(_, act)| *act)
+        .map(|(y, _)| *y)
         .max()
-        .copied()
+        .or_else(|| years.iter().map(|(y, _)| *y).max())
         .or_else(|| crate::metadata::guess_year(text));
+    f.papel = detect_papel(text).map(|(_, label)| label.to_string());
     f.horas = r[1]
         .captures_iter(text)
         .filter_map(|c| c.get(1).or(c.get(2)))
@@ -989,15 +1025,205 @@ pub fn extract_fields(text: &str) -> Fields {
     f
 }
 
+/// O trecho antes de uma data indica que ela é a data da atividade (e não a de emissão)?
+fn is_activity_date(before: &str) -> bool {
+    let f = folded(before);
+    let tail: String = {
+        let w: Vec<&str> = f.split_whitespace().collect();
+        w[w.len().saturating_sub(6)..].join(" ")
+    };
+    [
+        "realizad",
+        "ocorrid",
+        "periodo",
+        "durante",
+        "dia",
+        "dias",
+        "evento",
+        "defesa",
+        "defendid",
+        "apresentad",
+        "ministrad",
+        "aprovad",
+    ]
+    .iter()
+    .any(|k| tail.split(' ').any(|w| w.starts_with(k)))
+}
+
+/// Papel do pesquisador no documento: (chave, rótulo). A ordem importa: o mais específico primeiro.
+pub fn detect_papel(text: &str) -> Option<(&'static str, &'static str)> {
+    let f = folded(text);
+    let has = |w: &str| f.contains(w);
+    let raw = crate::db::fold(text);
+    let banca = has("banca") || has("comissao examinadora") || has("comissao julgadora");
+    if has("coorientador")
+        || has("coorientacao")
+        || raw.contains("co-orient")
+        || raw.contains("co orient")
+    {
+        return Some(("coorientacao", "Coorientação"));
+    }
+    if banca {
+        if has("qualificacao") {
+            return Some(("banca_qualificacao", "Banca de qualificação"));
+        }
+        if has("concurso") {
+            return Some(("banca_concurso", "Banca de concurso"));
+        }
+        if has("doutorado") || has("tese") {
+            return Some(("banca_doutorado", "Banca de doutorado"));
+        }
+        if has("mestrado") || has("dissertacao") {
+            return Some(("banca_mestrado", "Banca de mestrado"));
+        }
+        if has("conclusao curso") || has("tcc") || has("graduacao") {
+            return Some(("banca_tcc", "Banca de TCC"));
+        }
+        return Some(("banca", "Banca"));
+    }
+    if has("palestra")
+        || has("palestrante")
+        || has("proferiu")
+        || has("conferencista")
+        || has("mesa redonda")
+    {
+        return Some(("palestrante", "Palestra"));
+    }
+    if has("comissao organizadora")
+        || has("organizacao evento")
+        || has("organizou")
+        || has("coordenou evento")
+    {
+        return Some(("organizador", "Organização de evento"));
+    }
+    if has("apresentou")
+        || has("apresentacao trabalho")
+        || has("apresentacao oral")
+        || has("poster")
+        || has("autor trabalho")
+    {
+        return Some(("apresentador", "Apresentação de trabalho"));
+    }
+    if has("parecerista") || has("avaliador") || has("revisor") || has("reviewer") {
+        return Some(("avaliador", "Avaliação / revisão"));
+    }
+    if has("ministrou") || has("instrutor") || has("ministrante") {
+        return Some(("ministrante", "Ministrou curso"));
+    }
+    if has("ouvinte") || has("participou") || has("participante") || has("participacao") {
+        return Some(("ouvinte", "Participação"));
+    }
+    if has("orientador") || has("orientou") || has("orientacao") {
+        return Some(("orientador", "Orientação"));
+    }
+    None
+}
+
+/// Palavras que, no nome de um tipo, combinam com cada papel.
+fn papel_keywords(papel: &str) -> &'static [&'static str] {
+    match papel {
+        "ouvinte" => &["particip", "ouvinte"],
+        "apresentador" => &["apresent", "trabalho", "comunica"],
+        "palestrante" => &["palestr", "conferen", "convid"],
+        "organizador" => &["organiz"],
+        "avaliador" => &["avalia", "parecer", "revis"],
+        "ministrante" => &["ministr", "docen", "instrut"],
+        "banca_doutorado" => &["doutor", "tese"],
+        "banca_mestrado" => &["mestr", "dissert"],
+        "banca_tcc" => &["conclus", "tcc", "gradua"],
+        "banca_qualificacao" => &["qualific"],
+        "banca_concurso" => &["concurso"],
+        "coorientacao" => &["coorient", "co orient"],
+        _ => &[],
+    }
+}
+
+/// Entre os tipos de uma categoria, o que melhor corresponde ao papel detectado.
+pub fn refine_tipo(papel: &str, tipos: &[String]) -> Option<String> {
+    let keys = papel_keywords(papel);
+    if keys.is_empty() {
+        return None;
+    }
+    tipos
+        .iter()
+        .map(|t| {
+            let f = crate::db::fold(t).replace('-', " ");
+            (keys.iter().filter(|k| f.contains(*k)).count(), t)
+        })
+        .filter(|(n, _)| *n > 0)
+        .max_by_key(|(n, _)| *n)
+        .map(|(_, t)| t.clone())
+}
+
+/// O documento cita a pessoa? Basta o primeiro e o último nome, ou o sobrenome de uma
+/// forma de citação ("OLIVOTO, T.") junto com o primeiro nome.
+pub fn mentions_person(text: &str, nome: &str, citacoes: &str) -> bool {
+    let words = |s: &str| -> Vec<String> {
+        crate::db::fold(s)
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+            .collect::<String>()
+            .split_whitespace()
+            .filter(|w| w.len() > 1 && !["de", "da", "do", "das", "dos"].contains(w))
+            .map(str::to_string)
+            .collect()
+    };
+    let doc: HashSet<String> = words(text).into_iter().collect();
+    let n = words(nome);
+    if n.len() >= 2 && doc.contains(&n[0]) && doc.contains(&n[n.len() - 1]) {
+        return true;
+    }
+    citacoes.split(';').any(|c| {
+        let Some((sur, _)) = c.split_once(',') else {
+            return false;
+        };
+        let sur = words(sur);
+        !sur.is_empty()
+            && sur.iter().all(|w| doc.contains(w))
+            && n.first().map(|f| doc.contains(f)).unwrap_or(true)
+    })
+}
+
 // ---------------- registros existentes ----------------
 
 /// Registros SEM comprovante cujo texto aparece no documento (título, aluno, descrição).
 pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<RecordMatch> {
+    let mut out = Vec::new();
+    // DOI no documento = ligação certa com a produção de mesmo DOI (em qualquer categoria sugerida)
+    let doc_doi = crate::metadata::find_doi(text).map(|d| d.to_ascii_lowercase());
+    let mut by_doi: HashSet<(String, i64)> = HashSet::new();
+    if let Some(d) = &doc_doi {
+        if let Ok(recs) = queries::get_records(conn, "producoes", None, None, None) {
+            for r in recs {
+                let no_proof = r
+                    .path
+                    .as_deref()
+                    .map(|p| p.trim().is_empty())
+                    .unwrap_or(true);
+                let rd = r
+                    .identifier
+                    .as_deref()
+                    .and_then(crate::metadata::find_doi)
+                    .or_else(|| r.url.as_deref().and_then(crate::metadata::find_doi))
+                    .map(|x| x.to_ascii_lowercase());
+                if no_proof && rd.as_deref() == Some(d.as_str()) {
+                    by_doi.insert(("producoes".into(), r.id));
+                    out.push(RecordMatch {
+                        category: "producoes".into(),
+                        id: r.id,
+                        label: r.titulo.clone().unwrap_or_default(),
+                        ano: r.ano,
+                        score: 1.0,
+                        via: "doi".into(),
+                    });
+                }
+            }
+        }
+    }
     let doc: HashSet<String> = tokens(text).into_iter().collect();
     if doc.len() < 5 {
-        return vec![];
+        return out;
     }
-    let mut out = Vec::new();
     for cat in cats {
         let Ok(recs) = queries::get_records(conn, cat, None, None, None) else {
             continue;
@@ -1007,6 +1233,7 @@ pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<Reco
                 .as_deref()
                 .map(|p| p.trim().is_empty())
                 .unwrap_or(true)
+                && !by_doi.contains(&(cat.clone(), r.id))
         }) {
             let main = [&r.titulo, &r.descricao, &r.disciplina]
                 .iter()
@@ -1045,6 +1272,7 @@ pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<Reco
                     label,
                     ano: r.ano,
                     score,
+                    via: "texto".into(),
                 });
             }
         }
@@ -1169,6 +1397,159 @@ mod tests {
             .descricao
             .unwrap()
             .starts_with("13º Congresso Brasileiro de Melhoramento de Plantas"));
+    }
+
+    #[test]
+    fn prefers_activity_date_over_issue_date() {
+        let t = "Certificamos que Fulano participou do Congresso X, realizado em 12 de março de 2023. Florianópolis, 20 de janeiro de 2024.";
+        assert_eq!(extract_fields(t).ano, Some(2023));
+        // sem indicação de atividade, vale a data mais recente
+        let t2 = "Declaração emitida em 10/05/2022. Validade até 10/05/2024.";
+        assert_eq!(extract_fields(t2).ano, Some(2024));
+        let t3 = "Defesa de dissertação defendida no dia 3 de agosto de 2021. Emitido em 2 de fevereiro de 2022.";
+        assert_eq!(extract_fields(t3).ano, Some(2021));
+    }
+
+    #[test]
+    fn detects_role_and_refines_tipo() {
+        let p = |t: &str| detect_papel(t).map(|x| x.0);
+        assert_eq!(
+            p("Certificamos que participou como ouvinte do Simpósio"),
+            Some("ouvinte")
+        );
+        assert_eq!(
+            p("apresentou o trabalho intitulado X na forma de pôster"),
+            Some("apresentador")
+        );
+        assert_eq!(
+            p("proferiu a palestra Melhoramento de plantas"),
+            Some("palestrante")
+        );
+        assert_eq!(
+            p("integrou a Comissão Organizadora do evento"),
+            Some("organizador")
+        );
+        assert_eq!(
+            p("participou da banca examinadora da defesa de dissertação de mestrado"),
+            Some("banca_mestrado")
+        );
+        assert_eq!(
+            p("membro da banca de exame de qualificação de doutorado"),
+            Some("banca_qualificacao")
+        );
+        assert_eq!(
+            p("banca do Trabalho de Conclusão de Curso"),
+            Some("banca_tcc")
+        );
+        assert_eq!(
+            p("atuou como co-orientador da dissertação"),
+            Some("coorientacao")
+        );
+        assert_eq!(p("texto sem nenhum papel"), None);
+
+        let tipos: Vec<String> = [
+            "Participação em eventos",
+            "Apresentação de trabalho",
+            "Organização de eventos",
+            "Palestras",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            refine_tipo("ouvinte", &tipos).as_deref(),
+            Some("Participação em eventos")
+        );
+        assert_eq!(
+            refine_tipo("apresentador", &tipos).as_deref(),
+            Some("Apresentação de trabalho")
+        );
+        assert_eq!(
+            refine_tipo("palestrante", &tipos).as_deref(),
+            Some("Palestras")
+        );
+        assert_eq!(refine_tipo("banca_mestrado", &tipos), None);
+        let bancas: Vec<String> = [
+            "Mestrado",
+            "Doutorado",
+            "Trabalho de conclusão de curso de graduação",
+            "Exame de qualificação",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            refine_tipo("banca_doutorado", &bancas).as_deref(),
+            Some("Doutorado")
+        );
+        assert_eq!(
+            refine_tipo("banca_tcc", &bancas).as_deref(),
+            Some("Trabalho de conclusão de curso de graduação")
+        );
+        assert_eq!(
+            refine_tipo("banca_qualificacao", &bancas).as_deref(),
+            Some("Exame de qualificação")
+        );
+    }
+
+    #[test]
+    fn checks_researcher_name() {
+        let nome = "Tiago de Olivoto Silva";
+        let cit = "OLIVOTO, T.;OLIVOTO, TIAGO";
+        assert!(mentions_person(
+            "Certificamos que TIAGO SILVA participou",
+            nome,
+            cit
+        ));
+        assert!(mentions_person(
+            "Certificamos que Tiago Olivoto participou",
+            nome,
+            cit
+        ));
+        assert!(!mentions_person(
+            "Certificamos que Maria Souza participou",
+            nome,
+            cit
+        ));
+        assert!(!mentions_person(
+            "Autores: Olivoto, A.; Pereira, B.",
+            nome,
+            cit
+        ));
+    }
+
+    #[test]
+    fn issuer_cues_point_to_category() {
+        assert!(
+            cues(
+                &folded("Certificado emitido por Even3"),
+                "Certificado emitido por Even3"
+            )
+            .get("eventos")
+            .copied()
+            .unwrap_or(0.0)
+                > 0.0
+        );
+        let c = cues(
+            &folded("SIGAA - Turma da disciplina Bioestatística, docente responsável"),
+            "",
+        );
+        assert!(c.get("disciplinas").copied().unwrap_or(0.0) > 0.0);
+    }
+
+    #[test]
+    fn match_records_uses_doi_first() {
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute_batch(
+            "INSERT INTO producoes (id, ano, tipo, titulo, identifier) VALUES
+               (1, 2024, 'Artigos completos', 'Um título totalmente diferente do texto', '10.1000/XYZ'),
+               (2, 2024, 'Artigos completos', 'Outro artigo', '10.1000/outro');",
+        )
+        .unwrap();
+        let text = "Journal of Tests. https://doi.org/10.1000/xyz Abstract: nada a ver com o título cadastrado.";
+        let m = match_records(&conn, text, &["eventos".to_string()]);
+        assert_eq!(m.len(), 1);
+        assert_eq!((m[0].id, m[0].score), (1, 1.0));
     }
 
     #[test]

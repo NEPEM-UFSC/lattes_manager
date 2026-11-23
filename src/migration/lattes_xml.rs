@@ -820,7 +820,7 @@ fn effective_category(cat: &str) -> &'static str {
     }
 }
 
-fn category_group(cat: &str) -> &'static str {
+pub fn category_group(cat: &str) -> &'static str {
     match effective_category(cat) {
         "dadosgerais" => "Dados gerais",
         "formacao" => "Formação",

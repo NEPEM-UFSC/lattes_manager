@@ -304,6 +304,21 @@ function mockHandler(cmd, args = {}) {
       };
     }
 
+    case "analyze_document":
+      return {
+        chars: 820,
+        needs_ocr: false,
+        treino: 214,
+        nome_arquivo: String(args.path || "").split(/[\\/]/).pop(),
+        cita_usuario: false,
+        sugestoes: [
+          { category: "eventos", tipo: "Apresentação de trabalho", prob: 0.78 },
+          { category: "producoes", tipo: "Resumos expandidos", prob: 0.15 },
+        ],
+        campos: { ano: 2023, papel: "Apresentação de trabalho", horas: 20, titulo: "Seleção genômica em milho tropical", descricao: "13º Congresso Brasileiro de Melhoramento de Plantas", doi: "10.1000/xyz" },
+        registros: [{ category: "producoes", id: 101, label: "Seleção genômica em milho tropical", ano: 2023, score: 1, via: "doi" }],
+      };
+
     case "sync_autores_xml":
       return { no_xml: 140, atualizadas: 128, sem_correspondencia: 12 };
 

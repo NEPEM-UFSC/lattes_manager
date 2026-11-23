@@ -340,6 +340,7 @@ export class BatchImport {
     const c = res?.campos || {};
     const sug = (res?.sugestoes || []).filter((s) => CATEGORY_SCHEMAS[s.category]);
     row.sug = sug;
+    row.semNome = res?.cita_usuario === false;
     // categoria e tipo
     if (this.mode !== "auto") {
       row.cat = this.mode;
@@ -435,6 +436,7 @@ export class BatchImport {
           <td><input type="checkbox" data-f="include" ${r.include ? "checked" : ""}/></td>
           <td class="bi-file"><button type="button" class="bi-fname" data-prev="${i}" title="${escapeHtml(r.file.path)}">${IMG.test(r.file.name) ? "🖼️" : "📄"} ${escapeHtml(r.file.name)}</button>
             ${this.mode === "auto" ? `<span class="bi-conf ${r.conf >= 0.7 ? "hi" : r.conf >= 0.45 ? "mid" : "lo"}" title="Confiança da classificação">${pct(r.conf)}</span>` : ""}
+            ${r.semNome ? `<span class="bi-conf lo" title="O documento não cita o seu nome (do Perfil). Confira se é mesmo seu.">⚠️ sem seu nome</span>` : ""}
             ${r.note ? `<small class="bi-note">${escapeHtml(r.note)}</small>` : ""}</td>
           <td><select class="form-select bi-cat ${lowConf ? "warn" : ""}" data-f="cat" style="--c:${color(r.cat)}" ${isAttach ? "disabled" : ""}>${cats.map(([key, s]) => `<option value="${key}" ${key === r.cat ? "selected" : ""}>${escapeHtml(s.group)}</option>`).join("")}</select></td>
           <td><select class="form-select" data-f="tipo" ${isAttach ? "disabled" : ""}>
