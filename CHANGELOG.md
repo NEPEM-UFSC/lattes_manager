@@ -2,6 +2,9 @@
 
 ## Não lançado
 
+### Segurança
+- Dependências atualizadas para corrigir vulnerabilidades conhecidas: `zip` 9.8 (extração de .zip de backup), `quick-xml` 0.41 (leitura do XML do Lattes), `calamine` 0.38 (planilhas), `rusqlite` 0.43 com SQLite embutido corrigido, `cookie` e `url`.
+
 ### Distribuição
 - Licença MIT.
 - Cada release traz `SHA256SUMS.txt` e um atestado de origem do GitHub (`gh attestation verify`) para os instaladores dos três sistemas.

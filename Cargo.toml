@@ -16,21 +16,21 @@ path = "src/main.rs"
 tauri = { version = "2.0", features = ["tray-icon", "protocol-asset"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rusqlite = { version = "0.32", features = ["bundled", "chrono", "functions"] }
-calamine = { version = "0.26", features = ["dates"] }
+rusqlite = { version = "0.43", features = ["bundled", "chrono", "functions"] }
+calamine = { version = "0.38", features = ["dates"] }
 chrono = { version = "0.4", features = ["serde"] }
 opener = "0.7"
 rfd = "0.15"
 regex = "1.10"
 uuid = { version = "1.10", features = ["v4"] }
 thiserror = "1.0"
-quick-xml = "0.31"
+quick-xml = "0.41"
 pdf-extract = "0.12"
 lopdf = "0.42"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 ureq = { version = "2", features = ["json"] }
 rust_xlsxwriter = "0.102"
-zip = { version = "=2.1.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.8", default-features = false, features = ["deflate"] }
 sha2 = "0.11.1"
 
 [build-dependencies]
