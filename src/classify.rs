@@ -1184,6 +1184,145 @@ pub fn mentions_person(text: &str, nome: &str, citacoes: &str) -> bool {
     })
 }
 
+// ---------------- diagnóstico (validação "deixa um de fora") ----------------
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DiagCategoria {
+    pub categoria: String,
+    pub n: usize,
+    pub acertos: usize,
+    pub acertos_tipo: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagConfusao {
+    pub real: String,
+    pub previsto: String,
+    pub n: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagErro {
+    pub path: String,
+    pub real: String,
+    pub real_tipo: String,
+    pub previsto: String,
+    pub previsto_tipo: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Diagnostico {
+    /// Comprovantes com texto avaliados.
+    pub avaliados: usize,
+    /// Comprovantes sem texto no índice (digitalizados: na prática passam por OCR).
+    pub sem_texto: usize,
+    pub acerto_categoria: usize,
+    /// A categoria certa estava entre as duas primeiras sugestões.
+    pub acerto_top2: usize,
+    pub acerto_tipo: usize,
+    pub por_categoria: Vec<DiagCategoria>,
+    pub confusoes: Vec<DiagConfusao>,
+    pub erros: Vec<DiagErro>,
+}
+
+/// Mede a classificação com os próprios comprovantes: cada um é classificado por um modelo
+/// treinado com todos os outros. Usa o texto já guardado em `doc_index`.
+pub fn evaluate(conn: &Connection, docs: &[TrainDoc]) -> Diagnostico {
+    let mut idx: HashMap<String, (String, i64)> = HashMap::new();
+    if let Ok(mut st) = conn.prepare("SELECT path, tokens, chars FROM doc_index") {
+        if let Ok(rows) = st.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            ))
+        }) {
+            for (p, t, c) in rows.flatten() {
+                idx.insert(p, (t, c));
+            }
+        }
+    }
+    let toks: Vec<HashSet<String>> = docs
+        .iter()
+        .map(|d| {
+            doc_tokens(
+                &idx.get(&d.path).map(|x| x.0.clone()).unwrap_or_default(),
+                &d.record_text,
+            )
+        })
+        .collect();
+    let mut m = Model::default();
+    for (d, t) in docs.iter().zip(&toks) {
+        m.add(&class_key(&d.category, &d.tipo), t, 1);
+    }
+    let items: Vec<(String, HashSet<String>)> = docs
+        .iter()
+        .zip(&toks)
+        .map(|(d, t)| (class_key(&d.category, &d.tipo), t.clone()))
+        .collect();
+    let knn = Knn::build(&items);
+    let valid: HashSet<String> = crate::tools::all_categories(conn).into_iter().collect();
+
+    let mut out = Diagnostico::default();
+    let mut por_cat: HashMap<String, DiagCategoria> = HashMap::new();
+    let mut conf: HashMap<(String, String), usize> = HashMap::new();
+    for (i, (d, t)) in docs.iter().zip(&toks).enumerate() {
+        let (text, chars) = idx.get(&d.path).cloned().unwrap_or_default();
+        if chars < 60 {
+            out.sem_texto += 1;
+            continue;
+        }
+        out.avaliados += 1;
+        let key = class_key(&d.category, &d.tipo);
+        m.add(&key, t, -1);
+        let r = suggest(&m, &knn, &text, "", &valid, Some(i));
+        m.add(&key, t, 1);
+        let e = por_cat
+            .entry(d.category.clone())
+            .or_insert_with(|| DiagCategoria {
+                categoria: d.category.clone(),
+                ..Default::default()
+            });
+        e.n += 1;
+        let top = r.first();
+        if top.map(|s| s.category == d.category).unwrap_or(false) {
+            out.acerto_categoria += 1;
+            e.acertos += 1;
+            if top.map(|s| s.tipo == d.tipo).unwrap_or(false) {
+                out.acerto_tipo += 1;
+                e.acertos_tipo += 1;
+            }
+        } else {
+            let prev = top
+                .map(|s| s.category.clone())
+                .unwrap_or_else(|| "?".into());
+            *conf.entry((d.category.clone(), prev.clone())).or_default() += 1;
+            if out.erros.len() < 30 {
+                out.erros.push(DiagErro {
+                    path: d.path.clone(),
+                    real: d.category.clone(),
+                    real_tipo: d.tipo.clone(),
+                    previsto: prev,
+                    previsto_tipo: top.map(|s| s.tipo.clone()).unwrap_or_default(),
+                });
+            }
+        }
+        if r.iter().take(2).any(|s| s.category == d.category) {
+            out.acerto_top2 += 1;
+        }
+    }
+    out.por_categoria = por_cat.into_values().collect();
+    out.por_categoria.sort_by_key(|c| std::cmp::Reverse(c.n));
+    out.confusoes = conf
+        .into_iter()
+        .map(|((real, previsto), n)| DiagConfusao { real, previsto, n })
+        .collect();
+    out.confusoes
+        .sort_by(|a, b| b.n.cmp(&a.n).then(a.real.cmp(&b.real)));
+    out.confusoes.truncate(10);
+    out
+}
+
 // ---------------- registros existentes ----------------
 
 /// Registros SEM comprovante cujo texto aparece no documento (título, aluno, descrição).
@@ -1286,98 +1425,80 @@ pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<Reco
 mod tests {
     use super::*;
 
-    /// Acurácia "deixa um de fora" nos comprovantes reais: LATTES_REAL=1 cargo test --lib loocv -- --nocapture
+    /// Acurácia "deixa um de fora" nos comprovantes reais:
+    /// LATTES_REAL_DIR=/caminho/da/pasta cargo test --lib loocv -- --nocapture
     #[test]
     fn loocv_on_real_data_if_enabled() {
-        if std::env::var("LATTES_REAL").is_err() {
+        let Ok(dir) = std::env::var("LATTES_REAL_DIR") else {
             return;
-        }
-        let root = Path::new(r"d:\Desktop\UFSC\lattes");
+        };
+        let root = Path::new(&dir);
         let conn = rusqlite::Connection::open_with_flags(
             root.join("lattes.db"),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .unwrap();
         let docs = training_docs(&conn, root);
-        let paths: Vec<String> = docs.iter().map(|d| d.path.clone()).collect();
-        let t0 = std::time::Instant::now();
-        let rows = extract_for_index(root, &paths);
-        println!("{} docs, texto extraído em {:?}", docs.len(), t0.elapsed());
-        let idx: HashMap<String, (String, i64)> = rows
-            .into_iter()
-            .map(|(p, _, _, t, c)| (p, (t, c)))
-            .collect();
-        let mut m = Model::default();
-        let toks: Vec<HashSet<String>> = docs
+        let d = evaluate(&conn, &docs);
+        let pct = |a: usize| 100.0 * a as f64 / d.avaliados.max(1) as f64;
+        println!(
+            "{} avaliados ({} sem texto): categoria {:.1}%, top-2 {:.1}%, tipo {:.1}%",
+            d.avaliados,
+            d.sem_texto,
+            pct(d.acerto_categoria),
+            pct(d.acerto_top2),
+            pct(d.acerto_tipo)
+        );
+        for c in &d.confusoes {
+            println!("  {} -> {}: {}", c.real, c.previsto, c.n);
+        }
+    }
+
+    #[test]
+    fn evaluate_counts_hits_and_confusions() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let mut docs = Vec::new();
+        let mut add = |i: usize, cat: &str, tipo: &str, text: &str| {
+            let path = format!("x/{}.pdf", i);
+            conn.execute(
+                "INSERT INTO doc_index (path, size, mtime, tokens, chars) VALUES (?1, 1, 1, ?2, 500)",
+                rusqlite::params![path, tokens(text).join(" ")],
+            )
+            .unwrap();
+            docs.push(TrainDoc {
+                category: cat.into(),
+                tipo: tipo.into(),
+                path,
+                record_text: String::new(),
+            });
+        };
+        let banca = "certificamos participou banca examinadora defesa dissertação mestrado programa pós-graduação membro titular";
+        let evento = "certificamos participou congresso brasileiro melhoramento plantas ouvinte carga horária simpósio";
+        for i in 0..6 {
+            add(i, "bancas", "Mestrado", banca);
+            add(10 + i, "eventos", "Participação", evento);
+        }
+        // um documento ambíguo, rotulado como evento mas com texto de banca
+        add(99, "eventos", "Participação", banca);
+        let d = evaluate(&conn, &docs);
+        assert_eq!(d.avaliados, 13);
+        assert_eq!(d.sem_texto, 0);
+        assert_eq!(d.acerto_categoria, 12);
+        assert_eq!(d.confusoes.len(), 1);
+        assert_eq!(
+            (
+                d.confusoes[0].real.as_str(),
+                d.confusoes[0].previsto.as_str()
+            ),
+            ("eventos", "bancas")
+        );
+        assert_eq!(d.erros[0].path, "x/99.pdf");
+        let ev = d
+            .por_categoria
             .iter()
-            .map(|d| {
-                doc_tokens(
-                    &idx.get(&d.path).map(|x| x.0.clone()).unwrap_or_default(),
-                    &d.record_text,
-                )
-            })
-            .collect();
-        for (d, t) in docs.iter().zip(&toks) {
-            m.add(&class_key(&d.category, &d.tipo), t, 1);
-        }
-        let valid: HashSet<String> = crate::tools::all_categories(&conn).into_iter().collect();
-        let items: Vec<(String, HashSet<String>)> = docs
-            .iter()
-            .zip(&toks)
-            .map(|(d, t)| (class_key(&d.category, &d.tipo), t.clone()))
-            .collect();
-        let knn = Knn::build(&items);
-        let mut stats: HashMap<&str, (usize, usize, usize)> = HashMap::new();
-        let mut errs: HashMap<String, usize> = HashMap::new();
-        let mut n = 0;
-        for (i, (d, t)) in docs.iter().zip(&toks).enumerate() {
-            let (text_toks, chars) = idx.get(&d.path).cloned().unwrap_or_default();
-            if chars < 60 {
-                continue; // digitalizado: na prática passa por OCR
-            }
-            n += 1;
-            let key = class_key(&d.category, &d.tipo);
-            m.add(&key, t, -1);
-            let r_nb = classify(&m, &text_toks, "", &valid);
-            m.add(&key, t, 1);
-            let r_knn = classify_knn(&knn, &text_toks, "", &valid, Some(i));
-            m.add(&key, t, -1);
-            let r_comb = suggest(&m, &knn, &text_toks, "", &valid, Some(i));
-            m.add(&key, t, 1);
-            for (name, r) in [("nb", &r_nb), ("knn", &r_knn), ("comb", &r_comb)] {
-                let e = stats.entry(name).or_default();
-                if r.first().map(|s| s.category == d.category).unwrap_or(false) {
-                    e.0 += 1;
-                    if r[0].tipo == d.tipo {
-                        e.2 += 1;
-                    }
-                } else if name == "knn" {
-                    *errs
-                        .entry(format!(
-                            "{} -> {}",
-                            d.category,
-                            r.first().map(|s| s.category.as_str()).unwrap_or("?")
-                        ))
-                        .or_default() += 1;
-                }
-                if r.iter().take(2).any(|s| s.category == d.category) {
-                    e.1 += 1;
-                }
-            }
-        }
-        for (name, (c, t2, ct)) in &stats {
-            println!(
-                "{:>5}: com texto {} | categoria {:.1}% | top2 {:.1}% | categoria+tipo {:.1}%",
-                name,
-                n,
-                100.0 * *c as f64 / n as f64,
-                100.0 * *t2 as f64 / n as f64,
-                100.0 * *ct as f64 / n as f64
-            );
-        }
-        let mut e: Vec<_> = errs.into_iter().collect();
-        e.sort_by_key(|x| std::cmp::Reverse(x.1));
-        println!("erros mais comuns: {:?}", &e[..e.len().min(8)]);
+            .find(|c| c.categoria == "eventos")
+            .unwrap();
+        assert_eq!((ev.n, ev.acertos), (7, 6));
     }
 
     #[test]

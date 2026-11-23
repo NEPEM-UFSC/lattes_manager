@@ -8,6 +8,7 @@ import { renderScoreCalculatorTool, renderBibExporterTool } from "./tools/scoreA
 import { renderPendenciasTool } from "./tools/pendenciasTool.js";
 import { renderQualisTool } from "./tools/qualisTool.js";
 import { renderDiscentesTool } from "./tools/discentesTool.js";
+import { renderDiagnosticoTool } from "./tools/diagnosticoTool.js";
 
 // ---------- formatação de textos ----------
 const LOWER_PT = new Set(["a", "à", "ao", "aos", "as", "às", "com", "da", "das", "de", "do", "dos", "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para", "pela", "pelas", "pelo", "pelos", "por", "sem", "sob", "sobre", "um", "uma", "entre", "após", "contra", "y", "del", "la", "van", "von", "der", "di", "du", "le"]);
@@ -444,6 +445,7 @@ const TOOLS = [
   ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista.", "producoes"],
 
   // Comprovantes & Arquivos
+  ["diagnostico", "🎯", "Diagnóstico da classificação", "Veja quanto o app acerta a categoria e o tipo dos seus comprovantes (cada um testado como se fosse novo) e quais documentos confundem a classificação.", "arquivos"],
   ["vassoura", "🧹", "Vassoura de Comprovantes", "Varra qualquer pasta externa (Downloads, Documentos) para localizar e vincular comprovantes em PDF automaticamente aos registros sem anexo.", "arquivos"],
   ["folders_audit", "🗂️", "Auditoria e Limpeza de Pastas", "Varre a pasta raiz recursivamente para identificar pastas em branco, pastas sem vínculo com subpastas e arquivos soltos, com opções para remover, criar ou vincular.", "arquivos"],
   ["invalid_proofs", "⚠️", "Procurar comprovantes inválidos", "Localize registros com links para PDFs ou imagens que não existem mais no disco e vincule comprovantes válidos com 1 clique.", "arquivos"],
@@ -614,6 +616,7 @@ export class ToolsView {
       pendencias: () => renderPendenciasTool(this),
       qualis_oficial: () => renderQualisTool(this),
       discentes: () => renderDiscentesTool(this),
+      diagnostico: () => renderDiagnosticoTool(this),
       scholar: () => this.toolScholar(),
       scholar_unmatched: () => this.toolScholarUnmatched(),
       vassoura: () => this.toolVassoura(),

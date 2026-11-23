@@ -10,6 +10,9 @@
 - OCR em qualquer PDF digitalizado: a página é renderizada com o pdf.js antes do reconhecimento, então funcionam também os scanners que gravam a imagem em CCITT, JBIG2 ou PNG (antes só JPEG). Se a 1ª página traz pouco texto, a 2ª também é lida.
 - Pistas pelo emissor: certificados da Even3, Doity e Sympla apontam para Eventos; Sigaa (turmas) para Disciplinas; Sigpex para Projetos.
 
+### Ferramentas
+- Diagnóstico da classificação (Ferramentas › Comprovantes): cada comprovante vinculado é classificado por um modelo treinado com os demais, mostrando o acerto de categoria e tipo, o acerto por categoria, as confusões mais comuns e os comprovantes classificados errado (com atalho para abrir).
+
 ## 1.2.0
 
 ### Funcionalidade

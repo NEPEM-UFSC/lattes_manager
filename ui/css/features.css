@@ -5231,3 +5231,21 @@ body.viewer-docked .hm-recent-list {
 .ds-acts .btn {
   padding: 2px 8px;
 }
+
+/* ===== Diagnóstico da classificação ===== */
+.pd-tile.warn b,
+.dg-pct.warn {
+  color: var(--warning-text);
+}
+
+.dg-pct.good {
+  color: var(--success-text);
+}
+
+.dg-pct.bad {
+  color: var(--danger);
+}
+
+.dg-pct {
+  font-weight: 700;
+}

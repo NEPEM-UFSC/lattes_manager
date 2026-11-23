@@ -357,6 +357,23 @@ pub async fn read_pdf_file(path: String) -> Result<tauri::ipc::Response, String>
         .map_err(|e| e.to_string())
 }
 
+/// Diagnóstico da classificação: cada comprovante vinculado é classificado por um modelo
+/// treinado com os demais (atualiza antes o índice de textos).
+#[tauri::command]
+pub async fn classify_diagnostics(
+    app: tauri::AppHandle,
+) -> Result<crate::classify::Diagnostico, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<AppState>();
+        let docs = update_doc_index_with_docs(&state)?;
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        Ok(crate::classify::evaluate(&conn, &docs))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// JPEG da 1ª página de um PDF digitalizado, para o OCR feito na interface.
 #[tauri::command]
 pub async fn pdf_scan_image(path: String) -> Result<tauri::ipc::Response, String> {
