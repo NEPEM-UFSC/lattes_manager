@@ -1,16 +1,18 @@
 # Histórico de versões
 
-## Não lançado
+## 1.2.1
 
 ### Segurança
 - Dependências atualizadas para corrigir vulnerabilidades conhecidas: `zip` 9.8 (extração de .zip de backup), `quick-xml` 0.41 (leitura do XML do Lattes), `calamine` 0.38 (planilhas), `rusqlite` 0.43 com SQLite embutido corrigido, `cookie` e `url`.
 
 ### Distribuição
-- Licença MIT.
-- Cada release traz `SHA256SUMS.txt` e um atestado de origem do GitHub (`gh attestation verify`) para os instaladores dos três sistemas.
 - Política de assinatura de código e de privacidade no README, exigidas pela SignPath Foundation.
 
 ## 1.2.0
+
+### Distribuição
+- Licença MIT.
+- Cada release traz `SHA256SUMS.txt` e um atestado de origem do GitHub (`gh attestation verify`) para os instaladores dos três sistemas.
 
 ### Funcionalidade
 - Pacote do interstício (Simulador de Pontuação): exporta a planilha de pontuação e abre o gerador de comprovantes já restrito aos registros que pontuam no período, com o título do barema e o período na capa. Projetos e atividades que começaram antes do interstício e terminam dentro dele também entram, como na pontuação.
