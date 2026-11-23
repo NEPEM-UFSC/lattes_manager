@@ -1425,8 +1425,8 @@ pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<Reco
 mod tests {
     use super::*;
 
-    /// Acurácia "deixa um de fora" nos comprovantes reais:
-    /// LATTES_REAL_DIR=/caminho/da/pasta cargo test --lib loocv -- --nocapture
+    /// Validação "deixa um de fora" nos comprovantes reais (coerência dos números):
+    /// LATTES_REAL_DIR=/caminho/da/pasta cargo test --lib loocv
     #[test]
     fn loocv_on_real_data_if_enabled() {
         let Ok(dir) = std::env::var("LATTES_REAL_DIR") else {
@@ -1440,18 +1440,10 @@ mod tests {
         .unwrap();
         let docs = training_docs(&conn, root);
         let d = evaluate(&conn, &docs);
-        let pct = |a: usize| 100.0 * a as f64 / d.avaliados.max(1) as f64;
-        println!(
-            "{} avaliados ({} sem texto): categoria {:.1}%, top-2 {:.1}%, tipo {:.1}%",
-            d.avaliados,
-            d.sem_texto,
-            pct(d.acerto_categoria),
-            pct(d.acerto_top2),
-            pct(d.acerto_tipo)
-        );
-        for c in &d.confusoes {
-            println!("  {} -> {}: {}", c.real, c.previsto, c.n);
-        }
+        // os números ficam na ferramenta "Diagnóstico da classificação"; aqui só a coerência
+        assert!(d.avaliados + d.sem_texto <= docs.len());
+        assert!(d.acerto_tipo <= d.acerto_categoria && d.acerto_categoria <= d.acerto_top2);
+        assert!(d.acerto_top2 <= d.avaliados);
     }
 
     #[test]
