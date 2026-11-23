@@ -7,6 +7,7 @@
 - Comprovante com DOI é ligado direto à produção de mesmo DOI ("mesmo DOI"), e a busca por registros parecidos olha as três categorias mais prováveis.
 - Aviso quando o documento não cita o seu nome (do Perfil), no cadastro e na importação em lote.
 - O ano sugerido passa a ser o da atividade ("realizado em", "no período de", "defendida no dia"), não o da emissão do certificado.
+- OCR em qualquer PDF digitalizado: a página é renderizada com o pdf.js antes do reconhecimento, então funcionam também os scanners que gravam a imagem em CCITT, JBIG2 ou PNG (antes só JPEG). Se a 1ª página traz pouco texto, a 2ª também é lida.
 - Pistas pelo emissor: certificados da Even3, Doity e Sympla apontam para Eventos; Sigaa (turmas) para Disciplinas; Sigpex para Projetos.
 
 ## 1.2.0

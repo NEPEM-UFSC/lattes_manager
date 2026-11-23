@@ -94,6 +94,7 @@ fn main() {
             commands::fill_issn_openalex,
             commands::sync_autores_xml,
             commands::discentes_report,
+            commands::read_pdf_file,
             commands::clear_missing_links,
             commands::scan_root_folders,
             commands::remove_audited_folders,

@@ -340,6 +340,23 @@ fn researcher_name(conn: &Connection, root: &Path) -> Option<(String, String)> {
     (!p.nome.trim().is_empty()).then_some((p.nome, p.nome_citacoes))
 }
 
+/// Bytes de um PDF escolhido pelo usuário (fora da pasta do currículo também), para a interface
+/// renderizar as páginas e fazer OCR. Só aceita arquivos .pdf.
+#[tauri::command]
+pub async fn read_pdf_file(path: String) -> Result<tauri::ipc::Response, String> {
+    let p = PathBuf::from(path.trim());
+    let is_pdf = p
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false);
+    if !is_pdf {
+        return Err("Apenas arquivos PDF".into());
+    }
+    std::fs::read(&p)
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| e.to_string())
+}
+
 /// JPEG da 1ª página de um PDF digitalizado, para o OCR feito na interface.
 #[tauri::command]
 pub async fn pdf_scan_image(path: String) -> Result<tauri::ipc::Response, String> {

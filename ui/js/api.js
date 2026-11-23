@@ -534,6 +534,8 @@ export const api = {
   fileUrl: (absPath) => window.__TAURI__?.core?.convertFileSrc?.(absPath) ?? null,
 
   // Relatório de comprovantes
+  /** PDF escolhido pelo usuário (qualquer pasta), para renderizar páginas no OCR. */
+  readPdfFile: async (path) => new Uint8Array(await invokeCommand("read_pdf_file", { path })),
   readFileBytes: async (relativePath) => new Uint8Array(await invokeCommand("read_file_bytes", { relativePath })),
   readSystemFont: async (name) => new Uint8Array(await invokeCommand("read_system_font", { name })),
   getLattesProfile: (xmlPath = null) => invokeCommand("get_lattes_profile", { xmlPath }),

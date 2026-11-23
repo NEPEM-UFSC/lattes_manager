@@ -6,7 +6,7 @@ import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 import { CATEGORY_SCHEMAS, escapeHtml, getCategoryMappings, showToast } from "../utils.js";
 import { PALETTE } from "./charts.js";
-import { ocrImage } from "./docAnalyzer.js";
+import { ocrImage, scannedPdfText } from "./docAnalyzer.js";
 
 const IMG = /\.(png|jpe?g)$/i;
 const MAIN_FIELDS = ["titulo", "instituicao", "disciplina", "descricao", "aluno"];
@@ -308,14 +308,18 @@ export class BatchImport {
   }
 
   async ocrAnalyze(path, fileName, getBytes, hint = 0) {
-    const bytes = await getBytes();
-    const text = await ocrImage(bytes, (p, st) => {
+    return this.ocrAnalyzeText(path, fileName, async (onp) => ocrImage(await getBytes(), onp, hint));
+  }
+
+  /** OCR por `getText(onProgress)`, mostrando o progresso na linha do arquivo, e classificação. */
+  async ocrAnalyzeText(path, fileName, getText) {
+    const text = await getText((p, st) => {
       if (/recogniz/i.test(st)) {
         this.ocrLabel = `OCR ${fileName}: ${Math.round(p * 100)}%`;
         const cur = this.overlay.querySelector("[data-bi-cur]");
         if (cur && this.phase === "analyze") cur.textContent = this.ocrLabel;
       }
-    }, hint);
+    });
     this.ocrLabel = null;
     return api.analyzeDocument(path, text);
   }
@@ -330,8 +334,7 @@ export class BatchImport {
       } else {
         res = await api.analyzeDocument(f.path);
         if (res.needs_ocr && this.ocr) {
-          const rot = await api.pdfRotation(f.path).catch(() => 0);
-          res = (await this.ocrAnalyze(f.path, f.name, () => api.pdfScanImage(f.path), rot).catch(() => null)) || res;
+          res = (await this.ocrAnalyzeText(f.path, f.name, (onp) => scannedPdfText(f.path, onp)).catch(() => null)) || res;
         }
       }
     } catch (e) {
