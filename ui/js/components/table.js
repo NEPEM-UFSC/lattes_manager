@@ -2,15 +2,17 @@
 
 import { api } from "../api.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
+import { withMetricColumns, metricSortValue, loadMetrics, metricsLoaded, isExpanded, setExpanded } from "../journalMetrics.js";
 
 const QUALIS_ORDER = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"];
 const NUMERIC = new Set(["id", "ano", "horas", "alunos", "citations"]);
 // direção inicial ao clicar: números/datas começam do maior; textos e Qualis do "melhor"/A→Z
-const FIRST_DIR = { id: "desc", ano: "desc", horas: "desc", alunos: "desc", log: "desc", file: "desc", citations: "desc" };
+const FIRST_DIR = { id: "desc", ano: "desc", horas: "desc", alunos: "desc", log: "desc", file: "desc", citations: "desc", m_resumo: "desc", m_percentil: "desc", m_citescore: "desc", m_sjr: "desc", m_snip: "desc" };
 const collator = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
 const DOI_RE = /^10\.\d{4,9}\//;
 
 function sortValue(key, r) {
+  if (key.startsWith("m_")) return metricSortValue(key, r);
   if (NUMERIC.has(key)) return r[key] == null || r[key] === "" ? null : Number(r[key]);
   if (key === "qualis") {
     const q = String(r.qualis || "").trim().toUpperCase();
@@ -113,6 +115,11 @@ export class TableView {
         return;
       }
       if (e.target.closest("th.col-select")) return;
+      if (e.target.closest("[data-mt-toggle]")) {
+        setExpanded(!isExpanded());
+        this.render(this.currentCategory, this.raw, this.lastTotal);
+        return;
+      }
 
       const th = e.target.closest("th[data-sort]");
       if (!th) return;
@@ -384,6 +391,18 @@ export class TableView {
       return;
     }
 
+    const isProducoes = category === "producoes";
+    const columns = isProducoes ? withMetricColumns(schema.columns) : schema.columns;
+    // métricas da revista: recarrega quando os registros mudam (não ao só reordenar)
+    if (isProducoes && (!metricsLoaded() || this._metricsRaw !== this.raw)) {
+      this._metricsRaw = this.raw;
+      loadMetrics().then(() => {
+        if (this.currentCategory === "producoes" && this._metricsRaw === this.raw) {
+          this.render(this.currentCategory, this.raw, this.lastTotal);
+        }
+      });
+    }
+
     const visibleSelected = this.records.reduce((n, r) => n + (this.selectedIds.has(Number(r.id)) ? 1 : 0), 0);
     const allChecked = this.records.length > 0 && visibleSelected === this.records.length;
 
@@ -392,11 +411,16 @@ export class TableView {
       <th class="col-select" title="Selecionar todos visíveis">
         <input type="checkbox" class="row-select-all" aria-label="Selecionar todos os registros visíveis" ${allChecked ? "checked" : ""} ${this.records.length ? "" : "disabled"} />
       </th>`;
-    for (const col of schema.columns) {
+    for (const col of columns) {
       const style = col.width ? `style="width:${col.width};"` : "";
       const on = sort.key === col.key;
       const arrow = on ? (sort.dir === "asc" ? "▲" : "▼") : "↕";
-      theadHtml += `<th ${style} data-sort="${col.key}" class="sortable ${on ? "sorted" : ""} col-${col.key} ${col.width ? "" : "col-main"}" title="Ordenar por ${escapeHtml(col.label)}">${escapeHtml(col.label)}<span class="sort-ind">${arrow}</span></th>`;
+      const exp = isExpanded();
+      const toggle = col.toggle
+        ? `<button type="button" class="mt-toggle" data-mt-toggle aria-expanded="${exp}" title="${exp ? "Recolher as métricas da revista" : "Expandir as métricas da revista (Qualis, percentil, CiteScore, SJR, SNIP)"}">${exp ? "◂" : "▸"}</button>`
+        : "";
+      const title = col.hint ? `${col.hint}. Clique para ordenar.` : `Ordenar por ${col.label}`;
+      theadHtml += `<th ${style} data-sort="${col.key}" class="sortable ${on ? "sorted" : ""} col-${col.key} ${col.width ? "" : "col-main"}${col.key.startsWith("m_") ? " col-metric" : ""}" title="${escapeHtml(title)}">${toggle}${escapeHtml(col.label)}<span class="sort-ind">${arrow}</span></th>`;
     }
     const isProd = category === "producoes";
     theadHtml += `<th class="col-actions" style="width: 1%; text-align: right;">Ações</th></tr>`;
@@ -437,9 +461,9 @@ export class TableView {
 
       tbodyHtml += `<tr data-id="${rec.id}"${rowClasses ? ` class="${rowClasses}"` : ""}>`;
       tbodyHtml += `<td class="col-select"><input type="checkbox" class="row-select" data-id="${rec.id}" aria-label="Selecionar registro" ${isSelected ? "checked" : ""} /></td>`;
-      for (const col of schema.columns) {
+      for (const col of columns) {
         const val = col.render ? col.render(rec) : escapeHtml(rec[col.key] || "—");
-        tbodyHtml += `<td class="col-${col.key} ${col.width ? "" : "col-main"}">${val}</td>`;
+        tbodyHtml += `<td class="col-${col.key} ${col.width ? "" : "col-main"}${col.key.startsWith("m_") ? " col-metric" : ""}">${val}</td>`;
       }
 
       // Actions Cell
@@ -484,6 +508,12 @@ export class TableView {
   }
 
   handleRowClick(e) {
+    const link = e.target.closest("[data-open-url]");
+    if (link) {
+      e.stopPropagation();
+      api.openUrl(link.dataset.openUrl).catch((err) => showToast(`Erro ao abrir: ${err}`, "error"));
+      return;
+    }
     const chk = e.target.closest("input.row-select");
     if (chk) {
       this.toggleRowSelection(chk.dataset.id, chk.checked, e.shiftKey);

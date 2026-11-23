@@ -1,6 +1,7 @@
 pub mod academic;
 pub mod backup;
 pub mod bibliometria;
+pub mod citescore;
 pub mod classify;
 pub mod commands;
 pub mod config;

@@ -9,6 +9,10 @@ pub struct AppConfig {
     /// Pasta que contém `lattes.db` e as subpastas de comprovantes.
     #[serde(default)]
     pub data_dir: Option<String>,
+    /// Chave da API da Elsevier (Scopus), para o CiteScore das revistas. Fica fora do banco
+    /// para não ir junto nos backups.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elsevier_api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -170,6 +174,7 @@ mod tests {
     fn config_roundtrip_json() {
         let c = AppConfig {
             data_dir: Some(r"D:\dados".into()),
+            elsevier_api_key: None,
         };
         let s = serde_json::to_string(&c).unwrap();
         assert_eq!(serde_json::from_str::<AppConfig>(&s).unwrap(), c);

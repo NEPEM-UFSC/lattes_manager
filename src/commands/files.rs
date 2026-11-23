@@ -108,8 +108,10 @@ pub fn set_data_dir(
         )
         .map_err(|e| format!("Falha ao copiar o banco: {}", e))?;
     }
+    // mantém o resto da configuração (ex.: chave da API da Elsevier)
     config::save(&config::AppConfig {
         data_dir: Some(target.to_string_lossy().to_string()),
+        ..config::load()
     })?;
     app.restart();
 }
@@ -117,9 +119,10 @@ pub fn set_data_dir(
 /// Volta à detecção automática da pasta de dados e reinicia.
 #[tauri::command]
 pub fn reset_data_dir(app: tauri::AppHandle) -> Result<(), String> {
-    let f = config::config_file();
-    if f.exists() {
-        std::fs::remove_file(&f).map_err(|e| e.to_string())?;
+    // só esquece a pasta; o resto da configuração (ex.: chave da API da Elsevier) fica
+    let mut cfg = config::load();
+    if cfg.data_dir.take().is_some() {
+        config::save(&cfg)?;
     }
     app.restart();
 }

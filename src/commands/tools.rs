@@ -524,6 +524,169 @@ pub fn qualis_apply(
     Ok(crate::qualis::apply(&conn, &items))
 }
 
+// ==========================================
+// CITESCORE (SCOPUS / ELSEVIER)
+// ==========================================
+
+#[tauri::command]
+pub fn citescore_key_status() -> crate::citescore::KeyStatus {
+    crate::citescore::key_status()
+}
+
+/// Grava a chave da API da Elsevier no config.json do usuário (vazia apaga).
+#[tauri::command]
+pub fn citescore_set_key(key: String) -> Result<crate::citescore::KeyStatus, String> {
+    crate::citescore::set_key(&key)
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CiteScoreTeste {
+    pub ok: bool,
+    /// A chave só tem acesso à visão sem percentis.
+    pub sem_percentil: bool,
+    pub mensagem: String,
+}
+
+/// Testa a chave consultando uma revista conhecida (Nature, ISSN 0028-0836).
+#[tauri::command(async)]
+pub async fn citescore_test_key(key: Option<String>) -> Result<CiteScoreTeste, String> {
+    let key = key
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty())
+        .or_else(crate::citescore::key)
+        .ok_or("Informe a chave da API da Elsevier.")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut view = 0;
+        let agent = crate::citescore::agent();
+        match crate::citescore::consultar(&agent, "0028-0836", &key, &mut view) {
+            Ok(crate::citescore::Consulta::Ok(m)) => CiteScoreTeste {
+                ok: true,
+                sem_percentil: m.percentil.is_none(),
+                mensagem: format!(
+                    "Chave funcionando: {} — CiteScore {} {}{}.",
+                    m.titulo.unwrap_or_else(|| "Nature".into()),
+                    m.ano.map(|a| a.to_string()).unwrap_or_default(),
+                    m.citescore
+                        .map(|c| format!("{c:.1}"))
+                        .unwrap_or_else(|| "—".into()),
+                    m.percentil
+                        .map(|p| format!(", percentil {p}"))
+                        .unwrap_or_else(|| {
+                            " (sem percentil: a chave só acessa a visão básica)".into()
+                        })
+                ),
+            },
+            Ok(crate::citescore::Consulta::NaoEncontrada) => CiteScoreTeste {
+                ok: true,
+                sem_percentil: false,
+                mensagem: "A chave foi aceita, mas a revista de teste não veio. Tente consultar as suas revistas.".into(),
+            },
+            Err(f) => CiteScoreTeste {
+                ok: false,
+                sem_percentil: false,
+                mensagem: f.mensagem(),
+            },
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command(async)]
+pub fn citescore_data(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::citescore::CiteScoreData, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut d = crate::citescore::data(&conn)?;
+    d.chave = Some(crate::citescore::key_status());
+    Ok(d)
+}
+
+/// Métricas da revista de cada artigo (Qualis oficial, CiteScore, percentil, SJR, SNIP), para a
+/// coluna "Métricas" da tabela de produções.
+#[tauri::command(async)]
+pub fn journal_metrics(
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<i64, crate::citescore::MetricasRevista>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::citescore::por_producao(&conn)
+}
+
+#[derive(Debug, Default, serde::Serialize)]
+pub struct CiteScoreFetch {
+    pub consultadas: usize,
+    pub encontradas: usize,
+    pub nao_encontradas: usize,
+    /// A chave não tem acesso aos percentis (só CiteScore).
+    pub sem_percentil: bool,
+    /// Motivo da interrupção (chave, acesso, cota); o que foi consultado antes fica gravado.
+    pub erro: Option<String>,
+}
+
+/// Consulta na Elsevier o CiteScore das revistas dos artigos (`todos`: também as já consultadas),
+/// com eventos "citescore-progress" { done, total, issn }.
+#[tauri::command(async)]
+pub async fn citescore_fetch(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    todos: Option<bool>,
+) -> Result<CiteScoreFetch, String> {
+    use tauri::Emitter;
+    let key = crate::citescore::key().ok_or("Configure a chave da API da Elsevier primeiro.")?;
+    let issns = {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        crate::citescore::issns_pendentes(&conn, todos.unwrap_or(false))?
+    };
+    let total = issns.len();
+    let app2 = app.clone();
+    let (resultados, erro) = tauri::async_runtime::spawn_blocking(move || {
+        let agent = crate::citescore::agent();
+        let mut view = 0;
+        let mut out = Vec::new();
+        let mut erro = None;
+        for (i, issn) in issns.iter().enumerate() {
+            let _ = app2.emit(
+                "citescore-progress",
+                serde_json::json!({ "done": i, "total": total, "issn": issn }),
+            );
+            match crate::citescore::consultar(&agent, issn, &key, &mut view) {
+                Ok(r) => out.push((issn.clone(), r)),
+                Err(f) => {
+                    erro = Some(f.mensagem());
+                    break;
+                }
+            }
+            std::thread::sleep(crate::citescore::PAUSA);
+        }
+        let _ = app2.emit(
+            "citescore-progress",
+            serde_json::json!({ "done": out.len(), "total": total, "issn": "" }),
+        );
+        (out, erro)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let mut res = CiteScoreFetch {
+        consultadas: resultados.len(),
+        erro,
+        ..Default::default()
+    };
+    let mut com_percentil = 0;
+    for (issn, r) in &resultados {
+        crate::citescore::store(&conn, issn, r)?;
+        match r {
+            crate::citescore::Consulta::Ok(m) => {
+                res.encontradas += 1;
+                com_percentil += usize::from(m.percentil.is_some());
+            }
+            crate::citescore::Consulta::NaoEncontrada => res.nao_encontradas += 1,
+        }
+    }
+    res.sem_percentil = res.encontradas > 0 && com_percentil == 0;
+    Ok(res)
+}
+
 /// Busca na OpenAlex o ISSN dos artigos com DOI que ainda não têm ISSN.
 #[tauri::command(async)]
 pub async fn fill_issn_openalex(

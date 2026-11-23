@@ -425,6 +425,24 @@ impl<'a> Index<'a> {
     }
 }
 
+/// Estrato oficial de várias produções de uma vez: (id, ISSN, revista) → estrato.
+pub fn estratos(
+    conn: &Connection,
+    itens: &[(i64, Option<String>, Option<String>)],
+) -> HashMap<i64, String> {
+    let Ok(entries) = load_entries(conn) else {
+        return HashMap::new();
+    };
+    let idx = Index::new(&entries);
+    itens
+        .iter()
+        .filter_map(|(id, issn, journal)| {
+            idx.find(issn.as_deref(), journal.as_deref())
+                .map(|(e, _)| (*id, e.estrato.clone()))
+        })
+        .collect()
+}
+
 /// Estrato oficial de uma revista (por um dos ISSNs ou pelo nome), se a tabela foi importada.
 pub fn lookup(conn: &Connection, issns: &[String], journal: Option<&str>) -> Option<QualisEntry> {
     let entries = load_entries(conn).ok()?;

@@ -451,6 +451,26 @@ CREATE TABLE IF NOT EXISTS autor_mesclas (
     destino TEXT NOT NULL
 );
 "#,
+    // 13: CiteScore (Scopus) das revistas, só do ano corrente do CiteScore (uma linha por ISSN)
+    r#"
+CREATE TABLE IF NOT EXISTS citescore (
+    issn TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    source_id TEXT,
+    titulo TEXT,
+    editora TEXT,
+    issn_impresso TEXT,
+    issn_eletronico TEXT,
+    ano INTEGER,
+    citescore REAL,
+    percentil INTEGER,
+    area TEXT,
+    areas TEXT,
+    sjr REAL,
+    snip REAL,
+    consultado_em TEXT
+);
+"#,
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

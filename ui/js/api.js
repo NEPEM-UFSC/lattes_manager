@@ -315,6 +315,43 @@ function mockHandler(cmd, args = {}) {
       return { areas: [], info: mockState.qualisInfo };
     }
 
+    case "journal_metrics":
+      return {
+        1: { qualis_capes: "A3", ano: 2025, citescore: 4.8, percentil: 82, area: "Agronomy and Crop Science", sjr: 0.741, snip: 1.05, url: "https://www.scopus.com/sourceid/15600", fora_scopus: false },
+        2: { qualis_capes: "A1", ano: 2025, citescore: 4.2, percentil: 76, area: "Agronomy and Crop Science", sjr: 0.68, snip: 0.98, url: "https://www.scopus.com/sourceid/15601", fora_scopus: false },
+        3: { qualis_capes: "B1", ano: null, citescore: null, percentil: null, area: null, sjr: null, snip: null, url: null, fora_scopus: true },
+      };
+
+    case "citescore_key_status":
+      return mockState.csKey ?? { configurada: false, final_chave: null };
+
+    case "citescore_set_key":
+      mockState.csKey = args.key ? { configurada: true, final_chave: args.key.slice(-4) } : { configurada: false, final_chave: null };
+      return mockState.csKey;
+
+    case "citescore_test_key":
+      return { ok: true, sem_percentil: false, mensagem: "Chave funcionando: Nature — CiteScore 2024 90.0, percentil 99." };
+
+    case "citescore_fetch":
+      mockState.csFetched = true;
+      return { consultadas: 6, encontradas: 5, nao_encontradas: 1, sem_percentil: false, erro: null };
+
+    case "citescore_data": {
+      const chave = mockState.csKey ?? { configurada: false, final_chave: null };
+      const rev = (issn, titulo, cs, p, area, n, sjr, snip, sid) => ({ issn, status: "ok", source_id: sid, titulo, editora: "Editora", ano: 2024, citescore: cs, percentil: p, area, areas: [{ codigo: "1102", area, posicao: Math.max(1, Math.round((100 - p) * 4)), percentil: p }, { codigo: "1111", area: "Soil Science", posicao: 80, percentil: Math.max(0, p - 15) }], sjr, snip, consultado_em: "2026-11-23 10:00", url: `https://www.scopus.com/sourceid/${sid}`, artigos: n });
+      const revistas = mockState.csFetched === false ? [] : [
+        rev("0002-1962", "Agronomy Journal", 4.8, 82, "Agronomy and Crop Science", 8, 0.741, 1.05, "15600"),
+        rev("0011-183X", "Crop Science", 4.2, 76, "Agronomy and Crop Science", 5, 0.68, 0.98, "15601"),
+        rev("0100-204X", "Pesquisa Agropecuária Brasileira", 1.6, 38, "Agronomy and Crop Science", 6, 0.31, 0.52, "15602"),
+        rev("0014-2336", "Euphytica", 3.4, 61, "Plant Science", 3, 0.52, 0.81, "15603"),
+        rev("1807-8621", "Acta Scientiarum. Agronomy", 1.1, 19, "Agronomy and Crop Science", 4, 0.22, 0.41, "15604"),
+        { issn: "2594-8245", status: "nao_encontrada", source_id: null, titulo: null, editora: null, ano: null, citescore: null, percentil: null, area: null, areas: [], sjr: null, snip: null, consultado_em: "2026-11-23 10:00", url: null, artigos: 2 },
+      ];
+      const issns = ["0002-1962", "0011-183X", "0100-204X", "0014-2336", "1807-8621", "2594-8245", null];
+      const artigos = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, titulo: `Artigo de exemplo ${i + 1}`, ano: 2014 + (i % 11), journal: "Revista", issn: issns[i % issns.length] }));
+      return { chave, revistas, artigos, pendentes: revistas.length ? 0 : 6 };
+    }
+
     case "qualis_info":
       return mockState.qualisInfo ?? null;
 
@@ -442,7 +479,7 @@ function mockHandler(cmd, args = {}) {
 }
 
 // Comandos que não alteram registros; qualquer outro invalida o cache de get_all_records.
-const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|qualis_import|qualis_info|qualis_list|biblio_data|discentes_report|classify_diagnostics|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
+const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|qualis_import|qualis_info|qualis_list|citescore_data|citescore_key_status|citescore_test_key|journal_metrics|biblio_data|discentes_report|classify_diagnostics|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
 let allRecordsCache = null;
 
 async function getAllRecordsCached() {
@@ -647,6 +684,13 @@ export const api = {
   qualisInfo: () => invokeCommand("qualis_info"),
   qualisList: () => invokeCommand("qualis_list"),
   qualisPreview: () => invokeCommand("qualis_preview"),
+  citescoreKeyStatus: () => invokeCommand("citescore_key_status"),
+  citescoreSetKey: (key) => invokeCommand("citescore_set_key", { key }),
+  citescoreTestKey: (key = null) => invokeCommand("citescore_test_key", { key }),
+  citescoreData: () => invokeCommand("citescore_data"),
+  journalMetrics: () => invokeCommand("journal_metrics"),
+  citescoreFetch: (todos = false) => invokeCommand("citescore_fetch", { todos }),
+  onCitescoreProgress: async (fn) => (window.__TAURI__?.event?.listen ? window.__TAURI__.event.listen("citescore-progress", (e) => fn(e.payload)) : () => { }),
   qualisApply: (items) => invokeCommand("qualis_apply", { items }),
   fillIssnOpenalex: () => invokeCommand("fill_issn_openalex"),
   syncAutoresXml: (xmlPath = null) => invokeCommand("sync_autores_xml", { xmlPath }),

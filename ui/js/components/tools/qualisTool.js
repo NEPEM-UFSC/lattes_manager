@@ -5,6 +5,7 @@
 import { api } from "../../api.js";
 import { escapeHtml, showToast } from "../../utils.js";
 import { renderCatalog, invalidateCatalog, hideCatalogTip } from "./qualisCatalog.js";
+import { invalidateMetrics } from "../../journalMetrics.js";
 
 const TOOL_ID = "qualis_oficial";
 const MAX_ROWS = 400;
@@ -43,6 +44,7 @@ async function runImport(view, st, path, area) {
       st.info = r.info;
       st.preview = null;
       invalidateCatalog(st);
+      invalidateMetrics();
       showToast(`Qualis importado: ${fmt(r.info?.entradas)} periódicos gravados no banco.`, "success", 5000);
       st.tab = "revistas";
     }

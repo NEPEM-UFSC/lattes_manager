@@ -9,6 +9,7 @@ import { renderPendenciasTool } from "./tools/pendenciasTool.js";
 import { renderQualisTool } from "./tools/qualisTool.js";
 import { renderDiscentesTool } from "./tools/discentesTool.js";
 import { renderBiblioTool } from "./tools/biblioTool.js";
+import { renderCitescoreTool } from "./tools/citescoreTool.js";
 import { renderDiagnosticoTool } from "./tools/diagnosticoTool.js";
 
 // ---------- formatação de textos ----------
@@ -444,6 +445,7 @@ const TOOLS = [
   ["discentes", "🎓", "Produção com discentes", "Veja quais produções têm seus orientados como coautores, por ano e nível, a partir dos autores do XML do Lattes, e exporte para Excel.", "producoes"],
   ["bibliometria", "🕸️", "Bibliometria e rede de coautoria", "Importe os autores de todas as produções do XML do Lattes e analise coautores, posição de autoria, evolução da colaboração e a rede de colaboração, com exportação para Excel, Gephi e VOSviewer.", "producoes"],
   ["qualis_oficial", "🏛️", "Qualis oficial da CAPES", "Importe a planilha oficial do Qualis (Plataforma Sucupira) para o banco, consulte o estrato de qualquer revista e padronize o Qualis dos artigos pelo ISSN ou pelo nome da revista, conferindo cada mudança.", "producoes"],
+  ["citescore", "📊", "CiteScore e percentil (Scopus)", "Consulte pela API da Elsevier o CiteScore, o percentil e o quartil das revistas dos seus artigos, com gráficos, ranking das revistas e exportação para Excel.", "producoes"],
   ["qualis", "🏆", "Completar Qualis", "Preenche o Qualis das produções sem estrato usando o que você já atribuiu à mesma revista.", "producoes"],
 
   // Comprovantes & Arquivos
@@ -619,6 +621,7 @@ export class ToolsView {
       qualis_oficial: () => renderQualisTool(this),
       discentes: () => renderDiscentesTool(this),
       bibliometria: () => renderBiblioTool(this),
+      citescore: () => renderCitescoreTool(this),
       diagnostico: () => renderDiagnosticoTool(this),
       scholar: () => this.toolScholar(),
       scholar_unmatched: () => this.toolScholarUnmatched(),
