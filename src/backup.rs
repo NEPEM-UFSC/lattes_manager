@@ -391,7 +391,8 @@ pub fn inspect(path: &Path) -> Result<BackupInspection, String> {
         ins.has_db = za.by_name(DB_ENTRY).is_ok();
         ins.files = za
             .file_names()
-            .filter(|n| *n != MANIFEST && *n != DB_ENTRY && !n.ends_with('/'))
+            .filter_map(|n| n.ok())
+            .filter(|n| n != MANIFEST && n != DB_ENTRY && !n.ends_with('/'))
             .count();
         if ins.has_db {
             let tmp = extract_db(path)?;
@@ -461,7 +462,13 @@ pub fn verify_integrity(path: &Path) -> Result<IntegrityReport, String> {
                 continue;
             }
         };
-        let name = entry.name().to_string();
+        let name = match entry.name() {
+            Ok(n) => n.into_owned(),
+            Err(e) => {
+                report.crc_errors.push(format!("Entrada #{}: {}", i, e));
+                continue;
+            }
+        };
         if !name.ends_with('/') {
             zip_filenames.insert(crate::files::to_db_rel(&name).to_lowercase());
         }
@@ -633,7 +640,13 @@ pub fn restore_files(
                 continue;
             }
         };
-        let name = entry.name().to_string();
+        let name = match entry.name() {
+            Ok(n) => n.into_owned(),
+            Err(e) => {
+                report.errors.push(e.to_string());
+                continue;
+            }
+        };
         if entry.is_dir() || name == MANIFEST || name == DB_ENTRY {
             continue;
         }
