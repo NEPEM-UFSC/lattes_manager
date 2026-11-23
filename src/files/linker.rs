@@ -463,6 +463,70 @@ pub fn apply_links(conn: &Connection, root: &Path, links: &[LinkApply]) -> Resul
     Ok(n)
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SimilarRecord {
+    pub id: i64,
+    pub titulo: String,
+    pub ano: Option<i64>,
+    pub tipo: Option<String>,
+    /// Semelhança do título (0–1).
+    pub score: f64,
+}
+
+/// Registros da categoria com título muito parecido (para avisar no formulário antes de salvar).
+/// Ignora `exclude_id` (o próprio registro em edição) e anos distantes mais de 1.
+pub fn similar_records(
+    conn: &Connection,
+    category: &str,
+    titulo: &str,
+    ano: Option<i64>,
+    exclude_id: Option<i64>,
+) -> Result<Vec<SimilarRecord>, String> {
+    // só tabelas reais em que o título identifica a atividade
+    let Some(table) = normalize_category(category).filter(|t| {
+        [
+            "producoes",
+            "orientacoes",
+            "bancas",
+            "projetos",
+            "patentes",
+            "eventos",
+            "formacao",
+            "inovacao",
+            "educacao_popularizacao",
+        ]
+        .contains(t)
+    }) else {
+        return Ok(vec![]);
+    };
+    let q = trigrams(titulo);
+    if q.len() < 12 {
+        return Ok(vec![]);
+    }
+    let mut out: Vec<SimilarRecord> = load(conn, table)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|r| Some(r.id) != exclude_id)
+        .filter(|r| match (ano, r.ano) {
+            (Some(a), Some(b)) => (a - b).abs() <= 1,
+            _ => true,
+        })
+        .filter_map(|r| {
+            let s = dice(&q, &trigrams(&r.titulo));
+            (s >= 0.85).then_some(SimilarRecord {
+                id: r.id,
+                titulo: r.titulo,
+                ano: r.ano,
+                tipo: r.tipo,
+                score: s,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| b.score.total_cmp(&a.score));
+    out.truncate(3);
+    Ok(out)
+}
+
 /// Pares de registros com títulos quase idênticos na mesma categoria.
 pub fn find_duplicates(conn: &Connection) -> Result<Vec<DupPair>, String> {
     let mut out = Vec::new();
@@ -609,6 +673,30 @@ mod tests {
         let (p3, f3) = get(3);
         assert_eq!(f3, r"5_producoes\");
         assert!(crate::files::rel_join(&root, &p3).is_file(), "{}", p3);
+    }
+
+    #[test]
+    fn similar_records_warns_before_saving() {
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute_batch(
+            "INSERT INTO producoes (id, ano, tipo, titulo) VALUES
+               (1, 2023, 'Artigos completos', 'Seleção genômica em milho tropical sob estresse hídrico'),
+               (2, 2015, 'Artigos completos', 'Seleção genômica em milho tropical sob estresse hídrico'),
+               (3, 2023, 'Artigos completos', 'Outro trabalho sobre soja');",
+        )
+        .unwrap();
+        let t = "Selecao genomica em milho tropical sob estresse hidrico.";
+        let r = similar_records(&conn, "producoes", t, Some(2024), None).unwrap();
+        // o de 2015 está longe no tempo; o 3 não se parece
+        assert_eq!(r.iter().map(|x| x.id).collect::<Vec<_>>(), vec![1]);
+        // editando o próprio registro, ele não conta
+        assert!(similar_records(&conn, "producoes", t, Some(2023), Some(1))
+            .unwrap()
+            .is_empty());
+        // título curto demais não dispara aviso
+        assert!(similar_records(&conn, "producoes", "Milho", None, None)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

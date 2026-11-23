@@ -90,6 +90,32 @@ export function ocrImage(bytes, onProgress, hint = 0) {
   return p;
 }
 
+const letters = (t) => (String(t || "").match(/\p{L}/gu) || []).length;
+
+/**
+ * Texto de um PDF digitalizado por OCR: renderiza a 1ª página com o pdf.js (qualquer formato de
+ * imagem) e, se ela render pouco texto, também a 2ª. Sem pdf.js, usa o JPEG embutido na 1ª página.
+ */
+export async function scannedPdfText(path, onProgress) {
+  try {
+    const { openPdf } = await import("../pdf/pdfRender.js");
+    const pdf = await openPdf(await api.readPdfFile(path));
+    try {
+      let text = await ocrImage(await pdf.render(1), onProgress, 0);
+      if (letters(text) < 200 && pdf.pages > 1) {
+        text += "\n" + (await ocrImage(await pdf.render(2), onProgress, 0));
+      }
+      return text;
+    } finally {
+      pdf.close();
+    }
+  } catch (e) {
+    console.warn("pdf.js indisponível para OCR, usando a imagem embutida:", e);
+    const rot = await api.pdfRotation(path).catch(() => 0);
+    return ocrImage(await api.pdfScanImage(path), onProgress, rot);
+  }
+}
+
 export class DocAnalyzer {
   constructor({ getMappings, onCreate, onAttached }) {
     this.getMappings = getMappings;
@@ -133,9 +159,8 @@ export class DocAnalyzer {
         res = await api.analyzeDocument(path);
         if (token !== this.token) return;
         if (res.needs_ocr) {
-          // PDF digitalizado: OCR da imagem da 1ª página, endireitada pela rotação da página
-          const rot = await api.pdfRotation(path).catch(() => 0);
-          const viaOcr = await this.withOcr(path, token, () => api.pdfScanImage(path), rot).catch(() => null);
+          // PDF digitalizado: OCR das páginas renderizadas (1ª e, se preciso, 2ª)
+          const viaOcr = await this.withOcrText(path, token, (onp) => scannedPdfText(path, onp)).catch(() => null);
           if (token !== this.token) return;
           if (viaOcr) res = viaOcr;
         }
@@ -152,14 +177,21 @@ export class DocAnalyzer {
   }
 
   async withOcr(path, token, getBytes, hint = 0) {
+    return this.withOcrText(path, token, async (onp) => {
+      const bytes = await getBytes();
+      if (token !== this.token) return "";
+      return ocrImage(bytes, onp, hint);
+    });
+  }
+
+  /** Mostra o progresso, obtém o texto por OCR (`getText(onProgress)`) e classifica. */
+  async withOcrText(path, token, getText) {
     this.loading("Reconhecendo o texto (OCR)…", "imagem ou PDF digitalizado — pode levar alguns segundos", 0);
-    const bytes = await getBytes();
-    if (token !== this.token) return null;
-    const text = await ocrImage(bytes, (p, st) => {
+    const text = await getText((p, st) => {
       if (token !== this.token) return;
       const bar = this.overlay.querySelector(".tl-progress i");
       if (bar && /recogniz/i.test(st)) bar.style.width = `${Math.round(p * 100)}%`;
-    }, hint);
+    });
     if (token !== this.token) return null;
     this.ocr = true;
     this.loading("Classificando…", "comparando com os seus comprovantes já cadastrados");
@@ -181,9 +213,12 @@ export class DocAnalyzer {
     const color = (cat) => PALETTE[cat] || CATEGORY_SCHEMAS[cat]?.color || "#6366f1";
     this.tipo = this.tipo && this.tipoCat === cur?.category ? this.tipo : cur?.tipo;
     this.tipoCat = cur?.category;
-    const tipos = cur ? this.tiposOf(cur.category) : [];
+    const mapped = cur ? this.tiposOf(cur.category) : [];
+    // o tipo sugerido pode vir dos registros e não das subpastas: entra na lista
+    const tipos = cur?.tipo && !mapped.includes(cur.tipo) ? [cur.tipo, ...mapped] : mapped;
     const fields = [
       ["Ano", c.ano],
+      ["Papel", c.papel],
       ["Carga horária", c.horas ? `${c.horas} h` : null],
       ["Aluno(a)", c.aluno],
       ["Título", c.titulo],
@@ -208,7 +243,7 @@ export class DocAnalyzer {
               ${r.registros
                 .map(
                   (m, i) => `<div class="da-rec"><span class="da-dot" style="--c:${color(m.category)}"></span>
-                  <div><b>${escapeHtml(m.label || `#${m.id}`)}</b><small>${escapeHtml(label(m.category))} · #${m.id}${m.ano ? ` · ${m.ano}` : ""} · ${pct(m.score)} do texto confere</small></div>
+                  <div><b>${escapeHtml(m.label || `#${m.id}`)}</b><small>${escapeHtml(label(m.category))} · #${m.id}${m.ano ? ` · ${m.ano}` : ""} · ${m.via === "doi" ? "mesmo DOI" : `${pct(m.score)} do texto confere`}</small></div>
                   <button type="button" class="btn btn-primary btn-sm" data-attach="${i}">Anexar a este registro</button></div>`
                 )
                 .join("")}</section>`
@@ -232,6 +267,7 @@ export class DocAnalyzer {
               : `<div class="tl-empty">Não foi possível sugerir uma categoria — escolha manualmente.</div>`
           }
           ${fields.length ? `<section><div class="rb-label">Informações encontradas no documento</div><div class="da-fields">${fields.map(([k, v]) => `<div><span>${k}</span><b>${escapeHtml(String(v))}</b></div>`).join("")}</div></section>` : ""}
+          ${r.cita_usuario === false ? '<p class="dd-note">⚠️ O documento não cita o seu nome (do Perfil). Confira se é mesmo um comprovante seu antes de cadastrar.</p>' : ""}
           ${r.chars < 60 && !this.ocr ? '<p class="dd-note">⚠️ O arquivo não tem texto selecionável e o OCR não encontrou uma imagem legível. A sugestão usa só o nome do arquivo.</p>' : ""}
         </div>
         <footer class="modal-footer da-foot">

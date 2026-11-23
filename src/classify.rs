@@ -493,6 +493,20 @@ fn cues(f: &str, raw: &str) -> HashMap<&'static str, f64> {
     if has("premio") || has("mencao honrosa") || has("homenagem") {
         add("dadosgerais", 2.0);
     }
+    // plataformas que emitem certificados de eventos ("even3" tem número: procura no texto bruto)
+    let bruto = crate::db::fold(raw);
+    if bruto.contains("even3") || has("doity") || has("sympla") || has("inscricao") && has("evento")
+    {
+        add("eventos", 3.0);
+    }
+    // sistemas acadêmicos: Sigaa (turmas e disciplinas), Sigpex (projetos de extensão)
+    if has("sigaa") && (has("turma") || has("disciplina") || has("docente")) {
+        add("atuacao", 3.0);
+        add("disciplinas", 3.0);
+    }
+    if has("sigpex") || has("notes ufsc") {
+        add("projetos", 3.0);
+    }
     b
 }
 
@@ -514,6 +528,8 @@ pub struct Fields {
     pub disciplina: Option<String>,
     pub curso: Option<String>,
     pub doi: Option<String>,
+    /// Papel do pesquisador descrito no documento ("Apresentação de trabalho", "Banca de mestrado"...).
+    pub papel: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -523,6 +539,8 @@ pub struct RecordMatch {
     pub label: String,
     pub ano: Option<i64>,
     pub score: f64,
+    /// "doi" (mesmo DOI no documento e no registro) ou "texto" (palavras em comum).
+    pub via: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -534,6 +552,8 @@ pub struct Analysis {
     pub registros: Vec<RecordMatch>,
     pub treino: usize,
     pub nome_arquivo: String,
+    /// O documento cita o pesquisador (nome do Perfil)? `None` se o Perfil não tem nome.
+    pub cita_usuario: Option<bool>,
 }
 
 /// Classifica: categorias ordenadas, cada uma com o melhor tipo.
@@ -943,18 +963,34 @@ pub fn extract_fields(text: &str) -> Fields {
         .parse::<i64>()
         .unwrap_or(2100)
         + 1;
-    let years: Vec<i64> = r[0]
+    // (ano, citado logo depois de "realizado em", "no período de"... = data da atividade)
+    // o contexto de cada data vai do fim da data anterior (ou 70 caracteres antes) até ela
+    let mut prev_end = 0usize;
+    let years: Vec<(i64, bool)> = r[0]
         .captures_iter(text)
-        .filter_map(|c| c.get(1).or(c.get(2)))
-        .filter_map(|m| m.as_str().parse().ok())
-        .filter(|y| *y <= max_year)
+        .filter_map(|c| {
+            let whole = c.get(0)?;
+            let m = c.get(1).or(c.get(2))?;
+            let start = whole.start();
+            let mut from = start.saturating_sub(70).max(prev_end);
+            while !text.is_char_boundary(from) {
+                from += 1;
+            }
+            prev_end = whole.end();
+            let y: i64 = m.as_str().parse().ok()?;
+            Some((y, is_activity_date(&text[from..start])))
+        })
+        .filter(|(y, _)| *y <= max_year)
         .collect();
-    // data do documento costuma ser a última citada (local e data, assinatura)
+    // a data da atividade vale mais que a da emissão; sem ela, a mais recente (local e data, assinatura)
     f.ano = years
         .iter()
+        .filter(|(_, act)| *act)
+        .map(|(y, _)| *y)
         .max()
-        .copied()
+        .or_else(|| years.iter().map(|(y, _)| *y).max())
         .or_else(|| crate::metadata::guess_year(text));
+    f.papel = detect_papel(text).map(|(_, label)| label.to_string());
     f.horas = r[1]
         .captures_iter(text)
         .filter_map(|c| c.get(1).or(c.get(2)))
@@ -989,15 +1025,344 @@ pub fn extract_fields(text: &str) -> Fields {
     f
 }
 
+/// O trecho antes de uma data indica que ela é a data da atividade (e não a de emissão)?
+fn is_activity_date(before: &str) -> bool {
+    let f = folded(before);
+    let tail: String = {
+        let w: Vec<&str> = f.split_whitespace().collect();
+        w[w.len().saturating_sub(6)..].join(" ")
+    };
+    [
+        "realizad",
+        "ocorrid",
+        "periodo",
+        "durante",
+        "dia",
+        "dias",
+        "evento",
+        "defesa",
+        "defendid",
+        "apresentad",
+        "ministrad",
+        "aprovad",
+    ]
+    .iter()
+    .any(|k| tail.split(' ').any(|w| w.starts_with(k)))
+}
+
+/// Papel do pesquisador no documento: (chave, rótulo). A ordem importa: o mais específico primeiro.
+pub fn detect_papel(text: &str) -> Option<(&'static str, &'static str)> {
+    let f = folded(text);
+    let has = |w: &str| f.contains(w);
+    let raw = crate::db::fold(text);
+    let banca = has("banca") || has("comissao examinadora") || has("comissao julgadora");
+    if has("coorientador")
+        || has("coorientacao")
+        || raw.contains("co-orient")
+        || raw.contains("co orient")
+    {
+        return Some(("coorientacao", "Coorientação"));
+    }
+    if banca {
+        if has("qualificacao") {
+            return Some(("banca_qualificacao", "Banca de qualificação"));
+        }
+        if has("concurso") {
+            return Some(("banca_concurso", "Banca de concurso"));
+        }
+        if has("doutorado") || has("tese") {
+            return Some(("banca_doutorado", "Banca de doutorado"));
+        }
+        if has("mestrado") || has("dissertacao") {
+            return Some(("banca_mestrado", "Banca de mestrado"));
+        }
+        if has("conclusao curso") || has("tcc") || has("graduacao") {
+            return Some(("banca_tcc", "Banca de TCC"));
+        }
+        return Some(("banca", "Banca"));
+    }
+    if has("palestra")
+        || has("palestrante")
+        || has("proferiu")
+        || has("conferencista")
+        || has("mesa redonda")
+    {
+        return Some(("palestrante", "Palestra"));
+    }
+    if has("comissao organizadora")
+        || has("organizacao evento")
+        || has("organizou")
+        || has("coordenou evento")
+    {
+        return Some(("organizador", "Organização de evento"));
+    }
+    if has("apresentou")
+        || has("apresentacao trabalho")
+        || has("apresentacao oral")
+        || has("poster")
+        || has("autor trabalho")
+    {
+        return Some(("apresentador", "Apresentação de trabalho"));
+    }
+    if has("parecerista") || has("avaliador") || has("revisor") || has("reviewer") {
+        return Some(("avaliador", "Avaliação / revisão"));
+    }
+    if has("ministrou") || has("instrutor") || has("ministrante") {
+        return Some(("ministrante", "Ministrou curso"));
+    }
+    if has("ouvinte") || has("participou") || has("participante") || has("participacao") {
+        return Some(("ouvinte", "Participação"));
+    }
+    if has("orientador") || has("orientou") || has("orientacao") {
+        return Some(("orientador", "Orientação"));
+    }
+    None
+}
+
+/// Palavras que, no nome de um tipo, combinam com cada papel.
+fn papel_keywords(papel: &str) -> &'static [&'static str] {
+    match papel {
+        "ouvinte" => &["particip", "ouvinte"],
+        "apresentador" => &["apresent", "trabalho", "comunica"],
+        "palestrante" => &["palestr", "conferen", "convid"],
+        "organizador" => &["organiz"],
+        "avaliador" => &["avalia", "parecer", "revis"],
+        "ministrante" => &["ministr", "docen", "instrut"],
+        "banca_doutorado" => &["doutor", "tese"],
+        "banca_mestrado" => &["mestr", "dissert"],
+        "banca_tcc" => &["conclus", "tcc", "gradua"],
+        "banca_qualificacao" => &["qualific"],
+        "banca_concurso" => &["concurso"],
+        "coorientacao" => &["coorient", "co orient"],
+        _ => &[],
+    }
+}
+
+/// Entre os tipos de uma categoria, o que melhor corresponde ao papel detectado.
+pub fn refine_tipo(papel: &str, tipos: &[String]) -> Option<String> {
+    let keys = papel_keywords(papel);
+    if keys.is_empty() {
+        return None;
+    }
+    tipos
+        .iter()
+        .map(|t| {
+            let f = crate::db::fold(t).replace('-', " ");
+            (keys.iter().filter(|k| f.contains(*k)).count(), t)
+        })
+        .filter(|(n, _)| *n > 0)
+        .max_by_key(|(n, _)| *n)
+        .map(|(_, t)| t.clone())
+}
+
+/// O documento cita a pessoa? Basta o primeiro e o último nome, ou o sobrenome de uma
+/// forma de citação ("OLIVOTO, T.") junto com o primeiro nome.
+pub fn mentions_person(text: &str, nome: &str, citacoes: &str) -> bool {
+    let words = |s: &str| -> Vec<String> {
+        crate::db::fold(s)
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+            .collect::<String>()
+            .split_whitespace()
+            .filter(|w| w.len() > 1 && !["de", "da", "do", "das", "dos"].contains(w))
+            .map(str::to_string)
+            .collect()
+    };
+    let doc: HashSet<String> = words(text).into_iter().collect();
+    let n = words(nome);
+    if n.len() >= 2 && doc.contains(&n[0]) && doc.contains(&n[n.len() - 1]) {
+        return true;
+    }
+    citacoes.split(';').any(|c| {
+        let Some((sur, _)) = c.split_once(',') else {
+            return false;
+        };
+        let sur = words(sur);
+        !sur.is_empty()
+            && sur.iter().all(|w| doc.contains(w))
+            && n.first().map(|f| doc.contains(f)).unwrap_or(true)
+    })
+}
+
+// ---------------- diagnóstico (validação "deixa um de fora") ----------------
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DiagCategoria {
+    pub categoria: String,
+    pub n: usize,
+    pub acertos: usize,
+    pub acertos_tipo: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagConfusao {
+    pub real: String,
+    pub previsto: String,
+    pub n: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagErro {
+    pub path: String,
+    pub real: String,
+    pub real_tipo: String,
+    pub previsto: String,
+    pub previsto_tipo: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Diagnostico {
+    /// Comprovantes com texto avaliados.
+    pub avaliados: usize,
+    /// Comprovantes sem texto no índice (digitalizados: na prática passam por OCR).
+    pub sem_texto: usize,
+    pub acerto_categoria: usize,
+    /// A categoria certa estava entre as duas primeiras sugestões.
+    pub acerto_top2: usize,
+    pub acerto_tipo: usize,
+    pub por_categoria: Vec<DiagCategoria>,
+    pub confusoes: Vec<DiagConfusao>,
+    pub erros: Vec<DiagErro>,
+}
+
+/// Mede a classificação com os próprios comprovantes: cada um é classificado por um modelo
+/// treinado com todos os outros. Usa o texto já guardado em `doc_index`.
+pub fn evaluate(conn: &Connection, docs: &[TrainDoc]) -> Diagnostico {
+    let mut idx: HashMap<String, (String, i64)> = HashMap::new();
+    if let Ok(mut st) = conn.prepare("SELECT path, tokens, chars FROM doc_index") {
+        if let Ok(rows) = st.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            ))
+        }) {
+            for (p, t, c) in rows.flatten() {
+                idx.insert(p, (t, c));
+            }
+        }
+    }
+    let toks: Vec<HashSet<String>> = docs
+        .iter()
+        .map(|d| {
+            doc_tokens(
+                &idx.get(&d.path).map(|x| x.0.clone()).unwrap_or_default(),
+                &d.record_text,
+            )
+        })
+        .collect();
+    let mut m = Model::default();
+    for (d, t) in docs.iter().zip(&toks) {
+        m.add(&class_key(&d.category, &d.tipo), t, 1);
+    }
+    let items: Vec<(String, HashSet<String>)> = docs
+        .iter()
+        .zip(&toks)
+        .map(|(d, t)| (class_key(&d.category, &d.tipo), t.clone()))
+        .collect();
+    let knn = Knn::build(&items);
+    let valid: HashSet<String> = crate::tools::all_categories(conn).into_iter().collect();
+
+    let mut out = Diagnostico::default();
+    let mut por_cat: HashMap<String, DiagCategoria> = HashMap::new();
+    let mut conf: HashMap<(String, String), usize> = HashMap::new();
+    for (i, (d, t)) in docs.iter().zip(&toks).enumerate() {
+        let (text, chars) = idx.get(&d.path).cloned().unwrap_or_default();
+        if chars < 60 {
+            out.sem_texto += 1;
+            continue;
+        }
+        out.avaliados += 1;
+        let key = class_key(&d.category, &d.tipo);
+        m.add(&key, t, -1);
+        let r = suggest(&m, &knn, &text, "", &valid, Some(i));
+        m.add(&key, t, 1);
+        let e = por_cat
+            .entry(d.category.clone())
+            .or_insert_with(|| DiagCategoria {
+                categoria: d.category.clone(),
+                ..Default::default()
+            });
+        e.n += 1;
+        let top = r.first();
+        if top.map(|s| s.category == d.category).unwrap_or(false) {
+            out.acerto_categoria += 1;
+            e.acertos += 1;
+            if top.map(|s| s.tipo == d.tipo).unwrap_or(false) {
+                out.acerto_tipo += 1;
+                e.acertos_tipo += 1;
+            }
+        } else {
+            let prev = top
+                .map(|s| s.category.clone())
+                .unwrap_or_else(|| "?".into());
+            *conf.entry((d.category.clone(), prev.clone())).or_default() += 1;
+            if out.erros.len() < 30 {
+                out.erros.push(DiagErro {
+                    path: d.path.clone(),
+                    real: d.category.clone(),
+                    real_tipo: d.tipo.clone(),
+                    previsto: prev,
+                    previsto_tipo: top.map(|s| s.tipo.clone()).unwrap_or_default(),
+                });
+            }
+        }
+        if r.iter().take(2).any(|s| s.category == d.category) {
+            out.acerto_top2 += 1;
+        }
+    }
+    out.por_categoria = por_cat.into_values().collect();
+    out.por_categoria.sort_by_key(|c| std::cmp::Reverse(c.n));
+    out.confusoes = conf
+        .into_iter()
+        .map(|((real, previsto), n)| DiagConfusao { real, previsto, n })
+        .collect();
+    out.confusoes
+        .sort_by(|a, b| b.n.cmp(&a.n).then(a.real.cmp(&b.real)));
+    out.confusoes.truncate(10);
+    out
+}
+
 // ---------------- registros existentes ----------------
 
 /// Registros SEM comprovante cujo texto aparece no documento (título, aluno, descrição).
 pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<RecordMatch> {
+    let mut out = Vec::new();
+    // DOI no documento = ligação certa com a produção de mesmo DOI (em qualquer categoria sugerida)
+    let doc_doi = crate::metadata::find_doi(text).map(|d| d.to_ascii_lowercase());
+    let mut by_doi: HashSet<(String, i64)> = HashSet::new();
+    if let Some(d) = &doc_doi {
+        if let Ok(recs) = queries::get_records(conn, "producoes", None, None, None) {
+            for r in recs {
+                let no_proof = r
+                    .path
+                    .as_deref()
+                    .map(|p| p.trim().is_empty())
+                    .unwrap_or(true);
+                let rd = r
+                    .identifier
+                    .as_deref()
+                    .and_then(crate::metadata::find_doi)
+                    .or_else(|| r.url.as_deref().and_then(crate::metadata::find_doi))
+                    .map(|x| x.to_ascii_lowercase());
+                if no_proof && rd.as_deref() == Some(d.as_str()) {
+                    by_doi.insert(("producoes".into(), r.id));
+                    out.push(RecordMatch {
+                        category: "producoes".into(),
+                        id: r.id,
+                        label: r.titulo.clone().unwrap_or_default(),
+                        ano: r.ano,
+                        score: 1.0,
+                        via: "doi".into(),
+                    });
+                }
+            }
+        }
+    }
     let doc: HashSet<String> = tokens(text).into_iter().collect();
     if doc.len() < 5 {
-        return vec![];
+        return out;
     }
-    let mut out = Vec::new();
     for cat in cats {
         let Ok(recs) = queries::get_records(conn, cat, None, None, None) else {
             continue;
@@ -1007,6 +1372,7 @@ pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<Reco
                 .as_deref()
                 .map(|p| p.trim().is_empty())
                 .unwrap_or(true)
+                && !by_doi.contains(&(cat.clone(), r.id))
         }) {
             let main = [&r.titulo, &r.descricao, &r.disciplina]
                 .iter()
@@ -1045,6 +1411,7 @@ pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<Reco
                     label,
                     ano: r.ano,
                     score,
+                    via: "texto".into(),
                 });
             }
         }
@@ -1058,98 +1425,80 @@ pub fn match_records(conn: &Connection, text: &str, cats: &[String]) -> Vec<Reco
 mod tests {
     use super::*;
 
-    /// Acurácia "deixa um de fora" nos comprovantes reais: LATTES_REAL=1 cargo test --lib loocv -- --nocapture
+    /// Acurácia "deixa um de fora" nos comprovantes reais:
+    /// LATTES_REAL_DIR=/caminho/da/pasta cargo test --lib loocv -- --nocapture
     #[test]
     fn loocv_on_real_data_if_enabled() {
-        if std::env::var("LATTES_REAL").is_err() {
+        let Ok(dir) = std::env::var("LATTES_REAL_DIR") else {
             return;
-        }
-        let root = Path::new(r"d:\Desktop\UFSC\lattes");
+        };
+        let root = Path::new(&dir);
         let conn = rusqlite::Connection::open_with_flags(
             root.join("lattes.db"),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .unwrap();
         let docs = training_docs(&conn, root);
-        let paths: Vec<String> = docs.iter().map(|d| d.path.clone()).collect();
-        let t0 = std::time::Instant::now();
-        let rows = extract_for_index(root, &paths);
-        println!("{} docs, texto extraído em {:?}", docs.len(), t0.elapsed());
-        let idx: HashMap<String, (String, i64)> = rows
-            .into_iter()
-            .map(|(p, _, _, t, c)| (p, (t, c)))
-            .collect();
-        let mut m = Model::default();
-        let toks: Vec<HashSet<String>> = docs
+        let d = evaluate(&conn, &docs);
+        let pct = |a: usize| 100.0 * a as f64 / d.avaliados.max(1) as f64;
+        println!(
+            "{} avaliados ({} sem texto): categoria {:.1}%, top-2 {:.1}%, tipo {:.1}%",
+            d.avaliados,
+            d.sem_texto,
+            pct(d.acerto_categoria),
+            pct(d.acerto_top2),
+            pct(d.acerto_tipo)
+        );
+        for c in &d.confusoes {
+            println!("  {} -> {}: {}", c.real, c.previsto, c.n);
+        }
+    }
+
+    #[test]
+    fn evaluate_counts_hits_and_confusions() {
+        let conn = crate::db::open_in_memory().unwrap();
+        let mut docs = Vec::new();
+        let mut add = |i: usize, cat: &str, tipo: &str, text: &str| {
+            let path = format!("x/{}.pdf", i);
+            conn.execute(
+                "INSERT INTO doc_index (path, size, mtime, tokens, chars) VALUES (?1, 1, 1, ?2, 500)",
+                rusqlite::params![path, tokens(text).join(" ")],
+            )
+            .unwrap();
+            docs.push(TrainDoc {
+                category: cat.into(),
+                tipo: tipo.into(),
+                path,
+                record_text: String::new(),
+            });
+        };
+        let banca = "certificamos participou banca examinadora defesa dissertação mestrado programa pós-graduação membro titular";
+        let evento = "certificamos participou congresso brasileiro melhoramento plantas ouvinte carga horária simpósio";
+        for i in 0..6 {
+            add(i, "bancas", "Mestrado", banca);
+            add(10 + i, "eventos", "Participação", evento);
+        }
+        // um documento ambíguo, rotulado como evento mas com texto de banca
+        add(99, "eventos", "Participação", banca);
+        let d = evaluate(&conn, &docs);
+        assert_eq!(d.avaliados, 13);
+        assert_eq!(d.sem_texto, 0);
+        assert_eq!(d.acerto_categoria, 12);
+        assert_eq!(d.confusoes.len(), 1);
+        assert_eq!(
+            (
+                d.confusoes[0].real.as_str(),
+                d.confusoes[0].previsto.as_str()
+            ),
+            ("eventos", "bancas")
+        );
+        assert_eq!(d.erros[0].path, "x/99.pdf");
+        let ev = d
+            .por_categoria
             .iter()
-            .map(|d| {
-                doc_tokens(
-                    &idx.get(&d.path).map(|x| x.0.clone()).unwrap_or_default(),
-                    &d.record_text,
-                )
-            })
-            .collect();
-        for (d, t) in docs.iter().zip(&toks) {
-            m.add(&class_key(&d.category, &d.tipo), t, 1);
-        }
-        let valid: HashSet<String> = crate::tools::all_categories(&conn).into_iter().collect();
-        let items: Vec<(String, HashSet<String>)> = docs
-            .iter()
-            .zip(&toks)
-            .map(|(d, t)| (class_key(&d.category, &d.tipo), t.clone()))
-            .collect();
-        let knn = Knn::build(&items);
-        let mut stats: HashMap<&str, (usize, usize, usize)> = HashMap::new();
-        let mut errs: HashMap<String, usize> = HashMap::new();
-        let mut n = 0;
-        for (i, (d, t)) in docs.iter().zip(&toks).enumerate() {
-            let (text_toks, chars) = idx.get(&d.path).cloned().unwrap_or_default();
-            if chars < 60 {
-                continue; // digitalizado: na prática passa por OCR
-            }
-            n += 1;
-            let key = class_key(&d.category, &d.tipo);
-            m.add(&key, t, -1);
-            let r_nb = classify(&m, &text_toks, "", &valid);
-            m.add(&key, t, 1);
-            let r_knn = classify_knn(&knn, &text_toks, "", &valid, Some(i));
-            m.add(&key, t, -1);
-            let r_comb = suggest(&m, &knn, &text_toks, "", &valid, Some(i));
-            m.add(&key, t, 1);
-            for (name, r) in [("nb", &r_nb), ("knn", &r_knn), ("comb", &r_comb)] {
-                let e = stats.entry(name).or_default();
-                if r.first().map(|s| s.category == d.category).unwrap_or(false) {
-                    e.0 += 1;
-                    if r[0].tipo == d.tipo {
-                        e.2 += 1;
-                    }
-                } else if name == "knn" {
-                    *errs
-                        .entry(format!(
-                            "{} -> {}",
-                            d.category,
-                            r.first().map(|s| s.category.as_str()).unwrap_or("?")
-                        ))
-                        .or_default() += 1;
-                }
-                if r.iter().take(2).any(|s| s.category == d.category) {
-                    e.1 += 1;
-                }
-            }
-        }
-        for (name, (c, t2, ct)) in &stats {
-            println!(
-                "{:>5}: com texto {} | categoria {:.1}% | top2 {:.1}% | categoria+tipo {:.1}%",
-                name,
-                n,
-                100.0 * *c as f64 / n as f64,
-                100.0 * *t2 as f64 / n as f64,
-                100.0 * *ct as f64 / n as f64
-            );
-        }
-        let mut e: Vec<_> = errs.into_iter().collect();
-        e.sort_by_key(|x| std::cmp::Reverse(x.1));
-        println!("erros mais comuns: {:?}", &e[..e.len().min(8)]);
+            .find(|c| c.categoria == "eventos")
+            .unwrap();
+        assert_eq!((ev.n, ev.acertos), (7, 6));
     }
 
     #[test]
@@ -1169,6 +1518,159 @@ mod tests {
             .descricao
             .unwrap()
             .starts_with("13º Congresso Brasileiro de Melhoramento de Plantas"));
+    }
+
+    #[test]
+    fn prefers_activity_date_over_issue_date() {
+        let t = "Certificamos que Fulano participou do Congresso X, realizado em 12 de março de 2023. Florianópolis, 20 de janeiro de 2024.";
+        assert_eq!(extract_fields(t).ano, Some(2023));
+        // sem indicação de atividade, vale a data mais recente
+        let t2 = "Declaração emitida em 10/05/2022. Validade até 10/05/2024.";
+        assert_eq!(extract_fields(t2).ano, Some(2024));
+        let t3 = "Defesa de dissertação defendida no dia 3 de agosto de 2021. Emitido em 2 de fevereiro de 2022.";
+        assert_eq!(extract_fields(t3).ano, Some(2021));
+    }
+
+    #[test]
+    fn detects_role_and_refines_tipo() {
+        let p = |t: &str| detect_papel(t).map(|x| x.0);
+        assert_eq!(
+            p("Certificamos que participou como ouvinte do Simpósio"),
+            Some("ouvinte")
+        );
+        assert_eq!(
+            p("apresentou o trabalho intitulado X na forma de pôster"),
+            Some("apresentador")
+        );
+        assert_eq!(
+            p("proferiu a palestra Melhoramento de plantas"),
+            Some("palestrante")
+        );
+        assert_eq!(
+            p("integrou a Comissão Organizadora do evento"),
+            Some("organizador")
+        );
+        assert_eq!(
+            p("participou da banca examinadora da defesa de dissertação de mestrado"),
+            Some("banca_mestrado")
+        );
+        assert_eq!(
+            p("membro da banca de exame de qualificação de doutorado"),
+            Some("banca_qualificacao")
+        );
+        assert_eq!(
+            p("banca do Trabalho de Conclusão de Curso"),
+            Some("banca_tcc")
+        );
+        assert_eq!(
+            p("atuou como co-orientador da dissertação"),
+            Some("coorientacao")
+        );
+        assert_eq!(p("texto sem nenhum papel"), None);
+
+        let tipos: Vec<String> = [
+            "Participação em eventos",
+            "Apresentação de trabalho",
+            "Organização de eventos",
+            "Palestras",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            refine_tipo("ouvinte", &tipos).as_deref(),
+            Some("Participação em eventos")
+        );
+        assert_eq!(
+            refine_tipo("apresentador", &tipos).as_deref(),
+            Some("Apresentação de trabalho")
+        );
+        assert_eq!(
+            refine_tipo("palestrante", &tipos).as_deref(),
+            Some("Palestras")
+        );
+        assert_eq!(refine_tipo("banca_mestrado", &tipos), None);
+        let bancas: Vec<String> = [
+            "Mestrado",
+            "Doutorado",
+            "Trabalho de conclusão de curso de graduação",
+            "Exame de qualificação",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            refine_tipo("banca_doutorado", &bancas).as_deref(),
+            Some("Doutorado")
+        );
+        assert_eq!(
+            refine_tipo("banca_tcc", &bancas).as_deref(),
+            Some("Trabalho de conclusão de curso de graduação")
+        );
+        assert_eq!(
+            refine_tipo("banca_qualificacao", &bancas).as_deref(),
+            Some("Exame de qualificação")
+        );
+    }
+
+    #[test]
+    fn checks_researcher_name() {
+        let nome = "Tiago de Olivoto Silva";
+        let cit = "OLIVOTO, T.;OLIVOTO, TIAGO";
+        assert!(mentions_person(
+            "Certificamos que TIAGO SILVA participou",
+            nome,
+            cit
+        ));
+        assert!(mentions_person(
+            "Certificamos que Tiago Olivoto participou",
+            nome,
+            cit
+        ));
+        assert!(!mentions_person(
+            "Certificamos que Maria Souza participou",
+            nome,
+            cit
+        ));
+        assert!(!mentions_person(
+            "Autores: Olivoto, A.; Pereira, B.",
+            nome,
+            cit
+        ));
+    }
+
+    #[test]
+    fn issuer_cues_point_to_category() {
+        assert!(
+            cues(
+                &folded("Certificado emitido por Even3"),
+                "Certificado emitido por Even3"
+            )
+            .get("eventos")
+            .copied()
+            .unwrap_or(0.0)
+                > 0.0
+        );
+        let c = cues(
+            &folded("SIGAA - Turma da disciplina Bioestatística, docente responsável"),
+            "",
+        );
+        assert!(c.get("disciplinas").copied().unwrap_or(0.0) > 0.0);
+    }
+
+    #[test]
+    fn match_records_uses_doi_first() {
+        let conn = crate::db::open_in_memory().unwrap();
+        conn.execute_batch(
+            "INSERT INTO producoes (id, ano, tipo, titulo, identifier) VALUES
+               (1, 2024, 'Artigos completos', 'Um título totalmente diferente do texto', '10.1000/XYZ'),
+               (2, 2024, 'Artigos completos', 'Outro artigo', '10.1000/outro');",
+        )
+        .unwrap();
+        let text = "Journal of Tests. https://doi.org/10.1000/xyz Abstract: nada a ver com o título cadastrado.";
+        let m = match_records(&conn, text, &["eventos".to_string()]);
+        assert_eq!(m.len(), 1);
+        assert_eq!((m[0].id, m[0].score), (1, 1.0));
     }
 
     #[test]

@@ -404,6 +404,15 @@ CREATE INDEX IF NOT EXISTS idx_educacao_ano_tipo ON educacao_popularizacao(ano, 
     "ALTER TABLE producoes ADD COLUMN issn TEXT;",
     // 9: autores das produções (JSON vindo do XML do Lattes), para a produção com discentes
     "ALTER TABLE producoes ADD COLUMN autores TEXT;",
+    // 10: situação (em andamento / concluída) e papel (orientação / coorientação) das orientações
+    r#"
+ALTER TABLE orientacoes ADD COLUMN situacao TEXT;
+ALTER TABLE orientacoes ADD COLUMN papel TEXT;
+UPDATE orientacoes SET situacao = CASE
+    WHEN LOWER(COALESCE(folder, '') || ' ' || COALESCE(path, '')) LIKE '%em_andamento%' THEN 'Em andamento'
+    WHEN LOWER(COALESCE(folder, '') || ' ' || COALESCE(path, '')) LIKE '%concluidas%' THEN 'Concluída'
+    ELSE NULL END;
+"#,
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

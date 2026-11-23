@@ -261,14 +261,114 @@ pub async fn analyze_document(
             crate::tools::all_categories(&conn).into_iter().collect();
         a.sugestoes = crate::classify::suggest_cached(&conn, &docs, &text, &name, &valid, None);
         a.sugestoes.truncate(5);
+        // o papel descrito no documento (ouvinte, apresentação, banca de mestrado...) escolhe o tipo
+        if let Some((papel, _)) = crate::classify::detect_papel(&text) {
+            for s in a.sugestoes.iter_mut() {
+                let tipos = category_tipos(&conn, &s.category);
+                if let Some(t) = crate::classify::refine_tipo(papel, &tipos) {
+                    s.tipo = t;
+                }
+            }
+        }
         let top: Vec<String> = a
             .sugestoes
             .iter()
-            .take(2)
+            .take(3)
             .map(|s| s.category.clone())
             .collect();
         a.registros = crate::classify::match_records(&conn, &text, &top);
+        if chars >= 60 {
+            if let Some((nome, cit)) = researcher_name(&conn, &state.root_dir) {
+                a.cita_usuario = Some(crate::classify::mentions_person(&text, &nome, &cit));
+            }
+        }
         Ok(a)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Tipos usados numa categoria: os dos registros e os das subpastas mapeadas.
+fn category_tipos(conn: &Connection, cat: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(table) = crate::db::schema::normalize_category(cat) {
+        if let Ok(mut st) = conn.prepare(&format!(
+            "SELECT DISTINCT tipo FROM {} WHERE tipo IS NOT NULL AND TRIM(tipo) <> ''",
+            table
+        )) {
+            if let Ok(rows) = st.query_map([], |r| r.get::<_, String>(0)) {
+                out.extend(rows.flatten());
+            }
+        }
+    }
+    let group = crate::migration::lattes_xml::category_group(cat);
+    if let Ok(mut st) =
+        conn.prepare("SELECT description FROM subfolder_mappings WHERE category_group = ?1")
+    {
+        if let Ok(rows) = st.query_map([group], |r| r.get::<_, String>(0)) {
+            out.extend(rows.flatten());
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Nome e nome para citação do pesquisador: o que está salvo no Perfil ou, sem isso, o do XML.
+fn researcher_name(conn: &Connection, root: &Path) -> Option<(String, String)> {
+    let saved: Option<Value> = conn
+        .query_row(
+            "SELECT value FROM app_metadata WHERE key = 'settings.profile'",
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok());
+    let get = |k: &str| {
+        saved
+            .as_ref()
+            .and_then(|v| v.pointer(&format!("/values/{}", k)))
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    if let Some(nome) = get("nome") {
+        return Some((nome, get("nome_citacoes").unwrap_or_default()));
+    }
+    let xml = super::resolve_xml_path(root, None);
+    let p = lattes_xml::parse_profile(&xml).ok()?;
+    (!p.nome.trim().is_empty()).then_some((p.nome, p.nome_citacoes))
+}
+
+/// Bytes de um PDF escolhido pelo usuário (fora da pasta do currículo também), para a interface
+/// renderizar as páginas e fazer OCR. Só aceita arquivos .pdf.
+#[tauri::command]
+pub async fn read_pdf_file(path: String) -> Result<tauri::ipc::Response, String> {
+    let p = PathBuf::from(path.trim());
+    let is_pdf = p
+        .extension()
+        .map(|e| e.eq_ignore_ascii_case("pdf"))
+        .unwrap_or(false);
+    if !is_pdf {
+        return Err("Apenas arquivos PDF".into());
+    }
+    std::fs::read(&p)
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| e.to_string())
+}
+
+/// Diagnóstico da classificação: cada comprovante vinculado é classificado por um modelo
+/// treinado com os demais (atualiza antes o índice de textos).
+#[tauri::command]
+pub async fn classify_diagnostics(
+    app: tauri::AppHandle,
+) -> Result<crate::classify::Diagnostico, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri::Manager;
+        let state = app.state::<AppState>();
+        let docs = update_doc_index_with_docs(&state)?;
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        Ok(crate::classify::evaluate(&conn, &docs))
     })
     .await
     .map_err(|e| e.to_string())?

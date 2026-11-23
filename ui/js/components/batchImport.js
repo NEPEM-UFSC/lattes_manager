@@ -6,7 +6,7 @@ import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 import { CATEGORY_SCHEMAS, escapeHtml, getCategoryMappings, showToast } from "../utils.js";
 import { PALETTE } from "./charts.js";
-import { ocrImage } from "./docAnalyzer.js";
+import { ocrImage, scannedPdfText } from "./docAnalyzer.js";
 
 const IMG = /\.(png|jpe?g)$/i;
 const MAIN_FIELDS = ["titulo", "instituicao", "disciplina", "descricao", "aluno"];
@@ -308,14 +308,18 @@ export class BatchImport {
   }
 
   async ocrAnalyze(path, fileName, getBytes, hint = 0) {
-    const bytes = await getBytes();
-    const text = await ocrImage(bytes, (p, st) => {
+    return this.ocrAnalyzeText(path, fileName, async (onp) => ocrImage(await getBytes(), onp, hint));
+  }
+
+  /** OCR por `getText(onProgress)`, mostrando o progresso na linha do arquivo, e classificação. */
+  async ocrAnalyzeText(path, fileName, getText) {
+    const text = await getText((p, st) => {
       if (/recogniz/i.test(st)) {
         this.ocrLabel = `OCR ${fileName}: ${Math.round(p * 100)}%`;
         const cur = this.overlay.querySelector("[data-bi-cur]");
         if (cur && this.phase === "analyze") cur.textContent = this.ocrLabel;
       }
-    }, hint);
+    });
     this.ocrLabel = null;
     return api.analyzeDocument(path, text);
   }
@@ -330,8 +334,7 @@ export class BatchImport {
       } else {
         res = await api.analyzeDocument(f.path);
         if (res.needs_ocr && this.ocr) {
-          const rot = await api.pdfRotation(f.path).catch(() => 0);
-          res = (await this.ocrAnalyze(f.path, f.name, () => api.pdfScanImage(f.path), rot).catch(() => null)) || res;
+          res = (await this.ocrAnalyzeText(f.path, f.name, (onp) => scannedPdfText(f.path, onp)).catch(() => null)) || res;
         }
       }
     } catch (e) {
@@ -340,6 +343,7 @@ export class BatchImport {
     const c = res?.campos || {};
     const sug = (res?.sugestoes || []).filter((s) => CATEGORY_SCHEMAS[s.category]);
     row.sug = sug;
+    row.semNome = res?.cita_usuario === false;
     // categoria e tipo
     if (this.mode !== "auto") {
       row.cat = this.mode;
@@ -435,6 +439,7 @@ export class BatchImport {
           <td><input type="checkbox" data-f="include" ${r.include ? "checked" : ""}/></td>
           <td class="bi-file"><button type="button" class="bi-fname" data-prev="${i}" title="${escapeHtml(r.file.path)}">${IMG.test(r.file.name) ? "🖼️" : "📄"} ${escapeHtml(r.file.name)}</button>
             ${this.mode === "auto" ? `<span class="bi-conf ${r.conf >= 0.7 ? "hi" : r.conf >= 0.45 ? "mid" : "lo"}" title="Confiança da classificação">${pct(r.conf)}</span>` : ""}
+            ${r.semNome ? `<span class="bi-conf lo" title="O documento não cita o seu nome (do Perfil). Confira se é mesmo seu.">⚠️ sem seu nome</span>` : ""}
             ${r.note ? `<small class="bi-note">${escapeHtml(r.note)}</small>` : ""}</td>
           <td><select class="form-select bi-cat ${lowConf ? "warn" : ""}" data-f="cat" style="--c:${color(r.cat)}" ${isAttach ? "disabled" : ""}>${cats.map(([key, s]) => `<option value="${key}" ${key === r.cat ? "selected" : ""}>${escapeHtml(s.group)}</option>`).join("")}</select></td>
           <td><select class="form-select" data-f="tipo" ${isAttach ? "disabled" : ""}>

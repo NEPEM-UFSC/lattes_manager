@@ -154,3 +154,16 @@ pub async fn apply_vassoura(
 }
 
 // ==========================================
+
+/// Registros com título muito parecido, para o formulário avisar antes de salvar.
+#[tauri::command(async)]
+pub fn find_similar_records(
+    state: tauri::State<'_, AppState>,
+    category: String,
+    titulo: String,
+    ano: Option<i64>,
+    exclude_id: Option<i64>,
+) -> Result<Vec<linker::SimilarRecord>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    linker::similar_records(&conn, &category, &titulo, ano, exclude_id)
+}

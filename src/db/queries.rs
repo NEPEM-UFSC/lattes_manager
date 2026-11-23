@@ -37,6 +37,22 @@ pub fn fill_urls(conn: &Connection, category: &str, recs: &mut [RecordDto]) -> R
 }
 
 /// Grava a URL quando o payload traz a chave "url" (vazia = sem link).
+/// Situação e papel das orientações (só os campos presentes em `data`).
+fn store_orientacao_extras(conn: &Connection, table: &str, id: i64, data: &Value) -> Result<()> {
+    if table != "orientacoes" {
+        return Ok(());
+    }
+    for col in ["situacao", "papel"] {
+        if data.get(col).is_some() {
+            conn.execute(
+                &format!("UPDATE orientacoes SET {} = ?1 WHERE id = ?2", col),
+                params![json_str(data, col), id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn store_url(conn: &Connection, category: &str, id: i64, data: &Value) -> Result<()> {
     if data.get("url").is_none() {
         return Ok(());
@@ -509,7 +525,7 @@ pub fn list_orientacoes(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<OrientacoesRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM orientacoes WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url, situacao, papel FROM orientacoes WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -789,7 +805,7 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
         }
         "orientacoes" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url FROM orientacoes WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, aluno, titulo, log, path, url, situacao, papel FROM orientacoes WHERE id = ?1",
             )?;
             stmt.query_row([id], OrientacoesRecord::from_row)
                 .map(Into::into)?
@@ -952,6 +968,7 @@ pub fn insert_record(
     }
 
     store_url(conn, table, id, data)?;
+    store_orientacao_extras(conn, table, id, data)?;
     get_record_by_id(conn, table, id)
 }
 
@@ -1239,6 +1256,7 @@ pub fn update_record(
     }
 
     store_url(conn, table, id, data)?;
+    store_orientacao_extras(conn, table, id, data)?;
     get_record_by_id(conn, table, id)
 }
 

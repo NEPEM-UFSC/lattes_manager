@@ -55,6 +55,7 @@ const mockState = {
         tipo: "Artigos completos",
         titulo: "Model-Driven Engineering for Critical Desktop Systems",
         journal: "IEEE Software",
+        issn: "0740-7459",
         qualis: "A1",
         identifier: "001_paper_ieee.pdf",
         file: "001_paper_ieee.pdf",
@@ -304,6 +305,47 @@ function mockHandler(cmd, args = {}) {
       };
     }
 
+    case "analyze_document":
+      return {
+        chars: 820,
+        needs_ocr: false,
+        treino: 214,
+        nome_arquivo: String(args.path || "").split(/[\\/]/).pop(),
+        cita_usuario: false,
+        sugestoes: [
+          { category: "eventos", tipo: "Apresentação de trabalho", prob: 0.78 },
+          { category: "producoes", tipo: "Resumos expandidos", prob: 0.15 },
+        ],
+        campos: { ano: 2023, papel: "Apresentação de trabalho", horas: 20, titulo: "Seleção genômica em milho tropical", descricao: "13º Congresso Brasileiro de Melhoramento de Plantas", doi: "10.1000/xyz" },
+        registros: [{ category: "producoes", id: 101, label: "Seleção genômica em milho tropical", ano: 2023, score: 1, via: "doi" }],
+      };
+
+    case "find_similar_records":
+      return /milho/i.test(args.titulo || "")
+        ? [{ id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, tipo: "Artigos completos", score: 0.93 }]
+        : [];
+
+    case "classify_diagnostics":
+      return {
+        avaliados: 214, sem_texto: 31, acerto_categoria: 187, acerto_top2: 205, acerto_tipo: 151,
+        por_categoria: [
+          { categoria: "producoes", n: 92, acertos: 89, acertos_tipo: 78 },
+          { categoria: "eventos", n: 48, acertos: 39, acertos_tipo: 22 },
+          { categoria: "bancas", n: 31, acertos: 29, acertos_tipo: 25 },
+          { categoria: "formacao", n: 25, acertos: 17, acertos_tipo: 14 },
+          { categoria: "orientacoes", n: 18, acertos: 13, acertos_tipo: 12 },
+        ],
+        confusoes: [
+          { real: "eventos", previsto: "formacao", n: 7 },
+          { real: "formacao", previsto: "eventos", n: 6 },
+          { real: "orientacoes", previsto: "bancas", n: 4 },
+        ],
+        erros: [
+          { path: "9_eventos\\participacao\\012_simposio.pdf", real: "eventos", real_tipo: "Participação em eventos", previsto: "formacao", previsto_tipo: "Cursos de curta duração" },
+          { path: "2_formacao\\cursos\\004_minicurso_r.pdf", real: "formacao", real_tipo: "Cursos de curta duração", previsto: "eventos", previsto_tipo: "Participação em eventos" },
+        ],
+      };
+
     case "sync_autores_xml":
       return { no_xml: 140, atualizadas: 128, sem_correspondencia: 12 };
 
@@ -349,7 +391,7 @@ function mockHandler(cmd, args = {}) {
 }
 
 // Comandos que não alteram registros; qualquer outro invalida o cache de get_all_records.
-const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|discentes_report|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
+const KEEPS_RECORDS = /^(ping|scan_pendencias|qualis_preview|discentes_report|classify_diagnostics|get_|read_|select_|pick_|open_|reveal_|list_|preview_|inspect_|resolve_|find_|suggest_|extract_|analyze_|pdf_|check_|compress_|backup_|create_backup|write_report|export_xlsx|set_setting|set_dropdown_options)/;
 let allRecordsCache = null;
 
 async function getAllRecordsCached() {
@@ -519,6 +561,8 @@ export const api = {
   fileUrl: (absPath) => window.__TAURI__?.core?.convertFileSrc?.(absPath) ?? null,
 
   // Relatório de comprovantes
+  /** PDF escolhido pelo usuário (qualquer pasta), para renderizar páginas no OCR. */
+  readPdfFile: async (path) => new Uint8Array(await invokeCommand("read_pdf_file", { path })),
   readFileBytes: async (relativePath) => new Uint8Array(await invokeCommand("read_file_bytes", { relativePath })),
   readSystemFont: async (name) => new Uint8Array(await invokeCommand("read_system_font", { name })),
   getLattesProfile: (xmlPath = null) => invokeCommand("get_lattes_profile", { xmlPath }),
@@ -553,6 +597,8 @@ export const api = {
   fillIssnOpenalex: () => invokeCommand("fill_issn_openalex"),
   syncAutoresXml: (xmlPath = null) => invokeCommand("sync_autores_xml", { xmlPath }),
   discentesReport: () => invokeCommand("discentes_report"),
+  classifyDiagnostics: () => invokeCommand("classify_diagnostics"),
+  findSimilarRecords: (category, titulo, ano = null, excludeId = null) => invokeCommand("find_similar_records", { category, titulo, ano, excludeId }),
   clearMissingLinks: (items) => invokeCommand("clear_missing_links", { items }),
   scanRootFolders: () => invokeCommand("scan_root_folders"),
   removeAuditedFolders: (relPaths, removeMappings = false, deleteUnlinkedFiles = false) =>
