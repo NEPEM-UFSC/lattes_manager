@@ -5167,3 +5167,67 @@ body.viewer-docked .hm-recent-list {
   color: var(--text-muted);
   text-decoration: line-through;
 }
+
+/* ===== Produção com discentes ===== */
+.ds-years summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.ds-table td:first-child {
+  width: 50%;
+}
+
+.ds-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ds-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  font-size: calc(12.5px * var(--font-scale, 1));
+}
+
+.ds-chip.revisar {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.ds-conf {
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--success-border);
+  background: var(--success-bg);
+  color: var(--success-text);
+  font-size: 10.5px;
+}
+
+.ds-conf.media {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.ds-why {
+  flex-basis: 100%;
+  font-size: calc(11.5px * var(--font-scale, 1));
+  color: var(--text-muted);
+}
+
+.ds-acts {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.ds-acts .btn {
+  padding: 2px 8px;
+}

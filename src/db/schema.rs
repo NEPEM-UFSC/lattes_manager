@@ -402,6 +402,8 @@ CREATE INDEX IF NOT EXISTS idx_educacao_ano_tipo ON educacao_popularizacao(ano, 
 "#,
     // 8: ISSN da revista das produções (para o Qualis oficial da CAPES)
     "ALTER TABLE producoes ADD COLUMN issn TEXT;",
+    // 9: autores das produções (JSON vindo do XML do Lattes), para a produção com discentes
+    "ALTER TABLE producoes ADD COLUMN autores TEXT;",
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

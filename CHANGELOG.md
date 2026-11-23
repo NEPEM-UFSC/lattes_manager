@@ -5,6 +5,8 @@
 ### Funcionalidade
 - Qualis oficial da CAPES (Ferramentas › Produções): lê a planilha do Qualis exportada da Plataforma Sucupira (.xlsx, .xls, .ods ou .csv, com detecção automática das colunas e da área de avaliação), compara com os artigos pelo ISSN ou, sem ISSN, pelo nome da revista, e grava os estratos depois de uma prévia com seleção item a item.
 - Campo ISSN nas produções. A ferramenta do Qualis e a sincronização de métricas da OpenAlex preenchem o ISSN que falta a partir do DOI.
+- Produção com discentes (Ferramentas › Produções): mostra quais produções têm orientados como coautores, por ano e nível, com comparação aproximada de nomes (nome completo, nome de citação, iniciais), aviso para casos duvidosos ou fora do período da orientação, confirmação/descartes salvos e exportação para Excel.
+- A importação do XML do Lattes passa a guardar os autores das produções; o botão "Atualizar autores pelo XML" completa as produções já cadastradas.
 - Pacote do interstício (Simulador de Pontuação): exporta a planilha de pontuação e abre o gerador de comprovantes já restrito aos registros que pontuam no período, com o título do barema e o período na capa. Projetos e atividades que começaram antes do interstício e terminam dentro dele também entram, como na pontuação.
 
 ## 1.1.0

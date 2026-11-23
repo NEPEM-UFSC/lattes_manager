@@ -182,3 +182,29 @@ pub fn get_all_records(
     }
     Ok(out)
 }
+
+/// Completa os autores das produções já cadastradas a partir do XML do Lattes
+/// (o da pasta do currículo, se `xml_path` vier vazio).
+#[tauri::command(async)]
+pub fn sync_autores_xml(
+    state: tauri::State<'_, AppState>,
+    xml_path: Option<String>,
+) -> Result<crate::discentes::AuthorSync, String> {
+    let path = resolve_xml_path(&state.root_dir, xml_path.as_deref());
+    if !path.is_file() {
+        return Err(
+            "Não encontrei o XML do Lattes na pasta do currículo. Escolha o arquivo.".into(),
+        );
+    }
+    let items = lattes_xml::parse_lattes_xml(&path)?;
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::discentes::sync_authors(&conn, &items)
+}
+
+#[tauri::command(async)]
+pub fn discentes_report(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::discentes::DiscentesReport, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::discentes::report(&conn)
+}
