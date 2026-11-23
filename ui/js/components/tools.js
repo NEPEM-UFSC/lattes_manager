@@ -426,6 +426,35 @@ const TOOL_CLASSES = [
   },
 ];
 
+/**
+ * Processa `items` com até `concurrency` tarefas ao mesmo tempo (fila compartilhada),
+ * parando de pegar novos itens quando `stop()` fica verdadeiro.
+ */
+async function runPool(items, concurrency, fn, stop = () => false) {
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length && !stop()) {
+      const item = items[cursor++];
+      await fn(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, () => worker()));
+}
+
+/** Busca na Crossref com uma nova tentativa quando ela pede para diminuir o ritmo (429) ou cai a conexão. */
+async function comRetentativa(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!/429|too many|timed out|timeout|tempo esgotado|conex/i.test(String(e))) throw e;
+    await new Promise((r) => setTimeout(r, 2500));
+    return fn();
+  }
+}
+
+/** A Crossref limita requisições simultâneas: a busca pelo título usa no máximo isto. */
+const CROSSREF_MAX = 5;
+
 // [id, icon, title, description, classId]
 const TOOLS = [
   // Sincronização & Comparação
@@ -3751,6 +3780,7 @@ export class ToolsView {
     st.found ||= {}; // id -> { doi, fonte } ou { m, s } quando não achou
     st.sel ||= new Set();
     st.online ??= true;
+    st.concurrency ??= 8;
     const run = Boolean(st.running);
     const comPdf = cands.filter(hasPdf).length;
     const nAchados = () => cands.filter((r) => st.found[r.id]?.doi).length;
@@ -3775,12 +3805,16 @@ export class ToolsView {
         ? `<div class="tl-bar">
             <span data-count>${contador()}</span>
             <label class="tl-chk"><input type="checkbox" data-online ${st.online ? "checked" : ""} ${run ? "disabled" : ""}/> procurar pelo título na Crossref (mais lento)</label>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <span style="font-size:12px; color:var(--text-secondary);">Simultâneos:</span>
+              ${[2, 4, 8, 12].map((n) => `<button type="button" class="btn btn-sm ${st.concurrency === n ? "btn-primary" : "btn-secondary"}" data-conc="${n}" ${run ? "disabled" : ""} style="font-size:11.5px; padding:3px 10px; border-radius:14px; min-width:38px;" title="Ler até ${n} PDFs ao mesmo tempo (a busca na Crossref usa no máximo ${CROSSREF_MAX})">${n}x</button>`).join("")}
+            </div>
             ${run
           ? '<button type="button" class="btn btn-secondary btn-sm" data-stop>■ Parar</button>'
           : '<button type="button" class="btn btn-secondary btn-sm" data-run>🔎 Procurar DOI</button>'}
             ${nAchados() && !run ? `<button type="button" class="btn btn-primary btn-sm" data-apply>Gravar ${st.sel.size} DOI(s)</button>` : ""}
           </div>
-          ${run ? `<div class="tl-progress"><i style="width:${Math.round((st.i / Math.max(1, st.n || 1)) * 100)}%"></i></div>` : ""}
+          ${run ? `<div class="tl-progress"><i style="width:${Math.round((st.i / Math.max(1, st.n || 1)) * 100)}%"></i></div><p class="dd-note" data-fase>${escapeHtml(st.fase || "")}</p>` : ""}
           <div class="tl-table"><table class="data-table"><thead><tr><th style="width:36px"></th><th style="width:60px">Ano</th><th>Título</th><th style="width:320px">DOI encontrado</th></tr></thead><tbody>
           ${cands
           .map(
@@ -3812,6 +3846,8 @@ export class ToolsView {
       if (fill) fill.style.width = `${Math.round((st.i / Math.max(1, st.n || 1)) * 100)}%`;
       const lbl = this.el.querySelector("[data-count]");
       if (lbl) lbl.innerHTML = contador();
+      const fase = this.el.querySelector("[data-fase]");
+      if (fase) fase.textContent = `${st.fase || ""} · ${st.i} de ${st.n}`;
     };
     const refresh = () => {
       if (this.active === "dois") this.toolDois();
@@ -3820,6 +3856,13 @@ export class ToolsView {
 
     this.el.querySelector("[data-online]")?.addEventListener("change", (e) => (st.online = e.target.checked));
     this.el.querySelector("[data-stop]")?.addEventListener("click", () => (st.stop = true));
+    this.el.querySelectorAll("[data-conc]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        if (st.running) return;
+        st.concurrency = Number(btn.dataset.conc) || 8;
+        this.toolDois();
+      })
+    );
 
     // delegação: os botões e caixas das linhas são recriados durante a varredura
     const tabela = this.el.querySelector(".tl-table");
@@ -3848,9 +3891,15 @@ export class ToolsView {
       this.syncBackgroundBadge();
       await refresh(); // mostra a barra de progresso e o botão Parar
 
-      // 1) DOI declarado dentro do PDF — rápido e sem rede
-      for (const r of comPdfList) {
-        if (stDois.stop) break;
+      const conc = stDois.concurrency || 8;
+      const parar = () => stDois.stop;
+
+      // 1) DOI declarado dentro do PDF — sem rede, vários arquivos ao mesmo tempo
+      stDois.fase = `Lendo os PDFs (${Math.min(conc, comPdfList.length || 1)} ao mesmo tempo)`;
+      pintarBarra();
+      await runPool(comPdfList, conc, async (r) => {
+        stDois.found[r.id] = { m: "⏳ lendo o PDF…", s: "run" };
+        pintarLinha(r);
         try {
           const doi = await api.extractRecordDoi("producoes", r.id);
           if (doi) {
@@ -3865,15 +3914,19 @@ export class ToolsView {
         stDois.i++;
         pintarLinha(r);
         pintarBarra();
-      }
-      // 2) o que sobrou: busca pelo título na Crossref
-      if (stDois.online) {
-        for (const r of cands.filter((x) => !stDois.found[x.id]?.doi && String(x.titulo || "").trim().length >= 15)) {
-          if (stDois.stop) break;
+      }, parar);
+
+      // 2) o que sobrou: busca pelo título na Crossref (limite de simultâneas da Crossref)
+      if (stDois.online && !stDois.stop) {
+        const resto = cands.filter((x) => !stDois.found[x.id]?.doi && String(x.titulo || "").trim().length >= 15);
+        const concCr = Math.min(conc, CROSSREF_MAX);
+        stDois.fase = `Procurando pelo título na Crossref (${Math.min(concCr, resto.length || 1)} ao mesmo tempo)`;
+        pintarBarra();
+        await runPool(resto, concCr, async (r) => {
           stDois.found[r.id] = { m: "⏳ procurando na Crossref…", s: "run" };
           pintarLinha(r);
           try {
-            const doi = await api.findDoiByTitle(r.titulo);
+            const doi = await comRetentativa(() => api.findDoiByTitle(r.titulo));
             if (doi) {
               stDois.found[r.id] = { doi, fonte: "crossref", s: "warn" };
               stDois.sel.add(r.id);
@@ -3886,8 +3939,11 @@ export class ToolsView {
           stDois.i++;
           pintarLinha(r);
           pintarBarra();
-        }
+        }, parar);
       }
+      // itens que ficaram "em andamento" ao parar voltam a aguardar
+      for (const r of cands) if (stDois.found[r.id]?.s === "run") delete stDois.found[r.id];
+      stDois.fase = "";
       stDois.running = false;
       stDois.finished = true;
       this.syncBackgroundBadge();
@@ -3901,14 +3957,14 @@ export class ToolsView {
       if (!todo.length) return;
       let ok = 0;
       const erros = [];
-      for (const r of todo) {
+      await runPool(todo, st.concurrency || 8, async (r) => {
         try {
           await api.updateRecord("producoes", r.id, { identifier: st.found[r.id].doi });
           ok++;
         } catch (e) {
           erros.push(`#${r.id}: ${e}`);
         }
-      }
+      });
       showToast(`${ok} DOI(s) gravado(s)${erros.length ? ` · ${erros.length} erro(s)` : ""}`, erros.length ? "error" : "success", 4000);
       st.data = null;
       st.found = {};
