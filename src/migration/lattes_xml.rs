@@ -39,6 +39,12 @@ pub struct XmlProduction {
     /// Autores da produção, na ordem de autoria do XML.
     #[serde(default)]
     pub autores: Vec<XmlAutor>,
+    /// Orientações: "Em andamento" ou "Concluída".
+    #[serde(default)]
+    pub situacao: Option<String>,
+    /// Orientações: "Orientação" ou "Coorientação".
+    #[serde(default)]
+    pub papel: Option<String>,
 }
 
 /// Autor de uma produção no XML do Lattes.
@@ -76,6 +82,8 @@ impl XmlProduction {
             disciplina: None,
             url: None,
             autores: Vec::new(),
+            situacao: None,
+            papel: None,
         }
     }
 }
@@ -999,6 +1007,28 @@ impl Builder {
                 let mut item =
                     XmlProduction::new("orientacoes", tipo, folder, ano, titulo, self.elem);
                 item.aluno = aluno;
+                item.situacao = Some(
+                    if self.elem.contains("EM-ANDAMENTO") {
+                        "Em andamento"
+                    } else {
+                        "Concluída"
+                    }
+                    .to_string(),
+                );
+                // TIPO-DE-ORIENTACAO: ORIENTADOR_PRINCIPAL ou CO_ORIENTADOR
+                item.papel = first_attr(
+                    &self.detail,
+                    &["TIPO-DE-ORIENTACAO", "TIPO-DE-ORIENTACAO-CONCLUIDA"],
+                )
+                .or_else(|| first_attr(&self.basic, &["TIPO-DE-ORIENTACAO"]))
+                .map(|t| {
+                    if t.to_uppercase().starts_with("CO") {
+                        "Coorientação"
+                    } else {
+                        "Orientação"
+                    }
+                    .to_string()
+                });
                 item.curso = first_attr(&self.detail, &["NOME-DO-CURSO", "NOME-CURSO"])
                     .map(|c| clean_text(&c));
                 item.journal =
@@ -2256,8 +2286,8 @@ pub fn import_items(
             }
             "orientacoes" => {
                 tx.execute(
-                    "INSERT INTO orientacoes (ano, tipo, identifier, file, folder, aluno, titulo, log, path, url) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, NULL, ?8)",
-                    params![it.ano, it.tipo, it.doi, folder, it.aluno, it.titulo, log, it.url],
+                    "INSERT INTO orientacoes (ano, tipo, identifier, file, folder, aluno, titulo, log, path, url, situacao, papel) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10)",
+                    params![it.ano, it.tipo, it.doi, folder, it.aluno, it.titulo, log, it.url, it.situacao, it.papel],
                 )
             }
             "bancas" => {
@@ -2441,6 +2471,89 @@ mod tests {
         assert_eq!(prof.cargo, "Professor Titular");
         assert_eq!(prof.regime, "40");
         assert_eq!(prof.admissao, "03/2019");
+    }
+
+    #[test]
+    fn reads_orientation_status_and_role() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<CURRICULO-VITAE DATA-ATUALIZACAO="14112026">
+  <OUTRA-PRODUCAO>
+    <ORIENTACOES-CONCLUIDAS>
+      <ORIENTACOES-CONCLUIDAS-PARA-DOUTORADO SEQUENCIA-PRODUCAO="1">
+        <DADOS-BASICOS-DE-ORIENTACOES-CONCLUIDAS-PARA-DOUTORADO TITULO="Tese concluída" ANO="2022"/>
+        <DETALHAMENTO-DE-ORIENTACOES-CONCLUIDAS-PARA-DOUTORADO NOME-DO-ORIENTADO="Ana Lima" TIPO-DE-ORIENTACAO="ORIENTADOR_PRINCIPAL"/>
+      </ORIENTACOES-CONCLUIDAS-PARA-DOUTORADO>
+    </ORIENTACOES-CONCLUIDAS>
+  </OUTRA-PRODUCAO>
+  <DADOS-COMPLEMENTARES>
+    <ORIENTACOES-EM-ANDAMENTO>
+      <ORIENTACAO-EM-ANDAMENTO-DE-MESTRADO SEQUENCIA-PRODUCAO="2">
+        <DADOS-BASICOS-DA-ORIENTACAO-EM-ANDAMENTO-DE-MESTRADO TITULO-DO-TRABALHO="Dissertação em curso" ANO="2025"/>
+        <DETALHAMENTO-DA-ORIENTACAO-EM-ANDAMENTO-DE-MESTRADO NOME-DO-ORIENTANDO="Bruno Melo" TIPO-DE-ORIENTACAO="CO_ORIENTADOR"/>
+      </ORIENTACAO-EM-ANDAMENTO-DE-MESTRADO>
+    </ORIENTACOES-EM-ANDAMENTO>
+  </DADOS-COMPLEMENTARES>
+</CURRICULO-VITAE>"#;
+        let p = write_temp_xml("orientacoes_situacao.xml", xml);
+        let items: Vec<XmlProduction> = parse_lattes_xml(&p)
+            .unwrap()
+            .into_iter()
+            .filter(|i| i.category == "orientacoes")
+            .collect();
+        let get = |aluno: &str| {
+            items
+                .iter()
+                .find(|i| i.aluno.as_deref() == Some(aluno))
+                .unwrap()
+        };
+        let ana = get("Ana Lima");
+        assert_eq!(
+            (ana.situacao.as_deref(), ana.papel.as_deref()),
+            (Some("Concluída"), Some("Orientação"))
+        );
+        let bruno = get("Bruno Melo");
+        assert_eq!(
+            (bruno.situacao.as_deref(), bruno.papel.as_deref()),
+            (Some("Em andamento"), Some("Coorientação"))
+        );
+
+        let mut conn = crate::db::open_in_memory().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(import_items(&mut conn, tmp.path(), &items).unwrap(), 2);
+        let recs = crate::db::queries::get_records(&conn, "orientacoes", None, None, None).unwrap();
+        let b = recs
+            .iter()
+            .find(|r| r.aluno.as_deref() == Some("Bruno Melo"))
+            .unwrap();
+        assert_eq!(
+            (b.situacao.as_deref(), b.papel.as_deref()),
+            (Some("Em andamento"), Some("Coorientação"))
+        );
+
+        // formulário: editar sem os campos mantém; com os campos, troca
+        let r = crate::db::queries::update_record(
+            &conn,
+            "orientacoes",
+            b.id,
+            &serde_json::json!({ "titulo": "Novo" }),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(r.situacao.as_deref(), Some("Em andamento"));
+        let r = crate::db::queries::update_record(
+            &conn,
+            "orientacoes",
+            b.id,
+            &serde_json::json!({ "situacao": "Concluída" }),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            (r.situacao.as_deref(), r.papel.as_deref()),
+            (Some("Concluída"), Some("Coorientação"))
+        );
     }
 
     #[test]

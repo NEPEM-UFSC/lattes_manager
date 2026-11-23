@@ -55,6 +55,7 @@ const mockState = {
         tipo: "Artigos completos",
         titulo: "Model-Driven Engineering for Critical Desktop Systems",
         journal: "IEEE Software",
+        issn: "0740-7459",
         qualis: "A1",
         identifier: "001_paper_ieee.pdf",
         file: "001_paper_ieee.pdf",
@@ -318,6 +319,11 @@ function mockHandler(cmd, args = {}) {
         campos: { ano: 2023, papel: "Apresentação de trabalho", horas: 20, titulo: "Seleção genômica em milho tropical", descricao: "13º Congresso Brasileiro de Melhoramento de Plantas", doi: "10.1000/xyz" },
         registros: [{ category: "producoes", id: 101, label: "Seleção genômica em milho tropical", ano: 2023, score: 1, via: "doi" }],
       };
+
+    case "find_similar_records":
+      return /milho/i.test(args.titulo || "")
+        ? [{ id: 101, titulo: "Seleção genômica em milho tropical", ano: 2024, tipo: "Artigos completos", score: 0.93 }]
+        : [];
 
     case "classify_diagnostics":
       return {
@@ -592,6 +598,7 @@ export const api = {
   syncAutoresXml: (xmlPath = null) => invokeCommand("sync_autores_xml", { xmlPath }),
   discentesReport: () => invokeCommand("discentes_report"),
   classifyDiagnostics: () => invokeCommand("classify_diagnostics"),
+  findSimilarRecords: (category, titulo, ano = null, excludeId = null) => invokeCommand("find_similar_records", { category, titulo, ano, excludeId }),
   clearMissingLinks: (items) => invokeCommand("clear_missing_links", { items }),
   scanRootFolders: () => invokeCommand("scan_root_folders"),
   removeAuditedFolders: (relPaths, removeMappings = false, deleteUnlinkedFiles = false) =>

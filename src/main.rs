@@ -96,6 +96,7 @@ fn main() {
             commands::discentes_report,
             commands::read_pdf_file,
             commands::classify_diagnostics,
+            commands::find_similar_records,
             commands::clear_missing_links,
             commands::scan_root_folders,
             commands::remove_audited_folders,

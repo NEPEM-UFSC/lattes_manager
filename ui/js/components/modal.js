@@ -500,6 +500,79 @@ export class RecordModal {
       }
       syncDadosGeraisPlaceholder();
     }
+    this.bindFormAssist();
+  }
+
+  /**
+   * Auxílios do formulário: aviso de registro com título parecido (antes de salvar) e,
+   * em Produções, revista ↔ ISSN a partir das produções já cadastradas.
+   */
+  bindFormAssist() {
+    this._journalIssn = null; // recarregado a cada abertura: pode haver produções novas
+    const titleEl = ["titulo", "descricao"].map((n) => document.getElementById(`field-${n}`)).find(Boolean);
+    if (titleEl) {
+      const box = document.createElement("div");
+      box.className = "form-similar";
+      box.setAttribute("role", "status");
+      box.hidden = true;
+      titleEl.insertAdjacentElement("afterend", box);
+      const check = async () => {
+        const text = titleEl.value.trim();
+        const token = (this._similarToken = (this._similarToken || 0) + 1);
+        if (text.length < 12) {
+          box.hidden = true;
+          return;
+        }
+        const ano = Number(document.getElementById("field-ano")?.value) || null;
+        const list = await api.findSimilarRecords(this.category, text, ano, this.currentRecord?.id ?? null).catch(() => []);
+        if (token !== this._similarToken) return;
+        box.hidden = !list.length;
+        box.innerHTML = list.length
+          ? `⚠️ Já existe um registro parecido nesta categoria:${list
+              .map((r) => `<div><b>#${r.id}</b> ${escapeHtml(r.titulo)}${r.ano ? ` (${r.ano})` : ""}</div>`)
+              .join("")}<small>Confira se não é o mesmo antes de salvar.</small>`
+          : "";
+      };
+      titleEl.addEventListener("change", check);
+      document.getElementById("field-ano")?.addEventListener("change", check);
+      if (titleEl.value.trim() && !this.currentRecord) check();
+    }
+
+    const journalEl = document.getElementById("field-journal");
+    const issnEl = document.getElementById("field-issn");
+    if (this.category === "producoes" && journalEl && issnEl) {
+      const key = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const pairs = async () => {
+        if (!this._journalIssn) {
+          const all = await api.getAllRecords().catch(() => ({}));
+          const byJournal = new Map();
+          const byIssn = new Map();
+          for (const r of all?.producoes || []) {
+            if (!r.journal || !r.issn) continue;
+            byJournal.set(key(r.journal), r.issn);
+            byIssn.set(r.issn.replace(/[^0-9X]/gi, "").toUpperCase(), r.journal);
+          }
+          this._journalIssn = { byJournal, byIssn };
+        }
+        return this._journalIssn;
+      };
+      journalEl.addEventListener("change", async () => {
+        if (issnEl.value.trim() || !journalEl.value.trim()) return;
+        const issn = (await pairs()).byJournal.get(key(journalEl.value));
+        if (issn) {
+          issnEl.value = issn;
+          issnEl.classList.add("autofill");
+        }
+      });
+      issnEl.addEventListener("change", async () => {
+        if (journalEl.value.trim() || !issnEl.value.trim()) return;
+        const j = (await pairs()).byIssn.get(issnEl.value.replace(/[^0-9X]/gi, "").toUpperCase());
+        if (j) {
+          journalEl.value = j;
+          journalEl.classList.add("autofill");
+        }
+      });
+    }
   }
 
   async handlePickFile() {

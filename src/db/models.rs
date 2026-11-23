@@ -451,6 +451,8 @@ pub struct OrientacoesRecord {
     pub log: Option<String>,
     pub path: Option<String>,
     pub url: Option<String>,
+    pub situacao: Option<String>,
+    pub papel: Option<String>,
 }
 
 impl OrientacoesRecord {
@@ -467,6 +469,8 @@ impl OrientacoesRecord {
             log: row.get("log")?,
             path: row.get("path")?,
             url: optional_url(row),
+            situacao: row.get::<_, Option<String>>("situacao").ok().flatten(),
+            papel: row.get::<_, Option<String>>("papel").ok().flatten(),
         })
     }
 }
@@ -551,6 +555,12 @@ pub struct RecordDto {
     /// ISSN da revista (produções), no formato 0000-0000.
     #[serde(default)]
     pub issn: Option<String>,
+    /// Orientações: "Em andamento" ou "Concluída".
+    #[serde(default)]
+    pub situacao: Option<String>,
+    /// Orientações: "Orientação" ou "Coorientação".
+    #[serde(default)]
+    pub papel: Option<String>,
     /// Lista de comprovantes anexados ao registro (para suporte a múltiplos comprovantes).
     #[serde(default)]
     pub attachments: Vec<AttachmentDto>,
@@ -802,6 +812,8 @@ impl From<OrientacoesRecord> for RecordDto {
             log: r.log,
             path: r.path,
             url: r.url,
+            situacao: r.situacao,
+            papel: r.papel,
             ..Default::default()
         }
     }
