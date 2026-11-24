@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Configuração de artefato do projeto no SignPath (colar em Project › Artifact configurations).
+     O artefato enviado pelo workflow "Instaladores" é um ZIP com o instalador NSIS
+     "Lattes Manager_<versão>_x64-setup.exe" na raiz. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="Lattes Manager_*_x64-setup.exe" max-matches="1">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

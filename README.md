@@ -1,5 +1,7 @@
 # Lattes Manager
 
+🇧🇷 Português · [🇬🇧 English](README.en.md)
+
 Aplicativo de desktop para organizar o Currículo Lattes e os comprovantes de cada item. Roda local e offline (os dados ficam numa pasta sua, num banco SQLite), com versões para Windows, macOS e Linux.
 
 ## O que faz
@@ -21,7 +23,7 @@ Os instaladores estão em [Releases](https://github.com/NEPEM-UFSC/lattes_manage
 | macOS (Intel e Apple Silicon) | `.dmg` |
 | Linux | `.deb`, `.rpm` ou `.AppImage` |
 
-Os instaladores ainda não têm assinatura de código. Por isso, o Windows pode mostrar o aviso do SmartScreen ("Mais informações" › "Executar assim mesmo"). No macOS, abra o app pela primeira vez com clique direito › "Abrir".
+**Assinatura de código:** os instaladores do Windows são assinados gratuitamente pela [SignPath Foundation](https://signpath.org), com serviço da [SignPath.io](https://about.signpath.io) (veja a [política de assinatura](#política-de-assinatura-de-código)). Os instaladores do macOS ainda não são assinados: abra o app pela primeira vez com clique direito › "Abrir".
 
 ### Conferir um download
 
@@ -51,8 +53,8 @@ A interface fica em `ui/` (HTML, CSS e JavaScript, sem bundler). O backend fica 
 ## Publicar uma versão
 
 1. Atualize a versão em `Cargo.toml` e em `tauri.conf.json` e registre as mudanças em [CHANGELOG.md](CHANGELOG.md).
-2. Crie e envie a tag: `git tag v1.0.0 && git push --tags`.
-3. O workflow "Instaladores" monta um rascunho de Release com os arquivos dos três sistemas.
+2. Crie e envie a tag: `git tag v1.0.0` e depois `git push origin v1.0.0`.
+3. O workflow "Instaladores" monta um rascunho de Release com os arquivos dos três sistemas; o instalador do Windows é enviado ao SignPath para assinatura.
 
 ## Política de assinatura de código
 
@@ -63,7 +65,7 @@ Assinatura de código gratuita fornecida pela SignPath.io, com certificado da Si
 - Autores (committers) e revisores: [membros da organização NEPEM-UFSC](https://github.com/orgs/NEPEM-UFSC/people) com permissão de escrita no repositório.
 - Aprovador de cada assinatura: [Tiago Olivoto](https://github.com/TiagoOlivoto).
 
-Toda mudança entra no `master` por pull request, com testes, auditoria de dependências e CodeQL.
+Toda mudança passa pelos testes do CI, com auditoria de dependências e CodeQL, antes de gerar uma versão.
 
 ### Privacidade
 
