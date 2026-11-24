@@ -1050,7 +1050,13 @@ pub fn update_record(
 
     match table {
         "projetos" => {
-            let keep = |k: &str, old: Option<i64>| if data.get(k).is_some() { json_i64(data, k) } else { old };
+            let keep = |k: &str, old: Option<i64>| {
+                if data.get(k).is_some() {
+                    json_i64(data, k)
+                } else {
+                    old
+                }
+            };
             let descricao = if data.get("descricao").is_some() {
                 json_str(data, "descricao")
             } else {

@@ -229,18 +229,26 @@ struct FileRefs {
 fn load_refs(conn: &Connection) -> FileRefs {
     let mut main = Vec::new();
     for cat in all_categories(conn) {
-        let Some((table, custom)) = table_for(&cat) else { continue };
+        let Some((table, custom)) = table_for(&cat) else {
+            continue;
+        };
         let sql = if custom {
             "SELECT id, path FROM custom_records WHERE category = ?1".to_string()
         } else {
             format!("SELECT id, path FROM {}", table)
         };
-        let Ok(mut st) = conn.prepare(&sql) else { continue };
+        let Ok(mut st) = conn.prepare(&sql) else {
+            continue;
+        };
         let row = |r: &rusqlite::Row<'_>| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?));
         let rows: Vec<(i64, Option<String>)> = if custom {
-            st.query_map(params![cat], row).map(|it| it.flatten().collect()).unwrap_or_default()
+            st.query_map(params![cat], row)
+                .map(|it| it.flatten().collect())
+                .unwrap_or_default()
         } else {
-            st.query_map([], row).map(|it| it.flatten().collect()).unwrap_or_default()
+            st.query_map([], row)
+                .map(|it| it.flatten().collect())
+                .unwrap_or_default()
         };
         for (id, p) in rows {
             main.push((cat.clone(), id, p.unwrap_or_default()));
@@ -260,21 +268,35 @@ fn load_refs(conn: &Connection) -> FileRefs {
 /// Grava o novo caminho (e nome) no registro principal.
 fn set_main_path(conn: &Connection, cat: &str, id: i64, path: &str) -> Result<(), String> {
     let (table, custom) = table_for(cat).ok_or("categoria inválida")?;
-    let file = Path::new(path).file_name().map(|n| n.to_string_lossy().to_string());
+    let file = Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string());
     if custom {
-        conn.execute("UPDATE custom_records SET path = ?1, file = ?2 WHERE id = ?3 AND category = ?4", params![path, file, id, cat])
+        conn.execute(
+            "UPDATE custom_records SET path = ?1, file = ?2 WHERE id = ?3 AND category = ?4",
+            params![path, file, id, cat],
+        )
     } else {
-        conn.execute(&format!("UPDATE {} SET path = ?1, file = ?2 WHERE id = ?3", table), params![path, file, id])
+        conn.execute(
+            &format!("UPDATE {} SET path = ?1, file = ?2 WHERE id = ?3", table),
+            params![path, file, id],
+        )
     }
     .map(|_| ())
     .map_err(|e| e.to_string())
 }
 
 fn set_att_path(conn: &Connection, att_id: i64, path: &str) -> Result<(), String> {
-    let file = Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    conn.execute("UPDATE record_attachments SET path = ?1, file = ?2 WHERE id = ?3", params![path, file, att_id])
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    let file = Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    conn.execute(
+        "UPDATE record_attachments SET path = ?1, file = ?2 WHERE id = ?3",
+        params![path, file, att_id],
+    )
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
 /// Depois de renomear/mover um arquivo, aponta para o novo caminho TODAS as referências ao antigo
@@ -319,7 +341,12 @@ fn same_prefix_file(root: &Path, rel: &str) -> Option<String> {
         .ok()?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.is_file() && p.file_name().map(|n| n.to_string_lossy().starts_with(&format!("{}_", prefix))).unwrap_or(false))
+        .filter(|p| {
+            p.is_file()
+                && p.file_name()
+                    .map(|n| n.to_string_lossy().starts_with(&format!("{}_", prefix)))
+                    .unwrap_or(false)
+        })
         .collect();
     if found.len() == 1 {
         Some(crate::files::compute_relative_path(&found[0], root))
@@ -341,14 +368,33 @@ pub fn repair_links(conn: &Connection, root: &Path) -> Result<RepairReport, Stri
     let main_by: HashMap<(String, i64), String> = refs
         .main
         .iter()
-        .map(|(c, i, p)| ((table_for(c).map(|t| if t.1 { c.clone() } else { t.0 }).unwrap_or_else(|| c.clone()), *i), p.clone()))
+        .map(|(c, i, p)| {
+            (
+                (
+                    table_for(c)
+                        .map(|t| if t.1 { c.clone() } else { t.0 })
+                        .unwrap_or_else(|| c.clone()),
+                    *i,
+                ),
+                p.clone(),
+            )
+        })
         .collect();
 
     // 1. anexos órfãos
     for (att_id, cat, rid, _, _) in &refs.atts {
-        let key = (table_for(cat).map(|t| if t.1 { cat.clone() } else { t.0 }).unwrap_or_else(|| cat.clone()), *rid);
+        let key = (
+            table_for(cat)
+                .map(|t| if t.1 { cat.clone() } else { t.0 })
+                .unwrap_or_else(|| cat.clone()),
+            *rid,
+        );
         if !main_by.contains_key(&key) {
-            conn.execute("DELETE FROM record_attachments WHERE id = ?1", params![att_id]).map_err(|e| e.to_string())?;
+            conn.execute(
+                "DELETE FROM record_attachments WHERE id = ?1",
+                params![att_id],
+            )
+            .map_err(|e| e.to_string())?;
             rep.orfaos_removidos += 1;
         }
     }
@@ -357,18 +403,29 @@ pub fn repair_links(conn: &Connection, root: &Path) -> Result<RepairReport, Stri
     let refs = load_refs(conn);
     let mut first_att: HashMap<(String, i64), (i64, String)> = HashMap::new();
     for (att_id, cat, rid, p, _) in &refs.atts {
-        first_att.entry((cat.clone(), *rid)).or_insert((*att_id, p.clone()));
+        first_att
+            .entry((cat.clone(), *rid))
+            .or_insert((*att_id, p.clone()));
     }
     let mut mapa: HashMap<String, String> = HashMap::new();
     for ((cat, rid), (_, att0)) in &first_att {
-        let key = (table_for(cat).map(|t| if t.1 { cat.clone() } else { t.0 }).unwrap_or_else(|| cat.clone()), *rid);
+        let key = (
+            table_for(cat)
+                .map(|t| if t.1 { cat.clone() } else { t.0 })
+                .unwrap_or_else(|| cat.clone()),
+            *rid,
+        );
         if let Some(mp) = main_by.get(&key) {
             if !exists(att0) && exists(mp) && linker::norm_rel(att0) != linker::norm_rel(mp) {
                 mapa.insert(linker::norm_rel(att0), mp.clone());
             }
         }
     }
-    let resolve = |p: &str| -> Option<String> { mapa.get(&linker::norm_rel(p)).cloned().or_else(|| same_prefix_file(root, p)) };
+    let resolve = |p: &str| -> Option<String> {
+        mapa.get(&linker::norm_rel(p))
+            .cloned()
+            .or_else(|| same_prefix_file(root, p))
+    };
 
     for (cat, id, p) in &refs.main {
         if p.trim().is_empty() || exists(p) {
@@ -391,7 +448,9 @@ pub fn repair_links(conn: &Connection, root: &Path) -> Result<RepairReport, Stri
                 set_att_path(conn, *att_id, &novo)?;
                 rep.corrigidos += 1;
             }
-            None => rep.sem_solucao.push(format!("{} #{} (anexo): {}", cat, rid, p)),
+            None => rep
+                .sem_solucao
+                .push(format!("{} #{} (anexo): {}", cat, rid, p)),
         }
     }
 
@@ -405,7 +464,12 @@ pub fn repair_links(conn: &Connection, root: &Path) -> Result<RepairReport, Stri
         if exists(p) {
             continue;
         }
-        let key = (table_for(cat).map(|t| if t.1 { cat.clone() } else { t.0 }).unwrap_or_else(|| cat.clone()), *id);
+        let key = (
+            table_for(cat)
+                .map(|t| if t.1 { cat.clone() } else { t.0 })
+                .unwrap_or_else(|| cat.clone()),
+            *id,
+        );
         if let Some(a) = first.get(&key).filter(|a| exists(a)) {
             set_main_path(conn, cat, *id, a)?;
             rep.corrigidos += 1;
@@ -1276,7 +1340,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-
     /// Renomear reaponta o anexo (de onde o app lê o comprovante) e os outros registros que
     /// compartilham o mesmo arquivo; o reparo conserta vínculos já quebrados.
     #[test]
@@ -1288,7 +1351,11 @@ mod tests {
         let conn = crate::db::open_in_memory().unwrap();
         let rel = |n: &str| format!("5_producoes{}artigos{}{}", '\\', '\\', n);
         let att = |id: i64, p: &str| {
-            let f = Path::new(p).file_name().unwrap().to_string_lossy().to_string();
+            let f = Path::new(p)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
             conn.execute(
                 "INSERT INTO record_attachments (category, record_id, file, path, ord) VALUES ('producoes', ?1, ?2, ?3, 0)",
                 params![id, f, p],
@@ -1296,7 +1363,11 @@ mod tests {
             .unwrap();
         };
         let ins = |titulo: &str, p: &str| -> i64 {
-            let f = Path::new(p).file_name().unwrap().to_string_lossy().to_string();
+            let f = Path::new(p)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
             conn.execute(
                 "INSERT INTO producoes (titulo, file, path, folder) VALUES (?1, ?2, ?3, '5_producoes')",
                 params![titulo, f, p],
@@ -1312,14 +1383,21 @@ mod tests {
         att(a, &rel("IDEAU.pdf"));
         att(b, &rel("IDEAU.pdf"));
         let items = preview_renames(&conn, &dir).unwrap();
-        assert_eq!(items.len(), 1, "um arquivo compartilhado é renomeado uma vez");
+        assert_eq!(
+            items.len(),
+            1,
+            "um arquivo compartilhado é renomeado uma vez"
+        );
         let r = apply_renames(&conn, &dir, &items);
         assert_eq!(r.ok, 1, "{:?}", r.erros);
         for id in [a, b] {
             let rec = queries::get_record_by_id(&conn, "producoes", id).unwrap();
             assert_eq!(rec.path.as_deref(), Some(items[0].new_path.as_str()));
             assert_eq!(rec.attachments.len(), 1);
-            assert_eq!(rec.attachments[0].path, items[0].new_path, "anexo reapontado");
+            assert_eq!(
+                rec.attachments[0].path, items[0].new_path,
+                "anexo reapontado"
+            );
         }
         assert!(check_files(&conn, &dir).unwrap().ausentes.is_empty());
 
@@ -1335,10 +1413,23 @@ mod tests {
         let rep = repair_links(&conn, &dir).unwrap();
         assert!(rep.sem_solucao.is_empty(), "{:?}", rep.sem_solucao);
         assert_eq!(rep.orfaos_removidos, 1);
-        for (id, nome) in [(c, "037_curso_g_x_e_day.pdf"), (d, "037_curso_g_x_e_day.pdf"), (e, "005_universidade_federal.pdf")] {
+        for (id, nome) in [
+            (c, "037_curso_g_x_e_day.pdf"),
+            (d, "037_curso_g_x_e_day.pdf"),
+            (e, "005_universidade_federal.pdf"),
+        ] {
             let rec = queries::get_record_by_id(&conn, "producoes", id).unwrap();
-            assert_eq!(rec.path.as_deref(), Some(rel(nome).as_str()), "registro {}", id);
-            assert!(rec.attachments.iter().all(|x| x.path == rel(nome)), "anexos do registro {}", id);
+            assert_eq!(
+                rec.path.as_deref(),
+                Some(rel(nome).as_str()),
+                "registro {}",
+                id
+            );
+            assert!(
+                rec.attachments.iter().all(|x| x.path == rel(nome)),
+                "anexos do registro {}",
+                id
+            );
         }
         assert!(check_files(&conn, &dir).unwrap().ausentes.is_empty());
         // nada mais a reparar
@@ -1473,7 +1564,14 @@ mod real {
         let antes = super::check_files(&conn, root).unwrap().ausentes.len();
         let rep = super::repair_links(&conn, root).unwrap();
         let depois = super::check_files(&conn, root).unwrap();
-        println!("ausentes antes={} depois={} | corrigidos={} orfaos_removidos={} sem_solucao={:?}", antes, depois.ausentes.len(), rep.corrigidos, rep.orfaos_removidos, rep.sem_solucao);
+        println!(
+            "ausentes antes={} depois={} | corrigidos={} orfaos_removidos={} sem_solucao={:?}",
+            antes,
+            depois.ausentes.len(),
+            rep.corrigidos,
+            rep.orfaos_removidos,
+            rep.sem_solucao
+        );
         for a in &depois.ausentes {
             println!("  ainda ausente: {} #{} {}", a.category, a.id, a.path);
         }

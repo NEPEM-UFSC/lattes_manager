@@ -764,12 +764,20 @@ pub fn batch_update_records_impl(
 
 /// Desvincula os comprovantes dos registros (anexos e caminho principal) sem apagar os arquivos,
 /// que continuam na pasta. Devolve quantos registros tinham algum comprovante.
-pub fn batch_unlink_attachments_impl(db: &Mutex<Connection>, category: &str, ids: &[i64]) -> Result<usize, String> {
+pub fn batch_unlink_attachments_impl(
+    db: &Mutex<Connection>,
+    category: &str,
+    ids: &[i64],
+) -> Result<usize, String> {
     let unique_ids = dedup_ids(ids);
-    let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let mut conn = db
+        .lock()
+        .map_err(|e| format!("Database lock failed: {}", e))?;
     let table = validate_batch_category(&conn, category)?;
     let is_cust = crate::custom::is_custom(&table);
-    let tx = conn.transaction().map_err(|e| format!("Falha ao iniciar transação: {}", e))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Falha ao iniciar transação: {}", e))?;
     let mut count = 0usize;
     for id in unique_ids {
         let anexos = tx
@@ -1170,7 +1178,11 @@ pub fn batch_update_records(
 }
 
 #[tauri::command(async)]
-pub fn batch_unlink_attachments(state: tauri::State<'_, AppState>, category: String, ids: Vec<i64>) -> Result<usize, String> {
+pub fn batch_unlink_attachments(
+    state: tauri::State<'_, AppState>,
+    category: String,
+    ids: Vec<i64>,
+) -> Result<usize, String> {
     batch_unlink_attachments_impl(&state.db, &category, &ids)
 }
 

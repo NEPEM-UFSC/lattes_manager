@@ -476,18 +476,32 @@ fn batch_unlink_attachments_keeps_files() {
     let (a, b) = {
         let conn = db.lock().unwrap();
         let a = queries::insert_record(&conn, "projetos", &json!({ "ano": 2020, "tipo": "Projetos de pesquisa", "descricao": "P1", "path": "files/doc1.pdf", "file": "doc1.pdf" }), None, None).unwrap();
-        let b = queries::insert_record(&conn, "projetos", &json!({ "ano": 2021, "tipo": "Projetos de pesquisa", "descricao": "P2" }), None, None).unwrap();
+        let b = queries::insert_record(
+            &conn,
+            "projetos",
+            &json!({ "ano": 2021, "tipo": "Projetos de pesquisa", "descricao": "P2" }),
+            None,
+            None,
+        )
+        .unwrap();
         (a.id, b.id)
     };
     {
         let conn = db.lock().unwrap();
         let rec = queries::get_record_by_id(&conn, "projetos", a).unwrap();
         let mut atts = rec.attachments.clone();
-        atts.push(crate::db::models::AttachmentDto { file: "doc2.pdf".into(), path: "files/doc2.pdf".into(), ..Default::default() });
+        atts.push(crate::db::models::AttachmentDto {
+            file: "doc2.pdf".into(),
+            path: "files/doc2.pdf".into(),
+            ..Default::default()
+        });
         queries::sync_record_attachments(&conn, "projetos", a, &atts).unwrap();
     }
     // só o registro com comprovante conta; o arquivo continua no disco
-    assert_eq!(batch_unlink_attachments_impl(&db, "projetos", &[a, b, a]).unwrap(), 1);
+    assert_eq!(
+        batch_unlink_attachments_impl(&db, "projetos", &[a, b, a]).unwrap(),
+        1
+    );
     let conn = db.lock().unwrap();
     let rec = queries::get_record_by_id(&conn, "projetos", a).unwrap();
     assert!(rec.path.is_none() && rec.file.is_none());

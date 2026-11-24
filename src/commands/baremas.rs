@@ -5,7 +5,9 @@ use super::*;
 use serde::Serialize;
 
 pub const BAREMAS_DIR: &str = "baremas";
-const DOC_EXTS: &[&str] = &["pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "xlsm", "ods", "csv"];
+const DOC_EXTS: &[&str] = &[
+    "pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "xlsm", "ods", "csv",
+];
 const DOC_MAX_BYTES: u64 = 200 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,9 +22,17 @@ fn safe_name(s: &str) -> String {
     let t: String = s
         .trim()
         .chars()
-        .map(|c| if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c })
+        .map(|c| {
+            if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
-    let t = t.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
+    let t = t
+        .trim_matches(|c: char| c == '.' || c.is_whitespace())
+        .to_string();
     if t.is_empty() {
         "documento".into()
     } else {
@@ -31,13 +41,24 @@ fn safe_name(s: &str) -> String {
 }
 
 /// Copia `src` para `baremas/<barema_id>/`, sem sobrescrever (acrescenta " (2)", " (3)"...).
-pub fn add_barema_document_impl(root_dir: &Path, barema_id: &str, src: &Path) -> Result<BaremaDocDto, String> {
+pub fn add_barema_document_impl(
+    root_dir: &Path,
+    barema_id: &str,
+    src: &Path,
+) -> Result<BaremaDocDto, String> {
     let ext = src
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     if !DOC_EXTS.contains(&ext.as_str()) {
-        return Err(format!("Formato não aceito ({}): use PDF, Word ou Excel", if ext.is_empty() { "sem extensão".into() } else { ext }));
+        return Err(format!(
+            "Formato não aceito ({}): use PDF, Word ou Excel",
+            if ext.is_empty() {
+                "sem extensão".into()
+            } else {
+                ext
+            }
+        ));
     }
     let size = std::fs::metadata(src)
         .map_err(|e| format!("Falha ao ler '{}': {}", src.display(), e))?
@@ -47,15 +68,21 @@ pub fn add_barema_document_impl(root_dir: &Path, barema_id: &str, src: &Path) ->
     }
     let folder = safe_name(barema_id);
     let dir = root_dir.join(BAREMAS_DIR).join(&folder);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Falha ao criar a pasta '{}': {}", dir.display(), e))?;
-    let stem = safe_name(&src.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default());
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Falha ao criar a pasta '{}': {}", dir.display(), e))?;
+    let stem = safe_name(
+        &src.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default(),
+    );
     let mut name = format!("{}.{}", stem, ext);
     let mut n = 2;
     while dir.join(&name).exists() {
         name = format!("{} ({}).{}", stem, n, ext);
         n += 1;
     }
-    std::fs::copy(src, dir.join(&name)).map_err(|e| format!("Falha ao copiar o documento: {}", e))?;
+    std::fs::copy(src, dir.join(&name))
+        .map_err(|e| format!("Falha ao copiar o documento: {}", e))?;
     Ok(BaremaDocDto {
         path: format!("{}/{}/{}", BAREMAS_DIR, folder, name),
         name,
@@ -79,13 +106,22 @@ pub fn remove_barema_document_impl(root_dir: &Path, rel_path: &str) -> Result<()
 
 /// Escolhe documentos (PDF, Word, Excel) e os copia para a pasta do barema.
 #[tauri::command(async)]
-pub fn add_barema_documents(state: tauri::State<'_, AppState>, barema_id: String) -> Result<Vec<BaremaDocDto>, String> {
+pub fn add_barema_documents(
+    state: tauri::State<'_, AppState>,
+    barema_id: String,
+) -> Result<Vec<BaremaDocDto>, String> {
     let picked = rfd::FileDialog::new()
         .set_title("Anexar documentos ao barema (portaria, resolução, planilha...)")
         .add_filter("PDF, Word e Excel", DOC_EXTS)
         .add_filter("PDF (*.pdf)", &["pdf"])
-        .add_filter("Word (*.doc, *.docx, *.odt, *.rtf)", &["doc", "docx", "odt", "rtf"])
-        .add_filter("Excel (*.xls, *.xlsx, *.ods, *.csv)", &["xls", "xlsx", "xlsm", "ods", "csv"])
+        .add_filter(
+            "Word (*.doc, *.docx, *.odt, *.rtf)",
+            &["doc", "docx", "odt", "rtf"],
+        )
+        .add_filter(
+            "Excel (*.xls, *.xlsx, *.ods, *.csv)",
+            &["xls", "xlsx", "xlsm", "ods", "csv"],
+        )
         .pick_files()
         .unwrap_or_default();
     picked
@@ -95,7 +131,10 @@ pub fn add_barema_documents(state: tauri::State<'_, AppState>, barema_id: String
 }
 
 #[tauri::command(async)]
-pub fn remove_barema_document(state: tauri::State<'_, AppState>, path: String) -> Result<(), String> {
+pub fn remove_barema_document(
+    state: tauri::State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
     remove_barema_document_impl(&state.root_dir, &path)
 }
 
