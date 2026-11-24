@@ -1,6 +1,6 @@
 // Record Create / Edit Modal Component
 
-import { CATEGORY_SCHEMAS, getCategoryMappings, escapeHtml, horasAtuacao, showToast } from "../utils.js";
+import { CATEGORY_SCHEMAS, getCategoryMappings, escapeHtml, horasAtuacao, SEMANAS_POR_SEMESTRE, showToast } from "../utils.js";
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 import { FieldHistory } from "./fieldHistory.js";
@@ -458,12 +458,12 @@ export class RecordModal {
     if (hint) {
       const val = (n) => document.getElementById(`field-${n}`)?.value ?? "";
       const upd = () => {
-        const h = horasAtuacao({ horas: val("horas"), ano: val("ano"), ano_fim: val("ano_fim"), semestre: val("semestre"), semestre_fim: val("semestre_fim"), semestres_ano: val("semestres_ano") });
+        const h = horasAtuacao({ horas: val("horas"), ano: val("ano"), ano_fim: val("ano_fim"), semestre: val("semestre"), semestre_fim: val("semestre_fim"), semestres_ano: val("semestres_ano"), horas_unidade: val("horas_unidade") });
         hint.textContent = h
-          ? `Total: ${h.porSemestre} h × ${h.semestres} sem. = ${h.total} h${h.inicio ? ` (${h.inicio === h.fim ? h.inicio : `${h.inicio} a ${h.fim}`}${h.porAno === 1 ? ", uma vez por ano" : ""})` : ""}`
-          : "Informe as horas de um semestre; o total é calculado pelo período.";
+          ? `Total: ${h.porSemana ? `${h.porSemana} h/semana × ${SEMANAS_POR_SEMESTRE} = ` : ""}${h.porSemestre} h × ${h.semestres} sem. = ${h.total} h${h.inicio ? ` (${h.inicio === h.fim ? h.inicio : `${h.inicio} a ${h.fim}`}${h.porAno === 1 ? ", uma vez por ano" : ""})` : ""}`
+          : "Informe as horas (do semestre ou da semana, conforme a unidade); o total é calculado pelo período.";
       };
-      for (const n of ["horas", "ano", "ano_fim", "semestre", "semestre_fim", "semestres_ano"]) {
+      for (const n of ["horas", "horas_unidade", "ano", "ano_fim", "semestre", "semestre_fim", "semestres_ano"]) {
         const el = document.getElementById(`field-${n}`);
         el?.addEventListener("input", upd);
         el?.addEventListener("change", upd);

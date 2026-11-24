@@ -585,6 +585,7 @@ const ALLOWED_BATCH_COLUMNS: &[&str] = &[
     "enquadramento",
     "horas",
     "semestres_ano",
+    "horas_unidade",
     "semestre",
     "semestre_fim",
     "dedicacao_exclusiva",

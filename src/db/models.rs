@@ -142,6 +142,7 @@ pub struct AtuacaoRecord {
     pub semestres_ano: Option<i64>,
     pub semestre: Option<i64>,
     pub semestre_fim: Option<i64>,
+    pub horas_unidade: Option<String>,
 }
 
 impl AtuacaoRecord {
@@ -168,6 +169,7 @@ impl AtuacaoRecord {
             semestres_ano: row.get("semestres_ano").unwrap_or(None),
             semestre: row.get("semestre").unwrap_or(None),
             semestre_fim: row.get("semestre_fim").unwrap_or(None),
+            horas_unidade: row.get("horas_unidade").unwrap_or(None),
         })
     }
 }
@@ -557,6 +559,8 @@ pub struct RecordDto {
     pub semestre: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub semestre_fim: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub horas_unidade: Option<String>,
     pub curso: Option<String>,
     pub disciplina: Option<String>,
     pub alunos: Option<i64>,
@@ -626,6 +630,7 @@ impl From<AtuacaoRecord> for RecordDto {
             semestres_ano: r.semestres_ano,
             semestre: r.semestre,
             semestre_fim: r.semestre_fim,
+            horas_unidade: r.horas_unidade,
             log: r.log,
             path: r.path,
             url: r.url,

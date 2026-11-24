@@ -485,6 +485,8 @@ ALTER TABLE projetos ADD COLUMN ano_fim INTEGER;
 ALTER TABLE projetos ADD COLUMN semestre INTEGER;
 ALTER TABLE projetos ADD COLUMN semestre_fim INTEGER;
 "#,
+    // 17: unidade da carga horária da atuação: 'semestre' (padrão) ou 'semana' (h/semana × 18 semanas)
+    "ALTER TABLE atuacao ADD COLUMN horas_unidade TEXT;",
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

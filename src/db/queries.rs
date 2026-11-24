@@ -209,7 +209,7 @@ pub fn list_atuacao(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<AtuacaoRecord>> {
-    let mut sql = "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url, semestres_ano, semestre, semestre_fim FROM atuacao WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url, semestres_ano, semestre, semestre_fim, horas_unidade FROM atuacao WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -905,9 +905,10 @@ pub fn insert_record(
             let semestres_ano = json_i64(data, "semestres_ano");
             let semestre = json_i64(data, "semestre");
             let semestre_fim = json_i64(data, "semestre_fim");
+            let horas_unidade = json_str(data, "horas_unidade");
             conn.execute(
-                "INSERT INTO atuacao (ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
-                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim],
+                "INSERT INTO atuacao (ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim, horas_unidade) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim, horas_unidade],
             )?;
         }
         "disciplinas" => {
@@ -1156,9 +1157,14 @@ pub fn update_record(
             } else {
                 existing.semestre_fim
             };
+            let horas_unidade = if data.get("horas_unidade").is_some() {
+                json_str(data, "horas_unidade")
+            } else {
+                existing.horas_unidade
+            };
             conn.execute(
-                "UPDATE atuacao SET ano = ?1, ano_fim = ?2, tipo = ?3, identifier = ?4, file = ?5, folder = ?6, instituicao = ?7, titulo = ?8, vinculo = ?9, enquadramento = ?10, horas = ?11, dedicacao_exclusiva = ?12, vinculo_empregaticio = ?13, descricao = ?14, log = ?15, path = ?16, semestres_ano = ?17, semestre = ?18, semestre_fim = ?19 WHERE id = ?20",
-                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim, id],
+                "UPDATE atuacao SET ano = ?1, ano_fim = ?2, tipo = ?3, identifier = ?4, file = ?5, folder = ?6, instituicao = ?7, titulo = ?8, vinculo = ?9, enquadramento = ?10, horas = ?11, dedicacao_exclusiva = ?12, vinculo_empregaticio = ?13, descricao = ?14, log = ?15, path = ?16, semestres_ano = ?17, semestre = ?18, semestre_fim = ?19, horas_unidade = ?20 WHERE id = ?21",
+                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim, horas_unidade, id],
             )?;
         }
         "disciplinas" => {

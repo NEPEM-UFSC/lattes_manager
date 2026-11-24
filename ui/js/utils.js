@@ -367,15 +367,22 @@ export function semestresRegistro(r, period = null, aberto = false) {
   return n;
 }
 
+/** Semanas letivas por semestre, para converter carga horária semanal em semestral. */
+export const SEMANAS_POR_SEMESTRE = 18;
+
 export function horasAtuacao(r, period = null) {
-  const porSemestre = Number(String(r?.horas ?? "").replace(",", "."));
-  if (!Number.isFinite(porSemestre) || porSemestre <= 0) return null;
+  const informado = Number(String(r?.horas ?? "").replace(",", "."));
+  if (!Number.isFinite(informado) || informado <= 0) return null;
+  // unidade: "semestre" (padrão, ex.: disciplina de 72 h) ou "semana" (ex.: coordenação de 10 h/semana)
+  const semanal = r?.horas_unidade === "semana";
+  const porSemestre = semanal ? informado * SEMANAS_POR_SEMESTRE : informado;
+  const porSemana = semanal ? informado : null;
   const sem = (v) => (Number(v) === 1 || Number(v) === 2 ? Number(v) : null);
   // registros antigos (sem semestre nem frequência gravados) contam uma vez por ano, como antes
   const legado = !sem(r.semestre) && !sem(r.semestre_fim) && r.semestres_ano == null;
   const porAno = Number(r.semestres_ano) === 1 || (legado && r.semestres_ano !== "") ? 1 : 2;
   const ini = Number(r.ano);
-  if (!Number.isFinite(ini) || ini <= 0) return { porSemestre, porAno, semestres: 1, total: porSemestre, inicio: "", fim: "" };
+  if (!Number.isFinite(ini) || ini <= 0) return { porSemestre, porSemana, porAno, semestres: 1, total: porSemestre, inicio: "", fim: "" };
   const sIni = sem(r.semestre) || 1;
   const a = ini * 2 + sIni - 1;
   const fim = Number(r.ano_fim);
@@ -392,7 +399,7 @@ export function horasAtuacao(r, period = null) {
     if (ano >= from && ano <= to) semestres++;
   }
   const rot = (k) => `${Math.floor(k / 2)}-${(k % 2) + 1}`;
-  return { porSemestre, porAno, semestres, total: porSemestre * semestres, inicio: rot(a), fim: rot(b) };
+  return { porSemestre, porSemana, porAno, semestres, total: porSemestre * semestres, inicio: rot(a), fim: rot(b) };
 }
 
 /**
@@ -492,7 +499,7 @@ export const CATEGORY_SCHEMAS = {
       { key: "horas", label: "Horas", width: "1%", render: (r) => {
         const h = horasAtuacao(r);
         if (!h) return "—";
-        const conta = `${h.porSemestre} h/semestre × ${h.semestres} semestre(s)${h.inicio && h.semestres > 1 ? ` (${h.inicio} a ${h.fim}${h.porAno === 1 ? ", uma vez por ano" : ""})` : ""} = ${h.total} h`;
+        const conta = `${h.porSemana ? `${h.porSemana} h/semana × ${SEMANAS_POR_SEMESTRE} semanas = ` : ""}${h.porSemestre} h/semestre × ${h.semestres} semestre(s)${h.inicio && h.semestres > 1 ? ` (${h.inicio} a ${h.fim}${h.porAno === 1 ? ", uma vez por ano" : ""})` : ""} = ${h.total} h`;
         return `<span class="badge badge-hours" title="${escapeHtml(conta)}">${h.total}h${h.semestres > 1 ? ` <small>(${h.semestres} sem.)</small>` : ""}</span>`;
       } },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
@@ -507,7 +514,18 @@ export const CATEGORY_SCHEMAS = {
       SEMESTRE_FIM_FIELD,
       { name: "vinculo", label: "Tipo do Vínculo", type: "text", required: false, placeholder: "Ex: Servidor Público, Celetista, Bolsista, Colaborador...", width: "half" },
       { name: "enquadramento", label: "Enquadramento Funcional / Cargo", type: "text", required: false, placeholder: "Ex: Professor Adjunto, Editor Associado, Revisor...", width: "half" },
-      { name: "horas", label: "Carga horária por semestre (horas)", type: "number", required: false, placeholder: "Ex: 72", width: "half", horasTotal: true },
+      { name: "horas", label: "Carga horária (horas)", type: "number", required: false, placeholder: "Ex: 72 (semestral) ou 10 (semanal)", width: "half", horasTotal: true },
+      {
+        name: "horas_unidade",
+        label: "Unidade da carga horária",
+        type: "select",
+        options: [
+          { value: "semestre", label: "Por semestre (ex.: disciplina)" },
+          { value: "semana", label: `Por semana (ex.: coordenação) × ${SEMANAS_POR_SEMESTRE} semanas` },
+        ],
+        required: false,
+        width: "half",
+      },
       {
         name: "semestres_ano",
         label: "Frequência no período",
