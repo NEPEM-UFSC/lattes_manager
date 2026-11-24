@@ -2940,7 +2940,11 @@ export class ToolsView {
         <div style="flex:1"></div>
         <button type="button" class="btn btn-secondary btn-sm" data-open-folders>🗂️ Auditar pastas em branco / sem vínculo</button>
       </div>
-      ${fc.ausentes.length ? `<h3 class="tl-h3">Arquivo ausente
+      ${fc.ausentes.length ? `<div class="tl-bar" style="margin-bottom:10px; border:1px solid var(--border-light); border-radius:10px; padding:10px 12px;">
+        <span class="muted" style="flex:1; min-width:240px;">Arquivos renomeados ou movidos (inclusive pelo “Renomear comprovantes”)? O reparo procura o arquivo novo de cada vínculo — pelo nome já gravado no registro ou pelo mesmo número (ex.: <code>037_…</code>) na mesma pasta — e reaponta registro e anexos.</span>
+        <button type="button" class="btn btn-primary btn-sm" data-repair>🔧 Reparar vínculos automaticamente</button>
+      </div>
+      <h3 class="tl-h3">Arquivo ausente
         <button type="button" class="btn btn-secondary btn-sm" data-clear>Remover esses vínculos quebrados</button>
         <button type="button" class="btn btn-primary btn-sm" data-open-invalid style="margin-left:8px;">⚠️ Corrigir na Tabela de Inválidos</button>
       </h3>
@@ -2953,6 +2957,23 @@ export class ToolsView {
     this.el.querySelector("[data-link]")?.addEventListener("click", () => this.openLinker && this.openLinker());
     this.el.querySelector("[data-open-invalid]")?.addEventListener("click", () => this.open("invalid_proofs"));
     this.el.querySelectorAll("[data-reveal]").forEach((b) => b.addEventListener("click", () => api.revealInExplorer(b.dataset.reveal).catch(() => { })));
+    this.el.querySelector("[data-repair]")?.addEventListener("click", async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        const r = await api.repairFileLinks();
+        const resto = r.sem_solucao?.length || 0;
+        showToast(
+          `🔧 ${r.corrigidos} vínculo(s) reapontado(s)${r.orfaos_removidos ? ` · ${r.orfaos_removidos} anexo(s) de registros excluídos removido(s)` : ""}${resto ? ` · ${resto} sem arquivo correspondente` : ""}`,
+          resto ? "info" : "success",
+          6000
+        );
+      } catch (err) {
+        showToast(`Erro ao reparar: ${err}`, "error");
+      }
+      st.fc = null;
+      this.onChanged && this.onChanged();
+      this.toolCheck();
+    });
     this.el.querySelector("[data-clear]")?.addEventListener("click", async () => {
       if (!window.confirm(`Remover o vínculo de ${fc.ausentes.length} registro(s) com arquivos que não existem mais?\nOs registros continuam; só ficam "sem comprovante".`)) return;
       const r = await api.clearMissingLinks(fc.ausentes).catch((e) => ({ ok: 0, erros: [String(e)] }));

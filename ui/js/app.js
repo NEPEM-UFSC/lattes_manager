@@ -908,6 +908,7 @@ class App {
     document.getElementById("btn-report")?.addEventListener("click", () => this.reportBuilder.open());
     document.getElementById("btn-linker")?.addEventListener("click", () => this.linker.open());
     document.getElementById("btn-preview-comprovantes")?.addEventListener("click", () => this.previewCategoryProofs());
+    this.setupSidebarToggle();
     const themeBtn = document.getElementById("btn-theme-toggle");
     const syncThemeBtn = () => {
       const dark = document.documentElement.dataset.theme === "dark";
@@ -997,6 +998,9 @@ class App {
         }
         this.inputSearch.focus();
         this.inputSearch.select();
+      } else if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        this.toggleSidebar();
       } else if (mod && e.key.toLowerCase() === "n" && this.view === "records") {
         e.preventDefault();
         this.recordModal.openCreate(this.currentCategory, this.mappings);
@@ -1648,6 +1652,67 @@ class App {
     }
 
     this.deleteModalOverlay.style.display = "flex";
+  }
+
+  /**
+   * Menu lateral recolhido (só ícones). A escolha do usuário fica salva; sem escolha, recolhe
+   * sozinho em janelas estreitas (< 1100 px).
+   */
+  setupSidebarToggle() {
+    const KEY = "lm.sidebar";
+    const ler = () => {
+      try {
+        return localStorage.getItem(KEY);
+      } catch {
+        return null;
+      }
+    };
+    const aplicar = () => {
+      const pref = ler();
+      const recolhido = pref === "collapsed" || (pref !== "expanded" && window.innerWidth < 1100);
+      document.body.classList.toggle("sidebar-collapsed", recolhido);
+      const btn = document.getElementById("btn-sidebar-toggle");
+      if (btn) {
+        btn.querySelector(".ti").textContent = recolhido ? "»" : "«";
+        btn.querySelector(".tl").textContent = recolhido ? "Expandir menu" : "Recolher menu";
+        btn.title = `${recolhido ? "Expandir o menu" : "Recolher o menu, deixando só os ícones"} (Ctrl+B)`;
+      }
+    };
+    this.toggleSidebar = () => {
+      const recolhido = document.body.classList.contains("sidebar-collapsed");
+      try {
+        localStorage.setItem(KEY, recolhido ? "expanded" : "collapsed");
+      } catch {
+        // sem armazenamento: vale só nesta sessão
+        document.body.classList.toggle("sidebar-collapsed", !recolhido);
+        return;
+      }
+      aplicar();
+    };
+    document.getElementById("btn-sidebar-toggle")?.addEventListener("click", () => this.toggleSidebar());
+    window.addEventListener("resize", () => {
+      if (!ler()) aplicar();
+    });
+    // com o menu recolhido, o nome (e a contagem) aparecem ao passar o mouse
+    document.querySelector(".sidebar")?.addEventListener("mouseover", (e) => {
+      const link = e.target.closest(".nav-link, .theme-toggle");
+      if (!link || link.id === "btn-sidebar-toggle") return;
+      if (!document.body.classList.contains("sidebar-collapsed")) {
+        if (link.dataset.autoTitle) {
+          link.removeAttribute("title");
+          delete link.dataset.autoTitle;
+        }
+        return;
+      }
+      if (link.title && !link.dataset.autoTitle) return;
+      const nome = (link.querySelector(".nav-label, .tl")?.textContent || "").trim();
+      const n = (link.querySelector(".badge")?.textContent || "").trim();
+      if (nome) {
+        link.title = n ? `${nome} (${n})` : nome;
+        link.dataset.autoTitle = "1";
+      }
+    });
+    aplicar();
   }
 
   /** Desvincula os comprovantes dos registros selecionados; os arquivos ficam na pasta. */

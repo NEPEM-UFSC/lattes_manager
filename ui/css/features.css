@@ -6186,3 +6186,50 @@ td.col-metric {
 .sc-doc-xls { background: #059669; }
 .sc-doc-meta { font-size: calc(11.5px * var(--font-scale, 1)); color: var(--text-muted); white-space: nowrap; }
 .sc-doc-empty { font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); padding: 6px 0; border-top: 1px solid var(--border-light); }
+
+/* ---------- Menu lateral recolhido (só ícones): opção do usuário ou tela estreita ---------- */
+body.sidebar-collapsed {
+  --sidebar-width: 68px;
+}
+body.sidebar-collapsed .sidebar .nav-label,
+body.sidebar-collapsed .sidebar .badge,
+body.sidebar-collapsed .sidebar .brand-text,
+body.sidebar-collapsed .sidebar .nav-section-label,
+body.sidebar-collapsed .sidebar .tl,
+body.sidebar-collapsed .sidebar .db-status-chip {
+  display: none !important;
+}
+body.sidebar-collapsed .sidebar .nav-link {
+  justify-content: center;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+body.sidebar-collapsed .sidebar .nav-icon {
+  margin: 0 !important;
+}
+body.sidebar-collapsed .sidebar .sidebar-header,
+body.sidebar-collapsed .sidebar .brand {
+  justify-content: center;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+body.sidebar-collapsed .sidebar .theme-toggle {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+body.sidebar-collapsed .sidebar-nav {
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
+/* separador fino no lugar dos títulos de seção */
+body.sidebar-collapsed .sidebar .nav-list + .nav-list,
+body.sidebar-collapsed .sidebar .nav-list {
+  margin-top: 2px;
+}
+.sidebar-toggle .ti {
+  font-size: calc(15px * var(--font-scale, 1));
+  line-height: 1;
+  width: 1.1em;
+  text-align: center;
+}

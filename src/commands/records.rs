@@ -873,6 +873,11 @@ pub fn batch_delete_records_impl(
                     del_stmt.execute(rusqlite::params![id])
                 }
                 .map_err(|e| format!("Falha ao excluir registro {}: {}", id, e))?;
+                // os anexos do registro excluído não podem ficar soltos no banco
+                let _ = tx.execute(
+                    "DELETE FROM record_attachments WHERE category IN (?1, ?2) AND record_id = ?3",
+                    rusqlite::params![category, &table, id],
+                );
                 count += n;
             }
         }

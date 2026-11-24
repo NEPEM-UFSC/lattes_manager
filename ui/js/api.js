@@ -698,6 +698,8 @@ export const api = {
   reorderCustomCategories: (keys) => invokeCommand("reorder_custom_categories", { keys }),
   previewFileRenames: () => invokeCommand("preview_file_renames"),
   applyFileRenames: (items) => invokeCommand("apply_file_renames", { items }),
+  /** Reaponta vínculos quebrados por arquivos renomeados/movidos e remove anexos de registros excluídos. */
+  repairFileLinks: () => invokeCommand("repair_file_links"),
   checkFiles: () => invokeCommand("check_files"),
   scanPendencias: () => invokeCommand("scan_pendencias"),
   pickQualisFile: () => invokeCommand("pick_qualis_file"),

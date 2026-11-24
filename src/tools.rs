@@ -52,6 +52,8 @@ pub fn preview_renames(conn: &Connection, root: &Path) -> Result<Vec<RenameItem>
     // nomes já ocupados por pasta (minúsculas) e maior prefixo por pasta
     let mut taken: HashMap<PathBuf, HashSet<String>> = HashMap::new();
     let mut max_prefix: HashMap<PathBuf, u32> = HashMap::new();
+    // arquivo compartilhado por vários registros: renomeado uma vez (todos são reapontados)
+    let mut planned: HashSet<String> = HashSet::new();
     for cat in all_categories(conn) {
         let recs = queries::get_records(conn, &cat, None, None, None).map_err(|e| e.to_string())?;
         for r in recs {
@@ -59,7 +61,7 @@ pub fn preview_renames(conn: &Connection, root: &Path) -> Result<Vec<RenameItem>
                 continue;
             };
             let full = crate::files::rel_join(root, &rel);
-            if !full.is_file() {
+            if !full.is_file() || !planned.insert(linker::norm_rel(&rel)) {
                 continue;
             }
             let Some(dir) = full.parent().map(Path::to_path_buf) else {
@@ -202,6 +204,8 @@ pub fn apply_renames(conn: &Connection, root: &Path, items: &[RenameItem]) -> Ap
                 let _ = std::fs::rename(&to, &from); // desfaz
                 return Err(e);
             }
+            // anexos (de onde o app lê os comprovantes) e outros registros que usam o mesmo arquivo
+            relink_path(conn, &it.old_path, &it.new_path)?;
             Ok(())
         })();
         match r {
@@ -210,6 +214,206 @@ pub fn apply_renames(conn: &Connection, root: &Path, items: &[RenameItem]) -> Ap
         }
     }
     res
+}
+
+// ---------------- Reapontar e reparar vínculos ----------------
+
+/// Referências a arquivos: caminho principal de cada registro e cada anexo (record_attachments).
+struct FileRefs {
+    /// (categoria, id, caminho principal)
+    main: Vec<(String, i64, String)>,
+    /// (id do anexo, categoria, id do registro, caminho, ordem)
+    atts: Vec<(i64, String, i64, String, i64)>,
+}
+
+fn load_refs(conn: &Connection) -> FileRefs {
+    let mut main = Vec::new();
+    for cat in all_categories(conn) {
+        let Some((table, custom)) = table_for(&cat) else { continue };
+        let sql = if custom {
+            "SELECT id, path FROM custom_records WHERE category = ?1".to_string()
+        } else {
+            format!("SELECT id, path FROM {}", table)
+        };
+        let Ok(mut st) = conn.prepare(&sql) else { continue };
+        let row = |r: &rusqlite::Row<'_>| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?));
+        let rows: Vec<(i64, Option<String>)> = if custom {
+            st.query_map(params![cat], row).map(|it| it.flatten().collect()).unwrap_or_default()
+        } else {
+            st.query_map([], row).map(|it| it.flatten().collect()).unwrap_or_default()
+        };
+        for (id, p) in rows {
+            main.push((cat.clone(), id, p.unwrap_or_default()));
+        }
+    }
+    let mut atts = Vec::new();
+    if let Ok(mut st) = conn.prepare("SELECT id, category, record_id, path, COALESCE(ord, 0) FROM record_attachments ORDER BY category, record_id, ord, id") {
+        if let Ok(rows) = st.query_map([], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?, r.get::<_, i64>(4)?))
+        }) {
+            atts.extend(rows.flatten());
+        }
+    }
+    FileRefs { main, atts }
+}
+
+/// Grava o novo caminho (e nome) no registro principal.
+fn set_main_path(conn: &Connection, cat: &str, id: i64, path: &str) -> Result<(), String> {
+    let (table, custom) = table_for(cat).ok_or("categoria inválida")?;
+    let file = Path::new(path).file_name().map(|n| n.to_string_lossy().to_string());
+    if custom {
+        conn.execute("UPDATE custom_records SET path = ?1, file = ?2 WHERE id = ?3 AND category = ?4", params![path, file, id, cat])
+    } else {
+        conn.execute(&format!("UPDATE {} SET path = ?1, file = ?2 WHERE id = ?3", table), params![path, file, id])
+    }
+    .map(|_| ())
+    .map_err(|e| e.to_string())
+}
+
+fn set_att_path(conn: &Connection, att_id: i64, path: &str) -> Result<(), String> {
+    let file = Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    conn.execute("UPDATE record_attachments SET path = ?1, file = ?2 WHERE id = ?3", params![path, file, att_id])
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Depois de renomear/mover um arquivo, aponta para o novo caminho TODAS as referências ao antigo
+/// (o registro principal e os anexos de qualquer registro que compartilhe o mesmo arquivo).
+pub fn relink_path(conn: &Connection, old_rel: &str, new_rel: &str) -> Result<usize, String> {
+    let old = linker::norm_rel(old_rel);
+    let refs = load_refs(conn);
+    let mut n = 0;
+    for (cat, id, p) in &refs.main {
+        if !p.trim().is_empty() && linker::norm_rel(p) == old {
+            set_main_path(conn, cat, *id, new_rel)?;
+            n += 1;
+        }
+    }
+    for (att_id, _, _, p, _) in &refs.atts {
+        if linker::norm_rel(p) == old {
+            set_att_path(conn, *att_id, new_rel)?;
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct RepairReport {
+    /// vínculos reapontados para o arquivo renomeado/movido
+    pub corrigidos: usize,
+    /// anexos de registros que já não existem (removidos do banco; os arquivos ficam)
+    pub orfaos_removidos: usize,
+    /// vínculos ainda quebrados (sem arquivo correspondente encontrado)
+    pub sem_solucao: Vec<String>,
+}
+
+/// Arquivo da mesma pasta com o mesmo prefixo numérico ("037_..."), se for o único.
+fn same_prefix_file(root: &Path, rel: &str) -> Option<String> {
+    let full = crate::files::rel_join(root, rel);
+    let dir = full.parent()?;
+    let name = full.file_name()?.to_string_lossy().to_string();
+    let (prefix, _) = split_prefix(&name);
+    let prefix = prefix?;
+    let found: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.file_name().map(|n| n.to_string_lossy().starts_with(&format!("{}_", prefix))).unwrap_or(false))
+        .collect();
+    if found.len() == 1 {
+        Some(crate::files::compute_relative_path(&found[0], root))
+    } else {
+        None
+    }
+}
+
+/// Repara vínculos quebrados por renomeação/movimentação de arquivos:
+///  1. remove anexos de registros que já não existem;
+///  2. usa o par "anexo antigo (ausente) × caminho principal novo (existente)" do mesmo registro
+///     como mapa antigo → novo e aplica a TODAS as referências ao caminho antigo;
+///  3. senão, procura na mesma pasta o único arquivo com o mesmo prefixo numérico ("037_...");
+///  4. caminho principal ausente com primeiro anexo existente: sincroniza o principal.
+pub fn repair_links(conn: &Connection, root: &Path) -> Result<RepairReport, String> {
+    let mut rep = RepairReport::default();
+    let exists = |p: &str| !p.trim().is_empty() && crate::files::rel_join(root, p).is_file();
+    let refs = load_refs(conn);
+    let main_by: HashMap<(String, i64), String> = refs
+        .main
+        .iter()
+        .map(|(c, i, p)| ((table_for(c).map(|t| if t.1 { c.clone() } else { t.0 }).unwrap_or_else(|| c.clone()), *i), p.clone()))
+        .collect();
+
+    // 1. anexos órfãos
+    for (att_id, cat, rid, _, _) in &refs.atts {
+        let key = (table_for(cat).map(|t| if t.1 { cat.clone() } else { t.0 }).unwrap_or_else(|| cat.clone()), *rid);
+        if !main_by.contains_key(&key) {
+            conn.execute("DELETE FROM record_attachments WHERE id = ?1", params![att_id]).map_err(|e| e.to_string())?;
+            rep.orfaos_removidos += 1;
+        }
+    }
+
+    // 2. mapa antigo → novo a partir do próprio registro
+    let refs = load_refs(conn);
+    let mut first_att: HashMap<(String, i64), (i64, String)> = HashMap::new();
+    for (att_id, cat, rid, p, _) in &refs.atts {
+        first_att.entry((cat.clone(), *rid)).or_insert((*att_id, p.clone()));
+    }
+    let mut mapa: HashMap<String, String> = HashMap::new();
+    for ((cat, rid), (_, att0)) in &first_att {
+        let key = (table_for(cat).map(|t| if t.1 { cat.clone() } else { t.0 }).unwrap_or_else(|| cat.clone()), *rid);
+        if let Some(mp) = main_by.get(&key) {
+            if !exists(att0) && exists(mp) && linker::norm_rel(att0) != linker::norm_rel(mp) {
+                mapa.insert(linker::norm_rel(att0), mp.clone());
+            }
+        }
+    }
+    let resolve = |p: &str| -> Option<String> { mapa.get(&linker::norm_rel(p)).cloned().or_else(|| same_prefix_file(root, p)) };
+
+    for (cat, id, p) in &refs.main {
+        if p.trim().is_empty() || exists(p) {
+            continue;
+        }
+        match resolve(p) {
+            Some(novo) => {
+                set_main_path(conn, cat, *id, &novo)?;
+                rep.corrigidos += 1;
+            }
+            None => rep.sem_solucao.push(format!("{} #{}: {}", cat, id, p)),
+        }
+    }
+    for (att_id, cat, rid, p, _) in &refs.atts {
+        if exists(p) {
+            continue;
+        }
+        match resolve(p) {
+            Some(novo) => {
+                set_att_path(conn, *att_id, &novo)?;
+                rep.corrigidos += 1;
+            }
+            None => rep.sem_solucao.push(format!("{} #{} (anexo): {}", cat, rid, p)),
+        }
+    }
+
+    // 4. principal ausente/vazio, mas o primeiro anexo existe: sincroniza
+    let refs = load_refs(conn);
+    let mut first: HashMap<(String, i64), String> = HashMap::new();
+    for (_, cat, rid, p, _) in &refs.atts {
+        first.entry((cat.clone(), *rid)).or_insert(p.clone());
+    }
+    for (cat, id, p) in &refs.main {
+        if exists(p) {
+            continue;
+        }
+        let key = (table_for(cat).map(|t| if t.1 { cat.clone() } else { t.0 }).unwrap_or_else(|| cat.clone()), *id);
+        if let Some(a) = first.get(&key).filter(|a| exists(a)) {
+            set_main_path(conn, cat, *id, a)?;
+            rep.corrigidos += 1;
+        }
+    }
+    rep.sem_solucao.sort();
+    rep.sem_solucao.dedup();
+    Ok(rep)
 }
 
 // ---------------- Verificar arquivos ----------------
@@ -1072,6 +1276,76 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+
+    /// Renomear reaponta o anexo (de onde o app lê o comprovante) e os outros registros que
+    /// compartilham o mesmo arquivo; o reparo conserta vínculos já quebrados.
+    #[test]
+    fn renames_relink_attachments_and_repair() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let dir = tmpdir.path().join("lattes_relink_test");
+        let art = dir.join("5_producoes").join("artigos");
+        std::fs::create_dir_all(&art).unwrap();
+        let conn = crate::db::open_in_memory().unwrap();
+        let rel = |n: &str| format!("5_producoes{}artigos{}{}", '\\', '\\', n);
+        let att = |id: i64, p: &str| {
+            let f = Path::new(p).file_name().unwrap().to_string_lossy().to_string();
+            conn.execute(
+                "INSERT INTO record_attachments (category, record_id, file, path, ord) VALUES ('producoes', ?1, ?2, ?3, 0)",
+                params![id, f, p],
+            )
+            .unwrap();
+        };
+        let ins = |titulo: &str, p: &str| -> i64 {
+            let f = Path::new(p).file_name().unwrap().to_string_lossy().to_string();
+            conn.execute(
+                "INSERT INTO producoes (titulo, file, path, folder) VALUES (?1, ?2, ?3, '5_producoes')",
+                params![titulo, f, p],
+            )
+            .unwrap();
+            conn.last_insert_rowid()
+        };
+
+        // arquivo compartilhado por dois registros, com anexos
+        std::fs::write(art.join("IDEAU.pdf"), b"%PDF").unwrap();
+        let a = ins("Olericultura", &rel("IDEAU.pdf"));
+        let b = ins("Fitopatologia", &rel("IDEAU.pdf"));
+        att(a, &rel("IDEAU.pdf"));
+        att(b, &rel("IDEAU.pdf"));
+        let items = preview_renames(&conn, &dir).unwrap();
+        assert_eq!(items.len(), 1, "um arquivo compartilhado é renomeado uma vez");
+        let r = apply_renames(&conn, &dir, &items);
+        assert_eq!(r.ok, 1, "{:?}", r.erros);
+        for id in [a, b] {
+            let rec = queries::get_record_by_id(&conn, "producoes", id).unwrap();
+            assert_eq!(rec.path.as_deref(), Some(items[0].new_path.as_str()));
+            assert_eq!(rec.attachments.len(), 1);
+            assert_eq!(rec.attachments[0].path, items[0].new_path, "anexo reapontado");
+        }
+        assert!(check_files(&conn, &dir).unwrap().ausentes.is_empty());
+
+        // vínculos quebrados como os deixados pela versão anterior
+        std::fs::write(art.join("037_curso_g_x_e_day.pdf"), b"%PDF").unwrap();
+        let c = ins("G x E day", &rel("037_curso_g_x_e_day.pdf")); // principal já com o nome novo
+        att(c, &rel("037_g_x_e_day.pdf")); // anexo com o nome antigo
+        let d = ins("Outro registro", &rel("037_g_x_e_day.pdf")); // compartilhava o arquivo antigo
+        std::fs::write(art.join("005_universidade_federal.pdf"), b"%PDF").unwrap();
+        let e = ins("Comissão", &rel("005_selecao_rgv.pdf")); // só o prefixo bate
+        att(e, &rel("005_selecao_rgv.pdf"));
+        att(9999, &rel("nada.pdf")); // anexo de registro excluído
+        let rep = repair_links(&conn, &dir).unwrap();
+        assert!(rep.sem_solucao.is_empty(), "{:?}", rep.sem_solucao);
+        assert_eq!(rep.orfaos_removidos, 1);
+        for (id, nome) in [(c, "037_curso_g_x_e_day.pdf"), (d, "037_curso_g_x_e_day.pdf"), (e, "005_universidade_federal.pdf")] {
+            let rec = queries::get_record_by_id(&conn, "producoes", id).unwrap();
+            assert_eq!(rec.path.as_deref(), Some(rel(nome).as_str()), "registro {}", id);
+            assert!(rec.attachments.iter().all(|x| x.path == rel(nome)), "anexos do registro {}", id);
+        }
+        assert!(check_files(&conn, &dir).unwrap().ausentes.is_empty());
+        // nada mais a reparar
+        let rep2 = repair_links(&conn, &dir).unwrap();
+        assert_eq!((rep2.corrigidos, rep2.orfaos_removidos), (0, 0));
+    }
+
     #[test]
     fn test_scan_and_clean_root_folders() {
         let tmpdir = tempfile::tempdir().unwrap();
@@ -1186,6 +1460,25 @@ mod tests {
 
 #[cfg(test)]
 mod real {
+    /// Reparo numa CÓPIA do banco, com os arquivos reais (só leitura no disco):
+    /// LATTES_REPAIR_DB=<copia.db> cargo test --lib real_repair -- --nocapture
+    #[test]
+    fn real_repair_on_copy_if_enabled() {
+        let Ok(db) = std::env::var("LATTES_REPAIR_DB") else {
+            return;
+        };
+        let root = std::path::Path::new(r"d:\Desktop\UFSC\lattes");
+        let conn = rusqlite::Connection::open(db).unwrap();
+        crate::db::register_functions(&conn).unwrap();
+        let antes = super::check_files(&conn, root).unwrap().ausentes.len();
+        let rep = super::repair_links(&conn, root).unwrap();
+        let depois = super::check_files(&conn, root).unwrap();
+        println!("ausentes antes={} depois={} | corrigidos={} orfaos_removidos={} sem_solucao={:?}", antes, depois.ausentes.len(), rep.corrigidos, rep.orfaos_removidos, rep.sem_solucao);
+        for a in &depois.ausentes {
+            println!("  ainda ausente: {} #{} {}", a.category, a.id, a.path);
+        }
+    }
+
     /// Só leitura no banco real: LATTES_REAL=1 cargo test --lib real_preview -- --nocapture
     #[test]
     fn real_preview_if_enabled() {

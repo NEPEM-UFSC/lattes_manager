@@ -62,6 +62,13 @@ pub fn apply_file_renames(
     Ok(crate::tools::apply_renames(&conn, &state.root_dir, &items))
 }
 
+/// Repara vínculos quebrados por arquivos renomeados/movidos e remove anexos de registros excluídos.
+#[tauri::command(async)]
+pub fn repair_file_links(state: tauri::State<'_, AppState>) -> Result<crate::tools::RepairReport, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::tools::repair_links(&conn, &state.root_dir)
+}
+
 #[tauri::command(async)]
 pub fn scan_pendencias(
     state: tauri::State<'_, AppState>,

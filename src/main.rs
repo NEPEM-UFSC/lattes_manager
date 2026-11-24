@@ -89,6 +89,7 @@ fn main() {
             commands::reorder_custom_categories,
             commands::preview_file_renames,
             commands::apply_file_renames,
+            commands::repair_file_links,
             commands::check_files,
             commands::scan_pendencias,
             commands::pick_qualis_file,
