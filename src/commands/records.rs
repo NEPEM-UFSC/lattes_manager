@@ -584,6 +584,9 @@ const ALLOWED_BATCH_COLUMNS: &[&str] = &[
     "vinculo",
     "enquadramento",
     "horas",
+    "semestres_ano",
+    "semestre",
+    "semestre_fim",
     "dedicacao_exclusiva",
     "vinculo_empregaticio",
     "descricao",
@@ -756,6 +759,45 @@ pub fn batch_update_records_impl(
         .map_err(|e| format!("Falha ao concluir transação: {}", e))?;
     let _ = conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
     Ok(updated)
+}
+
+/// Desvincula os comprovantes dos registros (anexos e caminho principal) sem apagar os arquivos,
+/// que continuam na pasta. Devolve quantos registros tinham algum comprovante.
+pub fn batch_unlink_attachments_impl(db: &Mutex<Connection>, category: &str, ids: &[i64]) -> Result<usize, String> {
+    let unique_ids = dedup_ids(ids);
+    let mut conn = db.lock().map_err(|e| format!("Database lock failed: {}", e))?;
+    let table = validate_batch_category(&conn, category)?;
+    let is_cust = crate::custom::is_custom(&table);
+    let tx = conn.transaction().map_err(|e| format!("Falha ao iniciar transação: {}", e))?;
+    let mut count = 0usize;
+    for id in unique_ids {
+        let anexos = tx
+            .execute(
+                "DELETE FROM record_attachments WHERE category IN (?1, ?2) AND record_id = ?3",
+                rusqlite::params![category, &table, id],
+            )
+            .map_err(|e| format!("Falha ao remover anexos do registro {}: {}", id, e))?;
+        let principal = if is_cust {
+            tx.execute(
+                "UPDATE custom_records SET file = NULL, path = NULL WHERE category = ?1 AND id = ?2 AND (COALESCE(TRIM(path), '') <> '' OR COALESCE(TRIM(file), '') <> '')",
+                rusqlite::params![&table, id],
+            )
+        } else {
+            tx.execute(
+                &format!(
+                    "UPDATE {} SET file = NULL, path = NULL WHERE id = ?1 AND (COALESCE(TRIM(path), '') <> '' OR COALESCE(TRIM(file), '') <> '')",
+                    table
+                ),
+                rusqlite::params![id],
+            )
+        }
+        .map_err(|e| format!("Falha ao desvincular o registro {}: {}", id, e))?;
+        if anexos + principal > 0 {
+            count += 1;
+        }
+    }
+    tx.commit().map_err(|e| format!("Falha ao gravar: {}", e))?;
+    Ok(count)
 }
 
 pub fn batch_delete_records_impl(
@@ -1119,6 +1161,11 @@ pub fn batch_update_records(
     data: Option<serde_json::Value>,
 ) -> Result<usize, String> {
     batch_update_records_impl(&state.db, &category, &ids, ano, tipo, qualis, data.as_ref())
+}
+
+#[tauri::command(async)]
+pub fn batch_unlink_attachments(state: tauri::State<'_, AppState>, category: String, ids: Vec<i64>) -> Result<usize, String> {
+    batch_unlink_attachments_impl(&state.db, &category, &ids)
 }
 
 #[tauri::command(async)]

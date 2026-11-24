@@ -6132,3 +6132,57 @@ td.col-metric {
   font-weight: 700;
   cursor: help;
 }
+
+/* Simulador de Pontuação: formulário "Novo item" */
+.sc-nf {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* Simulador: conversão da RN 114/UFSC (Tabela 4) */
+.sc-rn { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.sc-rn-tab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border-left: 3px solid var(--c, var(--border-light));
+  background: var(--surface-1, transparent);
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-secondary);
+}
+.sc-rn-tab b { color: var(--text-primary); min-width: 260px; }
+.sc-rn-tab strong { margin-left: auto; color: var(--text-primary); font-size: calc(13px * var(--font-scale, 1)); }
+.sc-rn-check { font-size: calc(12.5px * var(--font-scale, 1)); padding: 6px 12px; border-radius: 8px; }
+.sc-rn-check.ok { color: var(--success-text, #047857); background: var(--success-bg, rgba(16, 185, 129, 0.12)); }
+.sc-rn-check.no { color: var(--warning-text, #92400e); background: var(--warning-bg, #fef3c7); }
+.sc-rn-note { font-size: calc(11px * var(--font-scale, 1)); color: var(--text-muted); line-height: 1.4; }
+
+/* grupos da tabela do barema (Grupo I, II...) */
+.sc-groups { border: 1px dashed var(--border-light); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.sc-grp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 5px 0; border-top: 1px solid var(--border-light); font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); }
+.sc-grp-row > input[type="text"] { flex: 1 1 260px; min-width: 200px; height: 28px; padding: 0 8px; }
+.sc-grp-row label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; cursor: pointer; }
+.sc-grp-row input[type="number"] { width: 76px; height: 28px; padding: 0 8px; }
+.sc-grp-n { margin-left: auto; color: var(--text-muted); }
+
+/* documentos anexados ao barema (simulador de pontuação) */
+.sc-docs { border: 1px solid var(--border-light); border-radius: 10px; padding: 10px 14px; margin-top: 10px; background: var(--surface-2); }
+.sc-docs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 6px; }
+.sc-docs-head > span { flex: 1; min-width: 220px; font-size: calc(11.5px * var(--font-scale, 1)); color: var(--text-secondary); }
+.sc-doc { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border-light); }
+.sc-doc a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--text-primary); text-decoration: none; }
+.sc-doc a:hover { text-decoration: underline; }
+.sc-doc .btn { padding: 0 7px; height: 26px; }
+.sc-doc-ic { flex: none; width: 38px; text-align: center; font-size: 10px; font-weight: 800; letter-spacing: 0.03em; border-radius: 5px; padding: 3px 0; color: #fff; background: #64748b; }
+.sc-doc-pdf { background: #dc2626; }
+.sc-doc-doc { background: #2563eb; }
+.sc-doc-xls { background: #059669; }
+.sc-doc-meta { font-size: calc(11.5px * var(--font-scale, 1)); color: var(--text-muted); white-space: nowrap; }
+.sc-doc-empty { font-size: calc(12px * var(--font-scale, 1)); color: var(--text-secondary); padding: 6px 0; border-top: 1px solid var(--border-light); }

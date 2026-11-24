@@ -15,6 +15,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+mod baremas;
 mod files;
 mod import;
 mod profile;
@@ -23,6 +24,7 @@ mod tools;
 mod viewer;
 mod xml;
 
+pub use baremas::*;
 pub use files::*;
 pub use import::*;
 pub use profile::*;

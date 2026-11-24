@@ -6,6 +6,10 @@ import { CATEGORY_SCHEMAS, escapeHtml, showToast, compareActivity } from "../uti
 import { PALETTE } from "./charts.js";
 import { loadPhoto, loadProfile, PROFILE_FIELDS } from "./profile.js";
 import { makeSortable } from "../sortable.js";
+import { resolveBaremas, scoreRecords } from "../scoring.js";
+
+const SCORE_KEY = "__score"; // pseudo-seção "Pontuação" na lista de seções (arrastável)
+const fmtPts = (n) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
 const PRESETS_KEY = "report_presets";
 const LAST_KEY = "report_last";
@@ -158,7 +162,7 @@ export class ReportBuilder {
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `<div class="modal-dialog rb-dialog"><div class="loading-state" style="display:flex"><div class="spinner"></div><span>Carregando dados do currículo...</span></div></div>`;
     try {
-      const [data, profile, version, presets, last, photo, order] = await Promise.all([
+      const [data, profile, version, presets, last, photo, order, baremas] = await Promise.all([
         api.getAllRecords(),
         loadProfile().catch(() => null),
         api.getAppVersion().catch(() => "1.0.0"),
@@ -166,7 +170,11 @@ export class ReportBuilder {
         api.getSetting(LAST_KEY).catch(() => null),
         loadPhoto().catch(() => null),
         api.getSetting(ORDER_KEY).catch(() => null),
+        api.getSetting("score_baremas").catch(() => null),
       ]);
+      this.baremas = resolveBaremas(baremas);
+      this.scoreOn = Boolean(last?.scoreOn);
+      this.scoreBarema = this.baremas.some((b) => b.id === last?.scoreBarema) ? last.scoreBarema : this.baremas[0]?.id;
       this.catOrder = Array.isArray(order?.cats) ? order.cats : [];
       this.tipoOrder = order?.tipos && typeof order.tipos === "object" ? order.tipos : {};
       this.photo = photo;
@@ -210,7 +218,8 @@ export class ReportBuilder {
 
   /** Categorias na ordem escolhida (arrastando); as que não estão na lista seguem a ordem padrão. */
   orderedCats() {
-    const keys = Object.keys(CATEGORY_SCHEMAS).filter((k) => !CATEGORY_SCHEMAS[k]?.legacy);
+    // a "Pontuação" começa no topo; arrastando, vai para qualquer posição entre as seções
+    const keys = [SCORE_KEY, ...Object.keys(CATEGORY_SCHEMAS).filter((k) => !CATEGORY_SCHEMAS[k]?.legacy)];
     const rank = (k) => {
       const i = this.catOrder.indexOf(k);
       return i < 0 ? 1000 + keys.indexOf(k) : i;
@@ -244,7 +253,14 @@ export class ReportBuilder {
       const tipos = (this.data[cat] || []).filter((r) => set.has(Number(r.id))).map((r) => r.tipo || "Sem tipo");
       this.sel[cat] = new Set(tipos);
     }
-    this.pkg = { title: pkg.title || "", periodLabel: pkg.periodLabel || "", ids };
+    this.pkg = { title: pkg.title || "", periodLabel: pkg.periodLabel || "", ids, score: null, scoreOf: new Map() };
+    if (pkg.score?.groups?.length) {
+      // cores dos grupos = cores das seções do PDF
+      const score = { ...pkg.score, groups: pkg.score.groups.map((g) => ({ ...g, color: g.color || PALETTE[g.cat] || "#6366f1" })) };
+      this.pkg.score = score;
+      for (const it of score.items || []) this.pkg.scoreOf.set(`${it.category}:${Number(it.id)}`, it);
+      this.scoreOn = true;
+    }
     if (pkg.title) this.form.title = pkg.title;
   }
 
@@ -291,8 +307,34 @@ export class ReportBuilder {
     return r.ano >= this.from && r.ano <= this.to;
   }
 
+  periodLabel() {
+    if (this.pkg?.periodLabel) return this.pkg.periodLabel;
+    const first = this.years[0], last = this.years[this.years.length - 1];
+    if (first == null) return "";
+    return this.from === first && this.to === last ? `${first} – ${last} (todo o período)` : `${this.from} – ${this.to}`;
+  }
+
+  /**
+   * Quadro de pontuação do PDF: o do Simulador (pacote) ou, fora do pacote, o barema escolhido
+   * aplicado aos registros selecionados para o PDF. { score, of: Map("cat:id" -> item) } ou null.
+   */
+  scoreData() {
+    if (!this.scoreOn) return null;
+    if (this.pkg?.score) return { score: this.pkg.score, of: this.pkg.scoreOf, fromPkg: true };
+    const b = this.baremas?.find((x) => x.id === this.scoreBarema) || this.baremas?.[0];
+    if (!b) return null;
+    const recs = {};
+    for (const [cat, set] of Object.entries(this.sel)) {
+      if (set?.size) recs[cat] = (this.data[cat] || []).filter((r) => this.picks(cat, r, set));
+    }
+    const score = scoreRecords(b, recs);
+    score.period = this.periodLabel();
+    score.groups.forEach((g) => (g.color ||= PALETTE[g.cat] || "#6366f1"));
+    return { score, of: new Map(score.items.map((it) => [`${it.category}:${Number(it.id)}`, it])), barema: b };
+  }
+
   /** Seções finais, na ordem das categorias, já filtradas e ordenadas. */
-  sections() {
+  sections(sd = this.scoreData()) {
     const out = [];
     for (const cat of this.orderedCats()) {
       const schema = CATEGORY_SCHEMAS[cat];
@@ -316,14 +358,51 @@ export class ReportBuilder {
         name: schema.group,
         color: PALETTE[cat] || "#6366f1",
         grouped: this.order === "tipo",
-        items: recs.map((r) => ({ ...describe(cat, r), ano: r.ano, tipo: r.tipo, path: r.path && r.path.trim() ? r.path : null, attachments: r.attachments, url: linkOf(r) })),
+        items: recs.map((r) => {
+          const key = `${cat}:${Number(r.id)}`;
+          const sc = sd?.of?.get(key);
+          return { ...describe(cat, r), key, ano: r.ano, tipo: r.tipo, path: r.path && r.path.trim() ? r.path : null, attachments: r.attachments, url: linkOf(r), pts: sc ? sc.pts : null };
+        }),
       });
     }
     return out;
   }
 
+  /** Linha "Pontuação" na lista de seções: liga/desliga, escolhe o barema e arrasta como as demais. */
+  scoreRow(sd) {
+    const on = this.scoreOn;
+    const isOpen = this.open_.has(SCORE_KEY);
+    const s = sd?.score;
+    const opts = this.pkg?.score
+      ? `<p class="rb-score-note">Pontuação calculada no <b>Simulador de Pontuação</b> · ${escapeHtml(this.pkg.score.barema || "")} · ${escapeHtml(this.pkg.score.period || "")}.</p>`
+      : `<label class="rb-field rb-score-field"><span>Barema</span>
+          <select class="form-select" data-score-barema>${(this.baremas || [])
+        .map((b) => `<option value="${escapeHtml(b.id)}" ${b.id === this.scoreBarema ? "selected" : ""}>${escapeHtml(b.name)}</option>`)
+        .join("")}</select></label>
+        <p class="rb-score-note">Calculada sobre os registros selecionados para o PDF (seções, tipos e período acima), com os pesos e tetos salvos no Simulador de Pontuação${s?.onlyWithProof ? "; este barema conta só registros com comprovante" : ""}.</p>`;
+    const resumo = on && s
+      ? `<div class="rb-score-sum">${s.groups.length
+        ? s.groups.map((g) => `<span style="--c:${g.color}"><i></i>${escapeHtml(g.name)} <b>${fmtPts(g.pts)}</b></span>`).join("")
+        : '<span class="muted">Nenhum registro selecionado pontua neste barema.</span>'}</div>`
+      : "";
+    return `<div class="rb-cat rb-cat-score ${on ? "on" : ""} ${isOpen ? "open" : ""}" data-key="${SCORE_KEY}" style="--c:#4f46e5">
+      <div class="rb-cat-h">
+        <span class="rb-grip rb-grip-cat" title="Arraste para escolher onde o quadro de pontuação entra no PDF">⠿</span>
+        <label class="rb-check"><input type="checkbox" data-score-on ${on ? "checked" : ""}/><i></i></label>
+        <button type="button" class="rb-cat-name" data-toggle="${SCORE_KEY}" aria-expanded="${isOpen}">
+          <span class="dot"></span>Σ Pontuação
+          <span class="rb-count">${on && s ? `${fmtPts(s.totalCapped)} pts${s.goal > 0 ? ` · meta ${fmtPts(s.goal)}` : ""}` : ""}</span>
+          <span class="rb-nsub">quadro + memória de cálculo</span>
+          <span class="chev">⌄</span>
+        </button>
+      </div>
+      <div class="rb-sub"><div class="rb-sub-inner"><div class="rb-score-opts">${opts}${resumo}</div></div></div>
+    </div>`;
+  }
+
   render() {
-    const secs = this.sections();
+    const sd = this.scoreData();
+    const secs = this.sections(sd);
     const nItems = secs.reduce((a, s) => a + s.items.length, 0);
     const nFiles = secs.reduce((a, s) => a + s.items.filter((i) => i.path).length, 0);
     const nLinks = secs.reduce((a, s) => a + s.items.filter((i) => i.url).length, 0);
@@ -333,6 +412,7 @@ export class ReportBuilder {
 
     const cats = this.orderedCats()
       .map((cat) => {
+        if (cat === SCORE_KEY) return this.scoreRow(sd);
         const schema = CATEGORY_SCHEMAS[cat];
         const tipos = this.tiposOf(cat);
         if (!tipos.length) return "";
@@ -461,7 +541,7 @@ export class ReportBuilder {
               <button type="button" data-quality="compact" class="${f.quality === "compact" ? "on" : ""}" title="Compacta imagens (150 DPI / JPEG) deixando o PDF bem mais leve">🗜️ Compactado (leve)</button>
             </div>
             <div class="rb-summary">
-              <div><b>${secs.length}</b><span>seções</span></div>
+              <div><b>${secs.length + (sd ? 1 : 0)}</b><span>seções</span></div>
               <div><b>${nItems}</b><span>documentos</span></div>
               <div><b>${nFiles}</b><span>comprovantes</span></div>
             </div>
@@ -502,6 +582,8 @@ export class ReportBuilder {
         if (p.quality) this.form.quality = p.quality;
         if ("qr" in p) this.form.qr = Boolean(p.qr);
         if (p.qrCols) this.form.qrCols = p.qrCols;
+        if ("scoreOn" in p) this.scoreOn = Boolean(p.scoreOn);
+        if (p.scoreBarema && this.baremas.some((b) => b.id === p.scoreBarema)) this.scoreBarema = p.scoreBarema;
         this.render();
       })
     );
@@ -587,6 +669,15 @@ export class ReportBuilder {
         this.render();
       })
     );
+    o.querySelector("[data-score-on]")?.addEventListener("change", (e) => {
+      this.scoreOn = e.target.checked;
+      if (this.scoreOn) this.open_.add(SCORE_KEY);
+      this.render();
+    });
+    o.querySelector("[data-score-barema]")?.addEventListener("change", (e) => {
+      this.scoreBarema = e.target.value;
+      this.render();
+    });
     o.querySelectorAll("[data-tipo-chk]").forEach((c) =>
       c.addEventListener("change", () => {
         const set = (this.sel[c.dataset.cat] ||= new Set());
@@ -660,12 +751,16 @@ export class ReportBuilder {
   snapshot() {
     const sel = {};
     for (const [k, v] of Object.entries(this.sel)) if (v.size) sel[k] = [...v];
-    return { sel, from: this.from, to: this.to, order: this.order, orderV: 2, title: this.form.title, includeResumo: this.form.includeResumo, includeFoto: this.form.includeFoto, pages: this.form.pages, quality: this.form.quality, qr: this.form.qr, qrCols: this.form.qrCols };
+    return { sel, from: this.from, to: this.to, order: this.order, orderV: 2, title: this.form.title, includeResumo: this.form.includeResumo, includeFoto: this.form.includeFoto, pages: this.form.pages, quality: this.form.quality, qr: this.form.qr, qrCols: this.form.qrCols, scoreOn: this.scoreOn, scoreBarema: this.scoreBarema };
   }
 
   async generate() {
-    const secs = this.sections();
+    const sd = this.scoreData();
+    const secs = this.sections(sd);
     if (!secs.length) return;
+    // posição do quadro = quantas seções vêm antes da linha "Pontuação" na lista
+    const order = this.orderedCats();
+    const scoreAt = secs.filter((s) => order.indexOf(s.cat) < order.indexOf(SCORE_KEY)).length;
     const safeName = (this.form.nome || "Lattes").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9]+/g, "_");
     const d = new Date();
     const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -696,8 +791,7 @@ export class ReportBuilder {
 
     try {
       await loadLibs();
-      const first = this.years[0], last = this.years[this.years.length - 1];
-      const periodLabel = this.pkg?.periodLabel || (this.from === first && this.to === last ? `${first} – ${last} (todo o período)` : `${this.from} – ${this.to}`);
+      const periodLabel = this.periodLabel();
       const rows = this.profileOptions().filter(([k]) => this.form.include[k]).map(([, l, v]) => [l, v]);
       const res = await (await import("../pdf/buildReport.js")).buildReport({
         profile: { nome: this.form.nome, resumo: this.form.resumo, rows, photo: this.form.includeFoto && this.photo ? this.photo.bytes : null },
@@ -710,6 +804,8 @@ export class ReportBuilder {
         qr: this.form.qr,
         qrCols: this.form.qrCols,
         sections: secs,
+        score: sd?.score?.groups?.length ? sd.score : null,
+        scoreAt,
         version: this.version,
         onProgress: ({ done, total, label }) => {
           const v = Math.round((done / total) * 100);

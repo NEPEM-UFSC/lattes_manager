@@ -899,3 +899,6 @@
   white-space: nowrap;
 }
 .fh-same { color: var(--primary); }
+
+/* dica abaixo de um campo (ex.: carga horária total da atuação) */
+.form-hint { display: block; margin-top: 4px; font-size: calc(11.5px * var(--font-scale, 1)); color: var(--text-secondary); }

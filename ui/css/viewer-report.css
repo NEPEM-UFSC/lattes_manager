@@ -516,3 +516,30 @@ body.sorting-active, body.sorting-active * { cursor: grabbing !important; user-s
 .rb-pkg .rb-link {
   align-self: flex-start;
 }
+
+/* pseudo-seção "Pontuação" no gerador de comprovantes */
+.rb-cat-score { background: linear-gradient(90deg, color-mix(in srgb, var(--c) 7%, var(--surface-bg)), var(--surface-bg) 60%); }
+.rb-cat-score:not(.on) .rb-cat-name { color: var(--text-secondary); }
+.rb-score-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 14px 12px 40px;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--c) 28%, transparent);
+}
+.rb-score-field select { max-width: 420px; }
+.rb-score-note { margin: 0; font-size: calc(11.5px * var(--font-scale, 1)); color: var(--text-muted); line-height: 1.45; }
+.rb-score-sum { display: flex; flex-wrap: wrap; gap: 6px; }
+.rb-score-sum span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  font-size: calc(11.5px * var(--font-scale, 1));
+  color: var(--text-secondary);
+}
+.rb-score-sum span i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.rb-score-sum span b { color: var(--text-primary); }

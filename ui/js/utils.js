@@ -328,6 +328,109 @@ export function getCategoryMappings(cat, mappings = []) {
   return merged;
 }
 
+/**
+ * Carga horária total de um registro de Atuação (encargos, comissões...): as horas informadas são
+ * por semestre e os semestres vêm do período, de ano/semestre de início a ano/semestre de fim
+ * (ex.: 2021-1 a 2023-2 = 6 semestres). Sem ano de fim, vai até o semestre atual (atividade em
+ * andamento); ano de fim sem semestre = até o 2º semestre daquele ano. Frequência ("semestres_ano"): 2 = todo semestre
+ * (padrão); 1 = uma vez por ano (só os semestres com o mesmo nº do início). Com `period`
+ * ({from, to}, em anos), conta só os semestres dentro dele. Devolve null sem horas.
+ */
+/** Índice do semestre atual (ano × 2 + 0 no 1º semestre, + 1 no 2º; o 2º começa em julho). */
+export function semestreAtual(d = new Date()) {
+  return d.getFullYear() * 2 + (d.getMonth() >= 6 ? 1 : 0);
+}
+
+/**
+ * Semestres cobertos por um registro, de ano/semestre de início a ano/semestre de fim. Sem ano de
+ * fim: até o semestre atual se `aberto` (atividade em andamento), senão só o semestre de início.
+ * Com `period` ({from, to}, em anos), conta só os semestres dentro dele.
+ */
+export function semestresRegistro(r, period = null, aberto = false) {
+  const sem = (v) => (Number(v) === 1 || Number(v) === 2 ? Number(v) : null);
+  const ini = Number(r?.ano);
+  if (!Number.isFinite(ini) || ini <= 0) return 1;
+  const sIni = sem(r.semestre) || 1;
+  const a = ini * 2 + sIni - 1;
+  const fim = Number(r.ano_fim);
+  let b;
+  if (Number.isFinite(fim) && fim >= ini) b = fim * 2 + (sem(r.semestre_fim) || (fim > ini ? 2 : sIni)) - 1;
+  else b = aberto ? semestreAtual() : a;
+  b = Math.max(a, b);
+  const from = period?.from != null && period.from !== "" ? Number(period.from) : -Infinity;
+  const to = period?.to != null && period.to !== "" ? Number(period.to) : Infinity;
+  let n = 0;
+  for (let k = a; k <= b && k - a < 400; k++) {
+    const ano = Math.floor(k / 2);
+    if (ano >= from && ano <= to) n++;
+  }
+  return n;
+}
+
+export function horasAtuacao(r, period = null) {
+  const porSemestre = Number(String(r?.horas ?? "").replace(",", "."));
+  if (!Number.isFinite(porSemestre) || porSemestre <= 0) return null;
+  const sem = (v) => (Number(v) === 1 || Number(v) === 2 ? Number(v) : null);
+  // registros antigos (sem semestre nem frequência gravados) contam uma vez por ano, como antes
+  const legado = !sem(r.semestre) && !sem(r.semestre_fim) && r.semestres_ano == null;
+  const porAno = Number(r.semestres_ano) === 1 || (legado && r.semestres_ano !== "") ? 1 : 2;
+  const ini = Number(r.ano);
+  if (!Number.isFinite(ini) || ini <= 0) return { porSemestre, porAno, semestres: 1, total: porSemestre, inicio: "", fim: "" };
+  const sIni = sem(r.semestre) || 1;
+  const a = ini * 2 + sIni - 1;
+  const fim = Number(r.ano_fim);
+  let b;
+  if (Number.isFinite(fim) && fim >= ini) b = fim * 2 + (sem(r.semestre_fim) || (fim > ini ? 2 : sIni)) - 1;
+  else b = semestreAtual(); // sem ano de fim: em andamento, até o semestre atual
+  b = Math.max(a, b);
+  const from = period?.from != null && period.from !== "" ? Number(period.from) : -Infinity;
+  const to = period?.to != null && period.to !== "" ? Number(period.to) : Infinity;
+  let semestres = 0;
+  for (let k = a; k <= b && k - a < 400; k++) {
+    if (porAno === 1 && (k - a) % 2) continue;
+    const ano = Math.floor(k / 2);
+    if (ano >= from && ano <= to) semestres++;
+  }
+  const rot = (k) => `${Math.floor(k / 2)}-${(k % 2) + 1}`;
+  return { porSemestre, porAno, semestres, total: porSemestre * semestres, inicio: rot(a), fim: rot(b) };
+}
+
+/**
+ * Período "ano-semestre" de um registro (atuação, projetos): 2021-1–2023-2, 2021-1, 2021–Atual.
+ * `semSemestre`: o que mostrar sem fim e sem semestre gravado (registros antigos só com o ano).
+ */
+export function renderPeriodo(r, { semSemestre = "–Atual" } = {}) {
+  const s = (a, n) => (a ? `${a}${Number(n) === 1 || Number(n) === 2 ? `-${n}` : ""}` : "");
+  if (r.ano_fim) return `${s(r.ano, r.semestre) || "—"}–${s(r.ano_fim, r.semestre_fim)}`;
+  if (r.ano && r.semestre) return `${s(r.ano, r.semestre)}–Atual`;
+  return r.ano ? `${r.ano}${semSemestre}` : "—";
+}
+
+/** Campos de semestre de início e de fim (atuação, projetos). */
+const SEMESTRE_INICIO_FIELD = {
+  name: "semestre",
+  label: "Semestre de início",
+  type: "select",
+  options: [
+    { value: "1", label: "1º semestre" },
+    { value: "2", label: "2º semestre" },
+  ],
+  required: false,
+  width: "half",
+};
+const SEMESTRE_FIM_FIELD = {
+  name: "semestre_fim",
+  label: "Semestre de fim",
+  type: "select",
+  options: [
+    { value: "", label: "— (padrão)" },
+    { value: "1", label: "1º semestre" },
+    { value: "2", label: "2º semestre" },
+  ],
+  required: false,
+  width: "half",
+};
+
 export const CATEGORY_SCHEMAS = {
   dadosgerais: {
     name: "Dados Gerais",
@@ -381,12 +484,17 @@ export const CATEGORY_SCHEMAS = {
     folder: "3_atuacao",
     columns: [
       { key: "id", label: "#", width: "1%", render: (r) => r.id },
-      { key: "ano", label: "Período", width: "1%", render: (r) => r.ano_fim ? `${r.ano || "—"}–${r.ano_fim}` : (r.ano ? `${r.ano}–Atual` : "—") },
+      { key: "ano", label: "Período", width: "1%", render: (r) => renderPeriodo(r) },
       { key: "tipo", label: "Subcategoria", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "instituicao", label: "Instituição / Revista / Empresa", render: (r) => `<strong>${escapeHtml(r.instituicao || r.titulo || "—")}</strong>` },
       { key: "enquadramento", label: "Vínculo / Cargo", width: "16%", render: (r) => escapeHtml([r.vinculo, r.enquadramento].filter(Boolean).join(" · ") || "—") },
       { key: "descricao", label: "Descrição", width: "18%", render: (r) => r.descricao ? `<span title="${escapeHtml(r.descricao)}">${escapeHtml(r.descricao)}</span>` : "—" },
-      { key: "horas", label: "Horas", width: "1%", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h/sem</span>` : "—" },
+      { key: "horas", label: "Horas", width: "1%", render: (r) => {
+        const h = horasAtuacao(r);
+        if (!h) return "—";
+        const conta = `${h.porSemestre} h/semestre × ${h.semestres} semestre(s)${h.inicio && h.semestres > 1 ? ` (${h.inicio} a ${h.fim}${h.porAno === 1 ? ", uma vez por ano" : ""})` : ""} = ${h.total} h`;
+        return `<span class="badge badge-hours" title="${escapeHtml(conta)}">${h.total}h${h.semestres > 1 ? ` <small>(${h.semestres} sem.)</small>` : ""}</span>`;
+      } },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
       { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
@@ -394,10 +502,23 @@ export const CATEGORY_SCHEMAS = {
       { name: "tipo", label: "Subcategoria / Tipo de Atuação", type: "tipo_select", required: true, width: "half" },
       { name: "instituicao", label: "Nome da Instituição / Revista / Empresa", type: "text", required: true, placeholder: "Ex: Universidade Federal de Santa Catarina (UFSC) ou Revista Ciência Rural", width: "half" },
       { name: "ano", label: "Ano de Início", type: "number", required: false, placeholder: "Ex: 2021", width: "half" },
-      { name: "ano_fim", label: "Ano de Fim / Término", type: "number", required: false, placeholder: "Ex: 2025 (deixe em branco se atual)", width: "half" },
+      SEMESTRE_INICIO_FIELD,
+      { name: "ano_fim", label: "Ano de Fim / Término", type: "number", required: false, placeholder: "Vazio = em andamento", width: "half" },
+      SEMESTRE_FIM_FIELD,
       { name: "vinculo", label: "Tipo do Vínculo", type: "text", required: false, placeholder: "Ex: Servidor Público, Celetista, Bolsista, Colaborador...", width: "half" },
       { name: "enquadramento", label: "Enquadramento Funcional / Cargo", type: "text", required: false, placeholder: "Ex: Professor Adjunto, Editor Associado, Revisor...", width: "half" },
-      { name: "horas", label: "Carga Horária Semanal (horas)", type: "number", required: false, placeholder: "Ex: 40", width: "half" },
+      { name: "horas", label: "Carga horária por semestre (horas)", type: "number", required: false, placeholder: "Ex: 72", width: "half", horasTotal: true },
+      {
+        name: "semestres_ano",
+        label: "Frequência no período",
+        type: "select",
+        options: [
+          { value: "2", label: "Todo semestre" },
+          { value: "1", label: "Uma vez por ano (oferta anual)" },
+        ],
+        required: false,
+        width: "half",
+      },
       { name: "dedicacao_exclusiva", label: "Dedicação Exclusiva", type: "select", options: ["", "Sim", "Não"], required: false, width: "half" },
       { name: "vinculo_empregaticio", label: "Possui Vínculo Empregatício", type: "select", options: ["", "Sim", "Não"], required: false, width: "half" },
       { name: "descricao", label: "Outras Informações / Descrição", type: "textarea", required: false, placeholder: "Linhas de pesquisa, projetos associados ou detalhes da atuação...", width: "full" },
@@ -464,7 +585,7 @@ export const CATEGORY_SCHEMAS = {
     folder: "4_projetos",
     columns: [
       { key: "id", label: "#", width: "1%", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
+      { key: "ano", label: "Período", width: "1%", render: (r) => renderPeriodo(r, { semSemestre: "" }) },
       { key: "tipo", label: "Tipo de Projeto", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
       { key: "descricao", label: "Título / Descrição do Projeto", render: (r) => escapeHtml(r.descricao || "—") },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
@@ -472,7 +593,10 @@ export const CATEGORY_SCHEMAS = {
     ],
     fields: [
       { name: "ano", label: "Ano de Início", type: "number", required: true, placeholder: "2024", width: "half" },
-      { name: "tipo", label: "Tipo de Projeto", type: "tipo_select", required: true, width: "half" },
+      SEMESTRE_INICIO_FIELD,
+      { name: "ano_fim", label: "Ano de Fim / Término", type: "number", required: false, placeholder: "Vazio = em andamento", width: "half" },
+      SEMESTRE_FIM_FIELD,
+      { name: "tipo", label: "Tipo de Projeto", type: "tipo_select", required: true, width: "full" },
       { name: "descricao", label: "Título e Resumo do Projeto", type: "textarea", required: true, placeholder: "Ex: Desenvolvimento de Firmware Seguro para IoT", width: "full" },
     ],
   },

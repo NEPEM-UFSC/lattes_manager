@@ -194,6 +194,22 @@ export async function buildReport(cfg) {
     s.tipos = Object.entries(t);
   }
   sections.forEach((s, i) => (s.num = i + 1));
+  // números dos itens já conhecidos aqui (o quadro de pontuação vem antes das seções)
+  const itemByKey = new Map();
+  sections.forEach((s, si) =>
+    s.items.forEach((it, ii) => {
+      it.num = `${si + 1}.${ii + 1}`;
+      if (it.key) itemByKey.set(it.key, it);
+    })
+  );
+  const score = cfg.score && cfg.score.groups?.length ? cfg.score : null;
+  const scoreLinks = []; // { page, rect, it } -> página do comprovante, resolvida no fim
+  const fmtPts = (n) => Number(n || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+  const scorePct = score && score.goal > 0 ? Math.round((score.totalCapped / score.goal) * 100) : null;
+  // RN 114/UFSC: os itens geram unidades (convertidas em pontos por tabela), não pontos diretos
+  const scoreRn = score?.mode === "rn114";
+  const itemUnit = scoreRn ? "un." : "pts";
+  const fmtNum = (n) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
   // QR codes: só seções com pelo menos um item que tenha link
   const qrSections = cfg.qr && window.qrcode ? sections.filter((s) => (s.links = s.items.filter((i) => i.url)).length) : [];
   const totalItems = sections.reduce((a, s) => a + s.items.length, 0);
@@ -308,6 +324,12 @@ export async function buildReport(cfg) {
       : plural(totalItems, "documento", "documentos");
     const rows = [
       ...(cfg.profile.rows || []),
+      ...(score
+        ? [
+          ["Barema", score.barema],
+          ["Pontuação", `${fmtPts(score.totalCapped)} pts${scorePct != null ? ` · meta ${fmtPts(score.goal)} pts (${scorePct}%)` : ""}`],
+        ]
+        : []),
       ["Período", cfg.periodLabel],
       ["Conteúdo", contentLabel],
     ].filter((r) => r[1]);
@@ -394,11 +416,345 @@ export async function buildReport(cfg) {
   // =====================================================================
   // 3. SUMÁRIO (preenchido no final, quando as páginas são conhecidas)
   // =====================================================================
-  const tocLines = sections.reduce((a, s) => a + 1 + s.tipos.length, 0) + (qrSections.length ? 1 + qrSections.length : 0);
+  const tocLines = sections.reduce((a, s) => a + 1 + s.tipos.length, 0) + (qrSections.length ? 1 + qrSections.length : 0) + (score ? 1 + score.groups.length : 0);
   const tocPerPage = 34;
   const tocPages = [];
   const tocStart = doc.getPageCount() + 1;
   for (let i = 0; i < Math.max(1, Math.ceil(tocLines / tocPerPage)); i++) tocPages.push(doc.addPage(A4));
+
+  // =====================================================================
+  // 3b. QUADRO DE PONTUAÇÃO (pacote do Simulador de Pontuação)
+  // =====================================================================
+  // posição do quadro entre as seções (0 = antes da primeira; sections.length = depois da última)
+  const scoreAt = score ? Math.max(0, Math.min(sections.length, Math.round(Number(cfg.scoreAt) || 0))) : -1;
+  let scoreStart = null;
+  const placeScore = async () => {
+    progress("Montando o quadro de pontuação…");
+    scoreStart = doc.getPageCount() + 1;
+    drawScore();
+    await tick();
+  };
+  if (scoreAt === 0) await placeScore();
+
+  function drawScore() {
+    const [W, H] = A4;
+    const CW = W - 2 * M;
+    const GOOD = "#047857";
+    const total = score.totalCapped;
+    const raw = score.totalRaw;
+    const goal = Number(score.goal) || 0;
+    const reached = goal > 0 && total >= goal;
+    let p = doc.addPage(A4);
+    let y = pageHeader(p, "Quadro de pontuação", [score.barema, score.period].filter(Boolean).join(" · "));
+    const contPage = () => {
+      p = doc.addPage(A4);
+      text(p, "Quadro de pontuação", M, H - 50, { font: F.bold, size: 11, color: C.ink });
+      text(p, "continuação", M + width("Quadro de pontuação", F.bold, 11) + 8, H - 50, { size: 9, color: C.faint });
+      p.drawRectangle({ x: M, y: H - 60, width: 40, height: 2, color: hex(C.indigo) });
+      y = H - 82;
+    };
+    const ensure = (h) => {
+      if (y - h < FOOT_H + 24) contPage();
+    };
+    const heading = (title, sub) => {
+      ensure(70);
+      text(p, title, M, y, { font: F.bold, size: 13, color: C.ink });
+      if (sub) text(p, ellipsize(sub, F.reg, 8.5, CW), M, y - 14, { size: 8.5, color: C.muted });
+      y -= sub ? 30 : 20;
+    };
+    const right = (pg, s, xr, yy, o = {}) => text(pg, s, xr - width(s, o.font || F.reg, o.size || 9), yy, o);
+    const check = (pg, x, yy, size, color) =>
+      pg.drawSvgPath(`M 0 ${size * 0.55} L ${size * 0.38} ${size * 0.9} L ${size} ${size * 0.12}`, {
+        x,
+        y: yy + size,
+        borderColor: hex(color),
+        borderWidth: size * 0.22,
+        borderLineCap: PDFLib.LineCapStyle.Round,
+      });
+
+    // ---------- cartão de destaque ----------
+    const heroH = 128;
+    gradient(p, M, y - heroH, CW, heroH, C.indigo, C.violet, 70);
+    p.drawCircle({ x: M + CW - 40, y: y - 10, size: 90, color: hex(C.white), opacity: 0.06 });
+    text(p, scoreRn ? "PONTUAÇÃO FINAL · TABELA 4 DA RN 114/2017/CUN" : "PONTUAÇÃO TOTAL (COM TETOS)", M + 24, y - 28, { font: F.bold, size: 8, color: C.white, opacity: 0.8 });
+    const big = fmtPts(total);
+    text(p, big, M + 24, y - 72, { font: F.bold, size: 42, color: C.white });
+    text(p, "pts", M + 24 + width(big, F.bold, 42) + 6, y - 72, { font: F.semi, size: 15, color: C.white, opacity: 0.85 });
+    const goalTxt = goal > 0 ? `Meta: ${fmtPts(goal)} pts · ${scorePct}% atingido` : "Sem meta definida no barema";
+    text(p, goalTxt, M + 24, y - 94, { size: 10, color: C.white, opacity: 0.92 });
+    let infoX = M + 24;
+    if (reached) {
+      const lbl = "META ATINGIDA";
+      const pw = width(lbl, F.bold, 8) + 30;
+      rrect(p, infoX, y - 103, pw, 17, 8.5, { color: hex(C.white) });
+      check(p, infoX + 8, y - 116, 8, GOOD);
+      text(p, lbl, infoX + 21, y - 115, { font: F.bold, size: 8, color: GOOD });
+      infoX += pw + 10;
+    } else if (goal > 0) {
+      const lbl = `FALTAM ${fmtPts(goal - total)} PTS`;
+      const pw = width(lbl, F.bold, 8) + 18;
+      rrect(p, infoX, y - 103, pw, 17, 8.5, { color: hex(C.white), opacity: 0.22 });
+      text(p, lbl, infoX + 9, y - 115, { font: F.bold, size: 8, color: C.white });
+      infoX += pw + 10;
+    }
+    if (raw > total + 1e-9) text(p, `Bruto sem tetos: ${fmtPts(raw)} pts`, infoX, y - 115, { size: 8.5, color: C.white, opacity: 0.8 });
+
+    // medidor circular da meta
+    if (goal > 0) {
+      const cx = M + CW - 78, cy = y - heroH / 2, r = 40, th = 10;
+      p.drawCircle({ x: cx, y: cy, size: r, borderColor: hex(C.white), borderWidth: th, borderOpacity: 0.2 });
+      const frac = Math.min(1, total / goal);
+      if (frac >= 0.999) {
+        p.drawCircle({ x: cx, y: cy, size: r, borderColor: hex(C.white), borderWidth: th });
+      } else if (frac > 0) {
+        // arco em polilinha a partir do topo, sentido horário (coordenadas SVG: y para baixo)
+        const n = Math.max(8, Math.round(frac * 90));
+        let d = `M 0 ${-r}`;
+        for (let i = 1; i <= n; i++) {
+          const a = (i / n) * frac * Math.PI * 2;
+          d += ` L ${(r * Math.sin(a)).toFixed(2)} ${(-r * Math.cos(a)).toFixed(2)}`;
+        }
+        p.drawSvgPath(d, { x: cx, y: cy, borderColor: hex(C.white), borderWidth: th, borderLineCap: PDFLib.LineCapStyle.Round });
+      }
+      const pctTxt = `${scorePct}%`;
+      text(p, pctTxt, cx - width(pctTxt, F.bold, 16) / 2, cy - 2, { font: F.bold, size: 16, color: C.white });
+      text(p, "da meta", cx - width("da meta", F.reg, 7.5) / 2, cy - 13, { size: 7.5, color: C.white, opacity: 0.85 });
+    }
+    y -= heroH + 14;
+
+    // ---------- indicadores ----------
+    const nItens = score.groups.reduce((a, g) => a + g.qtd, 0);
+    const nRules = score.groups.reduce((a, g) => a + g.rules.length, 0);
+    const lost = Math.max(0, raw - total);
+    const rnc = score.rn114;
+    const tiles = scoreRn
+      ? [
+        ["Itens pontuados", String(nItens)],
+        ["Ensino (Tabela 1)", `${fmtPts(rnc.ensino)} pts`],
+        ["Pesquisa/Ext. (Tab. 2)", `${fmtPts(rnc.pesquisa)} pts`],
+        [`Ensino ≥ ${fmtPts(rnc.ensinoMin)}`, rnc.ensinoOk ? "Atendido" : "Não atendido"],
+      ]
+      : [
+        ["Itens pontuados", String(nItens)],
+        ["Critérios ativos", String(nRules)],
+        ["Grupos", String(score.groups.length)],
+        ["Retido pelos tetos", `${fmtPts(lost)} pts`],
+      ];
+    const tw = (CW - 3 * 10) / 4, th2 = 50;
+    tiles.forEach(([k, v], i) => {
+      const x = M + i * (tw + 10);
+      rrect(p, x, y, tw, th2, 10, { color: hex(C.white), borderColor: hex(C.line), borderWidth: 0.8 });
+      text(p, k.toUpperCase(), x + 12, y - 16, { font: F.bold, size: 7, color: C.faint });
+      text(p, ellipsize(v, F.bold, 15, tw - 24), x + 12, y - 38, { font: F.bold, size: 15, color: C.ink });
+    });
+    y -= th2 + 26;
+
+    // ---------- barras: subtotal por grupo ----------
+    heading(scoreRn ? "Pontuação por tabela" : "Pontuação por grupo", scoreRn ? "Pontos de cada tabela após a conversão pela Tabela 4 · participação no total" : "Subtotal de cada grupo já com os tetos aplicados · participação no total");
+    const maxG = Math.max(...score.groups.map((g) => g.pts), 1e-9);
+    const labW = 150, valW = 96;
+    const bx = M + labW + 8, bw = CW - labW - valW - 16;
+    for (const g of score.groups) {
+      ensure(24);
+      text(p, ellipsize(g.name, F.semi, 9.5, labW), M, y - 11, { font: F.semi, size: 9.5, color: C.ink });
+      rrect(p, bx, y - 3, bw, 12, 6, { color: hex(C.soft) });
+      const w = Math.max(g.pts > 0 ? 4 : 0, (g.pts / maxG) * bw);
+      if (w > 0) rrect(p, bx, y - 3, w, 12, 6, { color: hex(g.color) });
+      const share = total > 0 ? Math.round((g.pts / total) * 100) : 0;
+      const val = `${fmtPts(g.pts)} pts`;
+      right(p, `${share}%`, M + CW, y - 11, { size: 8.5, color: C.muted });
+      right(p, val, M + CW - 34, y - 11, { font: F.bold, size: 9.5, color: C.ink });
+      y -= 22;
+    }
+    y -= 14;
+
+    // ---------- tabela por grupo e critério ----------
+    heading(
+      scoreRn ? "Detalhamento por tabela e atividade" : "Detalhamento por grupo e critério",
+      scoreRn
+        ? `Unidades = quantidade × FM (× horas quando a base é horária); u = unidades ÷ ${score.rn114.semesters} semestres → pontos pela Tabela 4 × ${score.rn114.semesters}/4`
+        : "Quantidade × peso = bruto; o teto limita o que é considerado em cada critério"
+    );
+    const colR = { pts: M + CW - 8, teto: M + CW - 70, bruto: M + CW - 128, peso: M + CW - 184, qtd: M + CW - 232 };
+    const labMax = colR.qtd - 40 - (M + 14);
+    const tableHead = () => {
+      rrect(p, M, y, CW, 20, 6, { color: hex(C.soft) });
+      text(p, "CRITÉRIO", M + 14, y - 13.5, { font: F.bold, size: 7, color: C.muted });
+      const heads = scoreRn
+        ? [["qtd", "QTD"], ["peso", "FM"], ["bruto", "BASE"], ["teto", ""], ["pts", "UNIDADES"]]
+        : [["qtd", "QTD"], ["peso", "PESO"], ["bruto", "BRUTO"], ["teto", "TETO"], ["pts", "PONTOS"]];
+      for (const [k, l] of heads) if (l) right(p, l, colR[k], y - 13.5, { font: F.bold, size: 7, color: C.muted });
+      y -= 26;
+    };
+    ensure(60);
+    tableHead();
+    for (const g of score.groups) {
+      if (y - 48 < FOOT_H + 24) {
+        contPage();
+        tableHead();
+      }
+      rrect(p, M, y, CW, 22, 6, { color: hex(g.color), opacity: 0.12 });
+      p.drawRectangle({ x: M, y: y - 22, width: 3, height: 22, color: hex(g.color) });
+      text(p, ellipsize(g.name, F.bold, 10, labMax), M + 14, y - 14.5, { font: F.bold, size: 10, color: C.ink });
+      right(p, String(g.qtd), colR.qtd, y - 14.5, { font: F.semi, size: 9, color: C.text });
+      right(p, `Subtotal  ${fmtPts(g.pts)}`, colR.pts, y - 14.5, { font: F.bold, size: 10, color: C.ink });
+      y -= 28;
+      g.rules.forEach((r, ri) => {
+        if (y - 18 < FOOT_H + 24) {
+          contPage();
+          tableHead();
+        }
+        // reduzido pelo teto (próprio ou dividido com o mesmo nº de item) ou pelo "vale só o maior"
+        const capped = !scoreRn && r.pts < r.raw - 1e-9;
+        const tag = g.pick === "max" ? "vale só o maior" : "teto atingido";
+        const tagW = capped ? width(tag, F.semi, 6.8) + 10 : 0;
+        const lab = ellipsize(r.label, F.reg, 9, labMax - (capped ? tagW + 6 : 0));
+        text(p, lab, M + 14, y - 10, { size: 9, color: C.ink });
+        if (capped) {
+          const tx = M + 14 + width(lab, F.reg, 9) + 6;
+          rrect(p, tx, y - 1, tagW, 12, 6, { color: hex(C.warnBg) });
+          text(p, tag, tx + 5, y - 9.5, { font: F.semi, size: 6.8, color: C.warn });
+        }
+        right(p, String(r.qtd), colR.qtd, y - 10, { size: 9, color: C.text });
+        right(p, scoreRn ? fmtNum(r.weight) : fmtPts(r.weight), colR.peso, y - 10, { size: 9, color: C.text });
+        if (scoreRn) {
+          right(p, { hora: "× horas", hora_semanal: "× h ÷ 18" }[r.base] || "item", colR.bruto, y - 10, { size: 8.5, color: C.muted });
+        } else {
+          right(p, fmtPts(r.raw), colR.bruto, y - 10, { size: 9, color: C.text });
+          right(p, r.cap != null ? fmtPts(r.cap) : "—", colR.teto, y - 10, { size: 9, color: C.muted });
+        }
+        right(p, fmtPts(r.pts), colR.pts, y - 10, { font: F.bold, size: 9, color: C.ink });
+        y -= 18;
+        if (ri < g.rules.length - 1) p.drawLine({ start: { x: M + 14, y: y + 4 }, end: { x: M + CW, y: y + 4 }, thickness: 0.4, color: hex(C.line) });
+      });
+      if (!scoreRn && (g.groupCap != null || g.pick === "max")) {
+        if (y - 24 < FOOT_H + 24) {
+          contPage();
+          tableHead();
+        }
+        rrect(p, M + 10, y + 2, CW - 10, 20, 6, { color: hex(g.color), opacity: 0.07 });
+        const nota = [
+          g.pick === "max" ? "Conta só o item de maior pontuação do grupo" : "",
+          g.groupCap != null ? `Soma dos itens ${fmtPts(g.sum)} · teto do grupo ${fmtPts(g.groupCap)}` : "",
+          g.allYears ? "títulos de qualquer ano" : "",
+          g.before ? "atividades anteriores ao período" : "",
+        ].filter(Boolean).join("  ·  ");
+        text(p, ellipsize(nota, F.semi, 8.5, CW - 130), M + 18, y - 11, { font: F.semi, size: 8.5, color: C.text });
+        right(p, `= ${fmtPts(g.pts)} pts`, colR.pts, y - 11, { font: F.bold, size: 9.5, color: C.ink });
+        y -= 26;
+      }
+      if (scoreRn && g.conv) {
+        if (y - 24 < FOOT_H + 24) {
+          contPage();
+          tableHead();
+        }
+        const c = g.conv;
+        rrect(p, M + 10, y + 2, CW - 10, 20, 6, { color: hex(g.color), opacity: 0.07 });
+        const conv = `t = ${fmtPts(c.t)} un.  ·  u = t ÷ ${c.sem} = ${fmtNum(c.u)}  ·  p(u) = ${c.pu} (Tabela 4)  ·  × ${c.sem}/4`;
+        text(p, ellipsize(conv, F.semi, 8.5, CW - 130), M + 18, y - 11, { font: F.semi, size: 8.5, color: C.text });
+        right(p, `= ${fmtPts(g.pts)} pts`, colR.pts, y - 11, { font: F.bold, size: 9.5, color: C.ink });
+        y -= 26;
+      }
+      y -= 8;
+    }
+    ensure(50);
+    rrect(p, M, y, CW, 28, 7, { color: hex(C.ink) });
+    text(p, "TOTAL GERAL", M + 14, y - 18, { font: F.bold, size: 10, color: C.white });
+    right(p, String(nItens), colR.qtd, y - 18, { font: F.semi, size: 9.5, color: C.white });
+    if (!scoreRn) right(p, fmtPts(raw), colR.bruto, y - 18, { font: F.semi, size: 9.5, color: C.white });
+    right(p, `${fmtPts(total)} pts`, colR.pts, y - 18, { font: F.bold, size: 11, color: C.white });
+    y -= 40;
+    if (goal > 0) {
+      const saldo = total - goal;
+      const s = `Meta do barema: ${fmtPts(goal)} pts · ${saldo >= 0 ? `excedente de ${fmtPts(saldo)} pts` : `faltam ${fmtPts(-saldo)} pts`} · ${scorePct}% da meta`;
+      text(p, s, M, y, { font: F.semi, size: 9, color: reached ? GOOD : C.warn });
+      y -= 16;
+    }
+    if (scoreRn) {
+      const rc = score.rn114;
+      const msg = `Ensino: ${fmtPts(rc.ensino)} pts · mínimo ${fmtPts(rc.ensinoMin)} pts ${String(rc.regime) === "20" ? "(regime de 20 h: a pontuação deve vir do ensino, art. 12 §3º)" : "(50% da pontuação mínima, art. 12 §2º)"} · ${rc.ensinoOk ? "atendido" : "não atendido"}`;
+      for (const l of wrap(msg, F.semi, 9, CW)) {
+        text(p, l, M, y, { font: F.semi, size: 9, color: rc.ensinoOk ? GOOD : C.warn });
+        y -= 13;
+      }
+      const reg = { DE: "dedicação exclusiva", 40: "40 horas", 20: "20 horas" }[rc.regime] || rc.regime;
+      text(p, `Regime: ${reg} · ${rc.semesters} semestres avaliados · itens por semestre contam 1 semestre por registro.`, M, y, { size: 8.5, color: C.muted });
+      y -= 14;
+    }
+    if (score.onlyWithProof) {
+      text(p, "Contados apenas os registros com comprovante anexado.", M, y, { size: 8.5, color: C.muted });
+      y -= 14;
+    }
+    y -= 14;
+
+    // ---------- memória de cálculo ----------
+    heading("Memória de cálculo", "Cada item pontuado com o número no dossiê; clique na linha para abrir o comprovante");
+    const items = score.items || [];
+    for (const g of score.groups) {
+      ensure(56);
+      p.drawRectangle({ x: M, y: y - 14, width: 3, height: 16, color: hex(g.color) });
+      text(p, g.name, M + 10, y - 11, { font: F.bold, size: 10.5, color: C.ink });
+      right(p, scoreRn ? `${fmtPts(g.conv?.t)} un. → ${fmtPts(g.pts)} pts` : `${fmtPts(g.pts)} pts`, M + CW, y - 11, { font: F.bold, size: 10, color: C.ink });
+      y -= 24;
+      for (const r of g.rules) {
+        ensure(36);
+        const calc = scoreRn
+          ? `${r.qtd} × FM ${fmtNum(r.weight)}${r.base && r.base !== "item" ? (r.base === "hora" ? " × horas" : " × h ÷ 18") : ""} = ${fmtPts(r.raw)} un.`
+          : `${r.base === "ano" ? `${r.anos ?? 0} ano(s)` : r.qtd} × ${fmtPts(r.weight)} = ${fmtPts(r.raw)}${r.pts < r.raw - 1e-9 && r.cap != null ? ` → teto ${fmtPts(r.cap)}` : ""} → ${fmtPts(r.pts)} pts`;
+        const cw = width(calc, F.semi, 8.5);
+        text(p, ellipsize(r.label, F.semi, 9, CW - cw - 30), M + 10, y - 9, { font: F.semi, size: 9, color: C.text });
+        text(p, calc, M + CW - cw, y - 9, { font: F.semi, size: 8.5, color: C.indigo });
+        y -= 16;
+        const its = items.filter((x) => x.ruleId === r.id).sort((a, b) => (b.ano || 0) - (a.ano || 0));
+        for (const x of its) {
+          ensure(14);
+          const it = itemByKey.get(`${x.category}:${Number(x.id)}`);
+          const num = it?.num || "—";
+          const nw = Math.max(30, width(num, F.bold, 7) + 10);
+          rrect(p, M + 18, y + 1, nw, 11, 5.5, { color: hex(g.color), opacity: 0.16 });
+          text(p, num, M + 18 + (nw - width(num, F.bold, 7)) / 2, y - 7, { font: F.bold, size: 7, color: C.ink });
+          const ptsS = `+${fmtPts(x.pts)}`;
+          const yr = x.ano ? String(x.ano) : "";
+          const tx = M + 18 + nw + 8;
+          if (yr) text(p, yr, tx, y - 7.5, { size: 7.8, color: C.muted });
+          const ttx = tx + (yr ? 28 : 0);
+          text(p, ellipsize(it?.title || x.titulo || "", F.reg, 7.8, M + CW - 50 - ttx), ttx, y - 7.5, { size: 7.8, color: C.text });
+          right(p, ptsS, M + CW, y - 7.5, { font: F.semi, size: 7.8, color: C.ink });
+          if (it) scoreLinks.push({ page: p, rect: [M + 14, y - 11, M + CW, y + 2], it });
+          y -= 13;
+        }
+        y -= 6;
+      }
+      y -= 6;
+    }
+
+    // ---------- declaração e assinatura ----------
+    const decl = `Declaro, para os devidos fins, que as informações e os comprovantes reunidos neste dossiê são verdadeiros e correspondem às atividades realizadas no período ${score.period || cfg.periodLabel || ""}, totalizando ${fmtPts(total)} pontos segundo o barema "${score.barema}".`;
+    const dl = wrap(decl, F.reg, 9.5, CW - 40);
+    const boxH = 30 + dl.length * 14 + 86;
+    y -= 10;
+    ensure(boxH + 10);
+    rrect(p, M, y, CW, boxH, 12, { color: hex(C.white), borderColor: hex(C.line), borderWidth: 0.8 });
+    p.drawRectangle({ x: M, y: y - boxH + 12, width: 4, height: boxH - 24, color: hex(C.indigo) });
+    text(p, "DECLARAÇÃO", M + 20, y - 20, { font: F.bold, size: 8, color: C.faint });
+    let dy = y - 38;
+    for (const l of dl) {
+      text(p, l, M + 20, dy, { size: 9.5, color: C.text });
+      dy -= 14;
+    }
+    const sy = y - boxH + 34;
+    p.drawLine({ start: { x: M + 20, y: sy }, end: { x: M + 200, y: sy }, thickness: 0.7, color: hex(C.faint) });
+    text(p, "Local e data", M + 20, sy - 12, { size: 8, color: C.muted });
+    p.drawLine({ start: { x: M + CW - 240, y: sy }, end: { x: M + CW - 20, y: sy }, thickness: 0.7, color: hex(C.faint) });
+    const nome = cfg.profile.nome || "Assinatura";
+    text(p, ellipsize(nome, F.semi, 8.5, 220), M + CW - 130 - Math.min(220, width(nome, F.semi, 8.5)) / 2, sy - 12, { font: F.semi, size: 8.5, color: C.ink });
+    y -= boxH + 14;
+    ensure(30);
+    for (const l of wrap("Pontuação calculada pelo Lattes Manager a partir de pesos e tetos configuráveis; ela não substitui a conferência pela comissão avaliadora.", F.reg, 7.5, CW)) {
+      text(p, l, M, y, { size: 7.5, color: C.faint });
+      y -= 10;
+    }
+  }
 
   // =====================================================================
   // 4. SEÇÕES: lista numerada + anexos
@@ -406,6 +762,7 @@ export async function buildReport(cfg) {
   const failed = [];
   const refs = []; // marcações de página a desenhar no fim: { page, x, y, item }
   for (let si = 0; si < sections.length; si++) {
+    if (si > 0 && si === scoreAt) await placeScore();
     const s = sections[si];
     const num = si + 1;
     s.startPage = doc.getPageCount() + 1;
@@ -602,6 +959,8 @@ export async function buildReport(cfg) {
     }
   }
 
+  if (scoreAt > 0 && scoreAt >= sections.length) await placeScore();
+
   // =====================================================================
   // 4b. QR CODES dos itens com link (opcional, no fim do documento)
   // =====================================================================
@@ -743,6 +1102,7 @@ export async function buildReport(cfg) {
       tag = nums.length <= 4 ? `Itens ${nums.join(", ")}` : `Itens ${nums[0]}–${nums[nums.length - 1]} (${nums.length} itens)`;
     } else {
       tag = `Item ${it.num}`;
+      if (it.pts != null) tag += ` · ${fmtPts(it.pts)} ${itemUnit}`;
     }
     if (attLabel) {
       tag += ` · ${attLabel}`;
@@ -790,9 +1150,17 @@ export async function buildReport(cfg) {
     const w = width(label, F.semi, 7.5) + 12;
     rrect(r.page, r.x - w, r.y + 11.5, w, 15, 7.5, { color: hex(bg) });
     text(r.page, label, r.x - w + 6, r.y + 0.5, { font: F.semi, size: 7.5, color: fg });
+    // pontos do item no barema, logo abaixo da página do comprovante
+    if (it.pts != null) {
+      const pl = `+${fmtPts(it.pts)} ${itemUnit}`;
+      const pw = width(pl, F.bold, 7.5) + 12;
+      rrect(r.page, r.x - pw, r.y - 6.5, pw, 15, 7.5, { color: hex("#d1fae5") });
+      text(r.page, pl, r.x - pw + 6, r.y - 17.5, { font: F.bold, size: 7.5, color: "#047857" });
+    }
     if (it.page && !it.absent) addLink(r.page, [M - 4, r.rowBottom, r.x + 4, r.rowTop], it.page);
   }
   for (const c of chipLinks) addLink(c.page, c.rect, c.s.startPage);
+  for (const l of scoreLinks) addLink(l.page, l.rect, l.it.page && !l.it.absent ? l.it.page : l.it.listPage);
 
   {
     let ti = 0;
@@ -807,7 +1175,33 @@ export async function buildReport(cfg) {
       if (y < FOOT_H + 40) { p = tocPages[++ti] || p; y = A4[1] - 70; }
       fn(p, y);
     };
+    const tocScore = () => {
+      line((pg, yy) => {
+        rrect(pg, M, yy + 13, 26, 18, 6, { color: hex(C.indigo) });
+        const sig = F.standard ? "Pt" : "Σ"; // Helvetica (reserva) não tem Σ
+        text(pg, sig, M + 13 - width(sig, F.bold, 10) / 2, yy - 0.5, { font: F.bold, size: 10, color: C.white });
+        text(pg, "Quadro de pontuação", M + 38, yy, { font: F.bold, size: 12, color: C.ink });
+        const right = `${fmtPts(score.totalCapped)} pts    p. ${scoreStart}`;
+        const rw = width(right, F.semi, 10);
+        const lx = M + 38 + width("Quadro de pontuação", F.bold, 12) + 8;
+        pg.drawLine({ start: { x: lx, y: yy + 3 }, end: { x: W - M - rw - 8, y: yy + 3 }, thickness: 0.7, color: hex(C.line), dashArray: [1.5, 3] });
+        text(pg, right, W - M - rw, yy, { font: F.semi, size: 10, color: C.text });
+        addLink(pg, [M, yy - 6, W - M, yy + 14], scoreStart);
+      });
+      y -= 22;
+      for (const g of score.groups) {
+        line((pg, yy) => {
+          text(pg, ellipsize(g.name, F.reg, 10, W - 2 * M - 160), M + 38, yy, { size: 10, color: C.muted });
+          const t = `${fmtPts(g.pts)} pts`;
+          text(pg, t, W - M - width(`p. ${scoreStart}`, F.semi, 10) - 22 - width(t, F.reg, 10), yy, { size: 10, color: C.muted });
+          addLink(pg, [M + 34, yy - 4, W - M, yy + 11], scoreStart);
+        });
+        y -= 16;
+      }
+      y -= 10;
+    };
     for (const [si, s] of sections.entries()) {
+      if (scoreStart && si === scoreAt) tocScore();
       const secEmoji = getCategoryEmoji(s.key || s.name);
       const tocEmImg = await embedEmoji(secEmoji, 64);
       line((pg, yy) => {
@@ -839,6 +1233,7 @@ export async function buildReport(cfg) {
       }
       y -= 10;
     }
+    if (scoreStart && scoreAt >= sections.length) tocScore();
     if (qrStart) {
       line((pg, yy) => {
         rrect(pg, M, yy + 13, 26, 18, 6, { color: hex(C.ink) });
@@ -894,11 +1289,13 @@ export async function buildReport(cfg) {
   const outline = [{ title: "Capa", page: 1 }];
   if (resumoPage) outline.push({ title: "Resumo do currículo", page: resumoPage });
   outline.push({ title: "Sumário", page: tocStart });
+  const scoreMark = () => outline.push({ title: `Quadro de pontuação (${fmtPts(score.totalCapped)} pts)`, page: scoreStart });
   const itemMark = (it) => ({
     title: `${it.num}  ${(it.title || "").slice(0, 90)}${it.path ? "" : "  [sem comprovante]"}`,
     page: it.page && !it.absent ? it.page : it.listPage,
   });
-  sections.forEach((s, si) =>
+  sections.forEach((s, si) => {
+    if (scoreStart && si === scoreAt) scoreMark();
     outline.push({
       title: `${si + 1}. ${s.name} (${s.items.length})`,
       page: s.startPage,
@@ -908,8 +1305,9 @@ export async function buildReport(cfg) {
           return { title: `${tipo} (${n})`, page: its[0]?.tipoPage || its[0]?.listPage || s.startPage, children: its.map(itemMark) };
         })
         : s.items.map(itemMark),
-    })
-  );
+    });
+  });
+  if (scoreStart && scoreAt >= sections.length) scoreMark();
   if (qrStart)
     outline.push({
       title: "QR codes dos links",
@@ -1014,7 +1412,7 @@ async function preparePhoto(bytes) {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-async function loadFonts(doc, StandardFonts) {
+export async function loadFonts(doc, StandardFonts) {
   try {
     doc.registerFontkit(window.fontkit);
     const [r, s, b] = await Promise.all(["segoeui.ttf", "seguisb.ttf", "segoeuib.ttf"].map((n) => api.readSystemFont(n)));
@@ -1036,7 +1434,7 @@ async function loadFonts(doc, StandardFonts) {
 }
 
 /** Normaliza espaços e, com fontes padrão (WinAnsi), troca caracteres sem glifo. */
-function makeSanitizer(F) {
+export function makeSanitizer(F) {
   const cache = new Map();
   return (s, font) => {
     s = String(s ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ");
@@ -1059,7 +1457,7 @@ function makeSanitizer(F) {
   };
 }
 
-function wrapText(s, font, size, maxW) {
+export function wrapText(s, font, size, maxW) {
   const words = s.split(" ").filter(Boolean);
   const lines = [];
   let cur = "";

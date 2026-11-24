@@ -4,6 +4,9 @@ import { api } from "../api.js";
 import { CATEGORY_SCHEMAS, escapeHtml, showToast } from "../utils.js";
 import { withMetricColumns, metricSortValue, loadMetrics, metricsLoaded, isExpanded, setExpanded } from "../journalMetrics.js";
 
+/** O registro tem comprovante vinculado (arquivo principal ou anexos)? */
+const hasProof = (r) => Boolean((r.path && String(r.path).trim()) || (Array.isArray(r.attachments) && r.attachments.length));
+
 const QUALIS_ORDER = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "C", "SQ"];
 const NUMERIC = new Set(["id", "ano", "horas", "alunos", "citations"]);
 // direção inicial ao clicar: números/datas começam do maior; textos e Qualis do "melhor"/A→Z
@@ -61,6 +64,7 @@ export class TableView {
     onBulkDuplicate = null,
     onBulkEdit = null,
     onBulkDelete = null,
+    onBulkUnlink = null,
     onBulkFetchPdfs = null,
     onFileDropOnRow = null,
   }) {
@@ -76,6 +80,7 @@ export class TableView {
     this.onBulkDuplicate = onBulkDuplicate;
     this.onBulkEdit = onBulkEdit;
     this.onBulkDelete = onBulkDelete;
+    this.onBulkUnlink = onBulkUnlink;
     this.onBulkFetchPdfs = onBulkFetchPdfs;
     this.onFileDropOnRow = onFileDropOnRow;
 
@@ -200,6 +205,8 @@ export class TableView {
         this.onBulkEdit?.(selected);
       } else if (action === "delete" && selected.length) {
         this.onBulkDelete?.(selected);
+      } else if (action === "unlink" && selected.length) {
+        this.onBulkUnlink?.(selected.filter(hasProof));
       } else if (action === "fetchpdfs" && selected.length) {
         this.onBulkFetchPdfs?.(selected);
       }
@@ -345,6 +352,8 @@ export class TableView {
         }).length
       : 0;
 
+    const withProofCount = selected.filter(hasProof).length;
+
     bar.classList.remove("hidden");
     bar.innerHTML = `
       <div class="bulk-summary">
@@ -355,6 +364,11 @@ export class TableView {
         <button type="button" class="btn btn-secondary btn-sm" data-bulk-action="duplicate" ${this.bulkBusy ? "disabled" : ""} title="Criar uma cópia dos registros selecionados">📋 Duplicar selecionados</button>
         <button type="button" class="btn btn-secondary btn-sm" data-bulk-action="link-proof" ${this.bulkBusy ? "disabled" : ""} title="Vincular o mesmo comprovante a todos os registros selecionados sem duplicar arquivo">🔗 Vincular mesmo comprovante...</button>
         <button type="button" class="btn btn-secondary btn-sm" data-bulk-action="edit" ${this.bulkBusy ? "disabled" : ""}>✏️ Alterar em lote</button>
+        ${
+          withProofCount > 0 && this.onBulkUnlink
+            ? `<button type="button" class="btn btn-secondary btn-sm" data-bulk-action="unlink" ${this.bulkBusy ? "disabled" : ""} title="Remove o vínculo dos comprovantes com os registros selecionados; os arquivos continuam na pasta">⛓ Desvincular comprovantes (${withProofCount})</button>`
+            : ""
+        }
         ${
           doiMissingCount > 0
             ? `<button type="button" class="btn btn-secondary btn-sm" data-bulk-action="fetchpdfs" ${this.bulkBusy ? "disabled" : ""}>⚡ Buscar PDFs por DOI (${doiMissingCount})</button>`

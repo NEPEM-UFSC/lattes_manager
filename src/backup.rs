@@ -100,6 +100,10 @@ pub fn data_folders(conn: Option<&Connection>, root: &Path) -> Vec<String> {
     if root.join(crate::commands::PHOTO_DIR).is_dir() {
         set.insert(crate::commands::PHOTO_DIR.to_string());
     }
+    // documentos anexados aos baremas (portarias, planilhas...)
+    if root.join(crate::commands::BAREMAS_DIR).is_dir() {
+        set.insert(crate::commands::BAREMAS_DIR.to_string());
+    }
     let mut v: Vec<String> = set
         .into_iter()
         .filter(|f| !f.eq_ignore_ascii_case("backups"))

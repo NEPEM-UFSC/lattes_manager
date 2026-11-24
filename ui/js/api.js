@@ -245,6 +245,19 @@ function mockHandler(cmd, args = {}) {
       return updated;
     }
 
+    case "batch_unlink_attachments": {
+      const ids = new Set((args.ids || []).map(Number));
+      let n = 0;
+      for (const r of mockState.records[args.category] || []) {
+        if (!ids.has(Number(r.id))) continue;
+        if (r.path || r.file || r.attachments?.length) n++;
+        r.path = null;
+        r.file = null;
+        r.attachments = [];
+      }
+      return n;
+    }
+
     case "batch_delete_records": {
       const cat = args.category;
       const ids = new Set((args.ids || []).map(Number));
@@ -259,6 +272,10 @@ function mockHandler(cmd, args = {}) {
       return deleted;
     }
 
+    case "add_barema_documents":
+      return [{ name: "Portaria 154-2019.pdf", path: `baremas/${args.baremaId}/Portaria 154-2019.pdf`, size: 2_350_000 }];
+    case "remove_barema_document":
+      return null;
     case "select_source_file":
       return "C:\\Users\\tiago\\Downloads\\comprovante_exemplo.pdf";
 
@@ -588,6 +605,10 @@ export const api = {
     });
   },
 
+  /** Desvincula os comprovantes (anexos e caminho principal) sem apagar os arquivos. */
+  batchUnlinkAttachments: (category, ids) =>
+    invokeCommand("batch_unlink_attachments", { category, ids: (ids || []).map(Number) }),
+
   batchDeleteRecords: (category, ids, deleteFiles = false) =>
     invokeCommand("batch_delete_records", {
       category,
@@ -720,6 +741,9 @@ export const api = {
   onBackupProgress: async (fn) => (window.__TAURI__?.event?.listen ? window.__TAURI__.event.listen("backup-progress", (e) => fn(e.payload)) : () => { }),
   // importação em lote
   pickFiles: () => invokeCommand("pick_files"),
+  // documentos anexados aos baremas (portarias, planilhas...), em baremas/<id>/
+  addBaremaDocuments: (baremaId) => invokeCommand("add_barema_documents", { baremaId }),
+  removeBaremaDocument: (path) => invokeCommand("remove_barema_document", { path }),
   listFolderFiles: (path, recursive = true) => invokeCommand("list_folder_files", { path, recursive }),
   exportXlsx: (sheets) => invokeCommand("export_xlsx", { sheets }),
   analyzeDocument: (path, text = null) => invokeCommand("analyze_document", { path, text }),

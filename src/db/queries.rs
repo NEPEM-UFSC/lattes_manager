@@ -209,7 +209,7 @@ pub fn list_atuacao(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<AtuacaoRecord>> {
-    let mut sql = "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url FROM atuacao WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url, semestres_ano, semestre, semestre_fim FROM atuacao WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -390,7 +390,7 @@ pub fn list_projetos(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<ProjetosRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM projetos WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url, ano_fim, semestre, semestre_fim FROM projetos WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -742,7 +742,7 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
         }
         "atuacao" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url FROM atuacao WHERE id = ?1",
+                "SELECT id, ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, url, semestres_ano, semestre, semestre_fim FROM atuacao WHERE id = ?1",
             )?;
             stmt.query_row([id], AtuacaoRecord::from_row)
                 .map(Into::into)?
@@ -763,7 +763,7 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
         }
         "projetos" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url FROM projetos WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, descricao, log, path, url, ano_fim, semestre, semestre_fim FROM projetos WHERE id = ?1",
             )?;
             stmt.query_row([id], ProjetosRecord::from_row)
                 .map(Into::into)?
@@ -859,7 +859,17 @@ pub fn insert_record(
         .or_else(|| Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()));
 
     match table {
-        "dadosgerais" | "projetos" | "patentes" | "eventos" => {
+        "projetos" => {
+            let descricao = json_str(data, "descricao");
+            let ano_fim = json_i64(data, "ano_fim");
+            let semestre = json_i64(data, "semestre");
+            let semestre_fim = json_i64(data, "semestre_fim");
+            conn.execute(
+                "INSERT INTO projetos (ano, tipo, identifier, file, folder, descricao, log, path, ano_fim, semestre, semestre_fim) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![ano, tipo, identifier, file, folder, descricao, log, path, ano_fim, semestre, semestre_fim],
+            )?;
+        }
+        "dadosgerais" | "patentes" | "eventos" => {
             let descricao = json_str(data, "descricao");
             conn.execute(
                 &format!(
@@ -892,9 +902,12 @@ pub fn insert_record(
             let dedicacao_exclusiva = json_str(data, "dedicacao_exclusiva");
             let vinculo_empregaticio = json_str(data, "vinculo_empregaticio");
             let descricao = json_str(data, "descricao");
+            let semestres_ano = json_i64(data, "semestres_ano");
+            let semestre = json_i64(data, "semestre");
+            let semestre_fim = json_i64(data, "semestre_fim");
             conn.execute(
-                "INSERT INTO atuacao (ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path],
+                "INSERT INTO atuacao (ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim],
             )?;
         }
         "disciplinas" => {
@@ -1035,7 +1048,22 @@ pub fn update_record(
     let log = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
 
     match table {
-        "dadosgerais" | "projetos" | "patentes" | "eventos" => {
+        "projetos" => {
+            let keep = |k: &str, old: Option<i64>| if data.get(k).is_some() { json_i64(data, k) } else { old };
+            let descricao = if data.get("descricao").is_some() {
+                json_str(data, "descricao")
+            } else {
+                existing.descricao
+            };
+            let ano_fim = keep("ano_fim", existing.ano_fim);
+            let semestre = keep("semestre", existing.semestre);
+            let semestre_fim = keep("semestre_fim", existing.semestre_fim);
+            conn.execute(
+                "UPDATE projetos SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, descricao = ?6, log = ?7, path = ?8, ano_fim = ?9, semestre = ?10, semestre_fim = ?11 WHERE id = ?12",
+                params![ano, tipo, identifier, file, folder, descricao, log, path, ano_fim, semestre, semestre_fim, id],
+            )?;
+        }
+        "dadosgerais" | "patentes" | "eventos" => {
             let descricao = if data.get("descricao").is_some() {
                 json_str(data, "descricao")
             } else {
@@ -1113,9 +1141,24 @@ pub fn update_record(
             } else {
                 existing.descricao
             };
+            let semestres_ano = if data.get("semestres_ano").is_some() {
+                json_i64(data, "semestres_ano")
+            } else {
+                existing.semestres_ano
+            };
+            let semestre = if data.get("semestre").is_some() {
+                json_i64(data, "semestre")
+            } else {
+                existing.semestre
+            };
+            let semestre_fim = if data.get("semestre_fim").is_some() {
+                json_i64(data, "semestre_fim")
+            } else {
+                existing.semestre_fim
+            };
             conn.execute(
-                "UPDATE atuacao SET ano = ?1, ano_fim = ?2, tipo = ?3, identifier = ?4, file = ?5, folder = ?6, instituicao = ?7, titulo = ?8, vinculo = ?9, enquadramento = ?10, horas = ?11, dedicacao_exclusiva = ?12, vinculo_empregaticio = ?13, descricao = ?14, log = ?15, path = ?16 WHERE id = ?17",
-                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, id],
+                "UPDATE atuacao SET ano = ?1, ano_fim = ?2, tipo = ?3, identifier = ?4, file = ?5, folder = ?6, instituicao = ?7, titulo = ?8, vinculo = ?9, enquadramento = ?10, horas = ?11, dedicacao_exclusiva = ?12, vinculo_empregaticio = ?13, descricao = ?14, log = ?15, path = ?16, semestres_ano = ?17, semestre = ?18, semestre_fim = ?19 WHERE id = ?20",
+                params![ano, ano_fim, tipo, identifier, file, folder, instituicao, titulo, vinculo, enquadramento, horas, dedicacao_exclusiva, vinculo_empregaticio, descricao, log, path, semestres_ano, semestre, semestre_fim, id],
             )?;
         }
         "disciplinas" => {

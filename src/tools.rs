@@ -536,6 +536,7 @@ fn is_ignored_top_dir(name_lower: &str) -> bool {
             | ".pytest_cache"
             | "backups"
             | "perfil"
+            | "baremas"
             | "system volume information"
             | "$recycle.bin"
     ) || name_lower.starts_with('.')

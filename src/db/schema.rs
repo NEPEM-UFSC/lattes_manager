@@ -471,6 +471,20 @@ CREATE TABLE IF NOT EXISTS citescore (
     consultado_em TEXT
 );
 "#,
+    // 14: semestres por ano da atuação (encargos, comissões...): horas totais = horas por
+    // semestre × semestres do período (ano de início a ano de fim)
+    "ALTER TABLE atuacao ADD COLUMN semestres_ano INTEGER;",
+    // 15: semestre (1 ou 2) de início e de fim da atuação, para contar os semestres exatos
+    r#"
+ALTER TABLE atuacao ADD COLUMN semestre INTEGER;
+ALTER TABLE atuacao ADD COLUMN semestre_fim INTEGER;
+"#,
+    // 16: período dos projetos (ano/semestre de início e de fim), como na atuação
+    r#"
+ALTER TABLE projetos ADD COLUMN ano_fim INTEGER;
+ALTER TABLE projetos ADD COLUMN semestre INTEGER;
+ALTER TABLE projetos ADD COLUMN semestre_fim INTEGER;
+"#,
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

@@ -139,6 +139,9 @@ pub struct AtuacaoRecord {
     pub log: Option<String>,
     pub path: Option<String>,
     pub url: Option<String>,
+    pub semestres_ano: Option<i64>,
+    pub semestre: Option<i64>,
+    pub semestre_fim: Option<i64>,
 }
 
 impl AtuacaoRecord {
@@ -162,6 +165,9 @@ impl AtuacaoRecord {
             log: row.get("log")?,
             path: row.get("path")?,
             url: optional_url(row),
+            semestres_ano: row.get("semestres_ano").unwrap_or(None),
+            semestre: row.get("semestre").unwrap_or(None),
+            semestre_fim: row.get("semestre_fim").unwrap_or(None),
         })
     }
 }
@@ -318,6 +324,9 @@ pub struct ProjetosRecord {
     pub log: Option<String>,
     pub path: Option<String>,
     pub url: Option<String>,
+    pub ano_fim: Option<i64>,
+    pub semestre: Option<i64>,
+    pub semestre_fim: Option<i64>,
 }
 
 impl ProjetosRecord {
@@ -333,6 +342,9 @@ impl ProjetosRecord {
             log: row.get("log")?,
             path: row.get("path")?,
             url: optional_url(row),
+            ano_fim: row.get("ano_fim").unwrap_or(None),
+            semestre: row.get("semestre").unwrap_or(None),
+            semestre_fim: row.get("semestre_fim").unwrap_or(None),
         })
     }
 }
@@ -539,6 +551,12 @@ pub struct RecordDto {
     pub vinculo_empregaticio: Option<String>,
     pub descricao: Option<String>,
     pub horas: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semestres_ano: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semestre: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub semestre_fim: Option<i64>,
     pub curso: Option<String>,
     pub disciplina: Option<String>,
     pub alunos: Option<i64>,
@@ -605,6 +623,9 @@ impl From<AtuacaoRecord> for RecordDto {
             vinculo_empregaticio: r.vinculo_empregaticio,
             descricao: r.descricao,
             horas: r.horas,
+            semestres_ano: r.semestres_ano,
+            semestre: r.semestre,
+            semestre_fim: r.semestre_fim,
             log: r.log,
             path: r.path,
             url: r.url,
@@ -723,6 +744,9 @@ impl From<ProjetosRecord> for RecordDto {
             id: r.id,
             category: "projetos".to_string(),
             ano: r.ano,
+            ano_fim: r.ano_fim,
+            semestre: r.semestre,
+            semestre_fim: r.semestre_fim,
             tipo: r.tipo,
             identifier: r.identifier,
             file: r.file,

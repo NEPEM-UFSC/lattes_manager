@@ -132,6 +132,7 @@ class App {
       onBulkDuplicate: (recs) => this.bulkDuplicateRecords(recs),
       onBulkEdit: (recs) => this.openBatchEditModal(recs),
       onBulkDelete: (recs) => this.openBatchDeleteConfirm(recs),
+      onBulkUnlink: (recs) => this.bulkUnlinkProofs(recs),
       onBulkFetchPdfs: (recs) => this.batchFetchPdfs(recs),
       onFileDropOnRow: (rec, filePath) => this.attachDroppedFileToRecord(rec, filePath),
     });
@@ -1460,7 +1461,12 @@ class App {
             <label for="${fieldId}">${escapeHtml(field.label)}</label>
             <select id="${fieldId}" data-batch-field="${field.name}" data-field-type="select">
               <option value="">(Manter atual)</option>
-              ${opts.map((opt) => `<option value="${escapeHtml(opt)}">${escapeHtml(opt || "Nenhum")}</option>`).join("")}
+              ${opts.map((o) => {
+                // opção simples ("Sim") ou { value, label }
+                const v = o && typeof o === "object" ? o.value : o;
+                const l = o && typeof o === "object" ? o.label : o || "Nenhum";
+                return `<option value="${escapeHtml(v)}">${escapeHtml(l)}</option>`;
+              }).join("")}
             </select>
           </div>
         `;
@@ -1642,6 +1648,26 @@ class App {
     }
 
     this.deleteModalOverlay.style.display = "flex";
+  }
+
+  /** Desvincula os comprovantes dos registros selecionados; os arquivos ficam na pasta. */
+  async bulkUnlinkProofs(records) {
+    if (!records?.length) return;
+    const nArq = records.reduce((s, r) => s + Math.max(r.path ? 1 : 0, (r.attachments || []).length), 0);
+    const ok = window.confirm(
+      `Desvincular os comprovantes de ${records.length} registro(s) (${nArq} arquivo(s))?\n\n` +
+        "Os registros continuam no banco e os arquivos continuam na pasta — só o vínculo é removido. " +
+        "Depois, os arquivos aparecem como órfãos em Ferramentas › Verificar arquivos, onde podem ser revinculados ou apagados."
+    );
+    if (!ok) return;
+    try {
+      const n = await api.batchUnlinkAttachments(this.currentCategory, records.map((r) => r.id));
+      showToast(`Comprovantes desvinculados de ${n} registro(s). Os arquivos continuam na pasta.`, "success", 4500);
+      this.tableView.clearSelection();
+      await Promise.all([this.loadRecords(), this.loadStats()]);
+    } catch (err) {
+      showToast(`Erro ao desvincular: ${err}`, "error");
+    }
   }
 
   openBatchDeleteConfirm(records) {

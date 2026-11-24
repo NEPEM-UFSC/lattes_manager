@@ -1,6 +1,6 @@
 // Record Create / Edit Modal Component
 
-import { CATEGORY_SCHEMAS, getCategoryMappings, escapeHtml, showToast } from "../utils.js";
+import { CATEGORY_SCHEMAS, getCategoryMappings, escapeHtml, horasAtuacao, showToast } from "../utils.js";
 import { api } from "../api.js";
 import { easyClose } from "../theme.js";
 import { FieldHistory } from "./fieldHistory.js";
@@ -421,9 +421,12 @@ export class RecordModal {
         html += `</select>`;
       } else if (field.type === "select") {
         html += `<select id="field-${field.name}" name="${field.name}" class="form-select" ${field.required ? "required" : ""}>`;
-        for (const opt of field.options || []) {
+        for (const o of field.options || []) {
+          // opção simples ("Sim") ou { value, label }
+          const opt = typeof o === "object" && o ? o.value : o;
+          const label = typeof o === "object" && o ? o.label : o || "Nenhum";
           const selected = String(val) === String(opt);
-          html += `<option value="${escapeHtml(opt)}" ${selected ? "selected" : ""}>${escapeHtml(opt || "Nenhum")}</option>`;
+          html += `<option value="${escapeHtml(opt)}" ${selected ? "selected" : ""}>${escapeHtml(label)}</option>`;
         }
         html += `</select>`;
       } else if (field.type === "doi") {
@@ -439,6 +442,7 @@ export class RecordModal {
       } else {
         const hist = (field.type || "text") === "text" ? 'data-history="1" autocomplete="off"' : "";
         html += `<input type="${field.type || "text"}" id="field-${field.name}" name="${field.name}" class="form-input" ${hist} value="${escapeHtml(val)}" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""} />`;
+        if (field.horasTotal) html += `<small class="form-hint" id="horas-total-hint"></small>`;
       }
 
       html += `</div>`;
@@ -449,6 +453,23 @@ export class RecordModal {
     html += `<input type="hidden" id="field-folder" name="folder" value="${escapeHtml(initialFolder)}" />`;
 
     this.dynamicFields.innerHTML = html;
+    // carga horária total (horas por semestre × semestres do período), atualizada ao digitar
+    const hint = document.getElementById("horas-total-hint");
+    if (hint) {
+      const val = (n) => document.getElementById(`field-${n}`)?.value ?? "";
+      const upd = () => {
+        const h = horasAtuacao({ horas: val("horas"), ano: val("ano"), ano_fim: val("ano_fim"), semestre: val("semestre"), semestre_fim: val("semestre_fim"), semestres_ano: val("semestres_ano") });
+        hint.textContent = h
+          ? `Total: ${h.porSemestre} h × ${h.semestres} sem. = ${h.total} h${h.inicio ? ` (${h.inicio === h.fim ? h.inicio : `${h.inicio} a ${h.fim}`}${h.porAno === 1 ? ", uma vez por ano" : ""})` : ""}`
+          : "Informe as horas de um semestre; o total é calculado pelo período.";
+      };
+      for (const n of ["horas", "ano", "ano_fim", "semestre", "semestre_fim", "semestres_ano"]) {
+        const el = document.getElementById(`field-${n}`);
+        el?.addEventListener("input", upd);
+        el?.addEventListener("change", upd);
+      }
+      upd();
+    }
     this.dynamicFields.querySelector(".doi-open")?.addEventListener("click", () => {
       const d = document.getElementById("field-identifier")?.value.trim();
       if (d) api.openDoi(d).catch((e) => showToast(`Não foi possível abrir: ${e}`, "error"));
@@ -935,7 +956,7 @@ export class RecordModal {
       const trimmed = value.trim();
       if (trimmed === "") {
         data[key] = null;
-      } else if (key === "ano" || key === "horas" || key === "alunos" || key === "ano_fim") {
+      } else if (key === "ano" || key === "horas" || key === "alunos" || key === "ano_fim" || key === "semestres_ano" || key === "semestre" || key === "semestre_fim") {
         data[key] = Number(trimmed);
       } else {
         data[key] = trimmed;
