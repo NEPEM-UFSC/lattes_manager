@@ -21,6 +21,7 @@ import { ProfilePanel } from "./components/profile.js";
 import { HomeView } from "./components/home.js";
 import { ToolsView } from "./components/tools.js";
 import { AboutView } from "./components/about.js";
+import { updater } from "./components/updater.js";
 import { PALETTE } from "./components/charts.js";
 import { DocAnalyzer } from "./components/docAnalyzer.js";
 import { BatchImport } from "./components/batchImport.js";
@@ -879,6 +880,8 @@ class App {
     await Promise.all([this.loadStats(), this.loadMappings(), this.loadQualis()]);
     await this.showHome();
     this.tour.maybeStartFirstRun();
+    // procura versão nova alguns segundos depois de abrir (sem atrasar a inicialização)
+    setTimeout(() => updater.checkOnStartup(), 5000);
   }
 
   bindEvents() {

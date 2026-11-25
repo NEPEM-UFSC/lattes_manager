@@ -6233,3 +6233,27 @@ body.sidebar-collapsed .sidebar .nav-list {
   width: 1.1em;
   text-align: center;
 }
+
+/* ---------- Atualizações ---------- */
+.ab-update { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
+.ab-update-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
+.upd-overlay { z-index: 1000; }
+.upd-dialog { max-width: 560px; }
+.upd-versions { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 14px; border-radius: var(--radius-md, 10px); background: var(--app-bg); }
+.upd-versions > div:not(.upd-arrow) { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.upd-versions span { font-size: 12px; color: var(--text-muted); }
+.upd-versions b { font-size: 22px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.upd-versions .upd-new b { color: var(--primary, #2563eb); }
+.upd-arrow { font-size: 22px; color: var(--text-muted); }
+.upd-notes { max-height: 240px; overflow-y: auto; font-size: 13px; line-height: 1.5; color: var(--text-secondary); border: 1px solid var(--border-light); border-radius: var(--radius-md, 10px); padding: 10px 14px; }
+.upd-notes h4 { margin: 8px 0 4px; font-size: 13px; color: var(--text-primary); }
+.upd-notes ul { margin: 4px 0 8px; padding-left: 20px; }
+.upd-notes p { margin: 4px 0; }
+.upd-how { font-size: 13px; color: var(--text-secondary); margin: 0; }
+.upd-progress { display: flex; flex-direction: column; gap: 6px; }
+.upd-bar { height: 8px; border-radius: 99px; background: var(--app-bg); overflow: hidden; border: 1px solid var(--border-light); }
+.upd-bar i { display: block; height: 100%; width: 0; background: var(--primary, #2563eb); transition: width .2s; }
+.upd-bar i.indet { width: 35%; animation: updIndet 1.2s ease-in-out infinite; }
+@keyframes updIndet { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.upd-status { color: var(--text-muted); font-size: 12px; }
+.upd-footer .upd-spacer { flex: 1; }

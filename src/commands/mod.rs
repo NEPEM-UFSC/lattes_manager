@@ -21,6 +21,7 @@ mod import;
 mod profile;
 mod records;
 mod tools;
+mod update;
 mod viewer;
 mod xml;
 
@@ -30,6 +31,7 @@ pub use import::*;
 pub use profile::*;
 pub use records::*;
 pub use tools::*;
+pub use update::*;
 pub use viewer::*;
 pub use xml::*;
 

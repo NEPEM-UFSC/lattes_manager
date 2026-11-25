@@ -299,6 +299,17 @@ function mockHandler(cmd, args = {}) {
     case "get_app_version":
       return "1.0.0";
 
+    case "check_update":
+      return {
+        atual: "1.0.0", versao: "1.3.0", disponivel: true, automatica: true, sistema: "windows",
+        data: "2026-11-25T12:00:00Z", pagina: "https://github.com/NEPEM-UFSC/lattes_manager/releases",
+        arquivo: "Lattes.Manager_1.3.0_x64-setup.exe", download: "https://github.com/NEPEM-UFSC/lattes_manager/releases",
+        notas: "## Novidades\n- Atualização **automática**\n- Carga horária semanal",
+      };
+
+    case "install_update":
+      throw "Instalação indisponível no navegador (mock).";
+
     case "get_lattes_profile":
       return {
         nome: "Pesquisador UFSC",
@@ -676,6 +687,11 @@ export const api = {
   readSystemFont: async (name) => new Uint8Array(await invokeCommand("read_system_font", { name })),
   getLattesProfile: (xmlPath = null) => invokeCommand("get_lattes_profile", { xmlPath }),
   getAppVersion: () => invokeCommand("get_app_version"),
+  /** Última release do GitHub × versão instalada (e se dá para instalar sozinho). */
+  checkUpdate: () => invokeCommand("check_update"),
+  /** Baixa, confere a assinatura, instala e reinicia o app. */
+  installUpdate: () => invokeCommand("install_update"),
+  onUpdateProgress: async (fn) => (window.__TAURI__?.event?.listen ? window.__TAURI__.event.listen("update-progress", (e) => fn(e.payload)) : () => { }),
   getProfilePhoto: () => invokeCommand("get_profile_photo"),
   pickProfilePhoto: () => invokeCommand("pick_profile_photo"),
   removeProfilePhoto: () => invokeCommand("remove_profile_photo"),

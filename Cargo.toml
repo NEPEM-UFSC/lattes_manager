@@ -1,6 +1,6 @@
 [package]
 name = "lattes-app"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2021"
 license = "MIT"
 
@@ -32,6 +32,7 @@ ureq = { version = "2", features = ["json"] }
 rust_xlsxwriter = "0.102"
 zip = { version = "9.8", default-features = false, features = ["deflate"] }
 sha2 = "0.11.1"
+tauri-plugin-updater = "2"
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }

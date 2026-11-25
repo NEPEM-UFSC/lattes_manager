@@ -12,6 +12,7 @@ Aplicativo de desktop para organizar o Currículo Lattes e os comprovantes de ca
 - Classifica documentos novos (PDF ou imagem, com OCR) na categoria certa.
 - Gera um relatório único em PDF com os comprovantes, além de indicadores e exportação para Excel.
 - Faz backup completo (banco e comprovantes) e restauração.
+- Avisa quando há versão nova e se atualiza sozinho (Windows, macOS e Linux AppImage).
 
 ## Download
 
@@ -70,6 +71,8 @@ Toda mudança passa pelos testes do CI, com auditoria de dependências e CodeQL,
 ### Privacidade
 
 Este programa não envia nenhuma informação a outros sistemas em rede, a menos que o usuário peça. Isso acontece apenas quando o usuário usa as funções de busca, como consultar um DOI, o ORCID ou o OpenAlex, ou baixar o PDF de acesso aberto de um artigo. Os dados do currículo e os comprovantes ficam no computador do usuário.
+
+A única conexão automática é a verificação de atualizações: ao abrir, no máximo duas vezes por dia, o app consulta a página pública de versões do GitHub (`api.github.com`) para saber se há versão nova. Nenhum dado do usuário é enviado. A verificação pode ser desligada em Sobre › "Verificar ao abrir o app".
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 

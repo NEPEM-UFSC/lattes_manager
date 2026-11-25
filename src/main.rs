@@ -15,6 +15,7 @@ fn main() {
     let app_state = AppState::new(conn, canonical_root);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .setup(move |app| {
             use tauri::Manager;
@@ -58,6 +59,8 @@ fn main() {
             commands::read_system_font,
             commands::get_lattes_profile,
             commands::get_app_version,
+            commands::check_update,
+            commands::install_update,
             commands::get_profile_photo,
             commands::pick_profile_photo,
             commands::add_barema_documents,

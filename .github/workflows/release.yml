@@ -18,14 +18,28 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            args: "--bundles nsis"
+            args: "--bundles nsis --config tauri.updater.conf.json"
           - platform: macos-latest
-            args: "--target universal-apple-darwin --bundles app,dmg"
+            args: "--target universal-apple-darwin --bundles app,dmg --config tauri.updater.conf.json"
           - platform: ubuntu-22.04
-            args: "--bundles deb,rpm,appimage"
+            args: "--bundles deb,rpm,appimage --config tauri.updater.conf.json"
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A release recebe o nome da versão do tauri.conf.json: uma tag que não bate com ela
+      # mandaria os instaladores para outra release (ex.: tag v1.2.0 com versão 1.1.0).
+      - name: Conferir tag × versão
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          VERSION=$(jq -r .version tauri.conf.json)
+          CARGO=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          echo "tag=$GITHUB_REF_NAME tauri.conf.json=$VERSION Cargo.toml=$CARGO"
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ] || [ "$CARGO" != "$VERSION" ]; then
+            echo "::error::A tag $GITHUB_REF_NAME não corresponde à versão $VERSION (tauri.conf.json) / $CARGO (Cargo.toml). Atualize os dois arquivos, faça commit e recrie a tag."
+            exit 1
+          fi
 
       - name: Dependências do Linux
         if: matrix.platform == 'ubuntu-22.04'
@@ -46,10 +60,16 @@ jobs:
       - name: Tauri CLI
         run: npm install -g @tauri-apps/cli@2.12.4
 
+      # Atualização automática: com tauri.updater.conf.json, o build gera a assinatura (.sig) de
+      # cada instalador com a chave privada do segredo TAURI_SIGNING_PRIVATE_KEY, e o
+      # tauri-action publica o latest.json que o app consulta. A chave pública correspondente
+      # está em tauri.conf.json › plugins.updater.pubkey.
       - name: Compilar e publicar no rascunho de Release
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tauriScript: tauri
           tagName: v__VERSION__
@@ -88,17 +108,27 @@ jobs:
 
       # Troca o instalador pelo assinado: no rascunho da Release (mesmo nome, --clobber) e na
       # pasta do bundle, para que o artefato, o SHA256SUMS.txt e o atestado usem o assinado.
+      # A assinatura do SignPath muda o arquivo, então a assinatura do atualizador (.sig) é
+      # refeita sobre o instalador assinado; o latest.json é corrigido no job final.
       - name: Publicar instalador assinado
         if: matrix.platform == 'windows-latest' && vars.SIGNPATH_ORGANIZATION_ID != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           VERSION=$(jq -r .version tauri.conf.json)
           ls -l assinado
           for f in assinado/*.exe; do
-            cp -f "$f" target/release/bundle/nsis/
-            gh release upload "v$VERSION" "$f" --clobber --repo "$GITHUB_REPOSITORY"
+            dest="target/release/bundle/nsis/$(basename "$f")"
+            cp -f "$f" "$dest"
+            gh release upload "v$VERSION" "$dest" --clobber --repo "$GITHUB_REPOSITORY"
+            if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+              rm -f "$dest.sig"
+              tauri signer sign "$dest"
+              gh release upload "v$VERSION" "$dest.sig" --clobber --repo "$GITHUB_REPOSITORY"
+            fi
           done
 
       # Cópia dos instaladores como artefato da execução (Actions › execução › Artifacts).
@@ -111,6 +141,7 @@ jobs:
           if-no-files-found: error
           path: |
             target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.exe.sig
             target/release/bundle/deb/*.deb
             target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
@@ -151,6 +182,23 @@ jobs:
         run: |
           VERSION=$(jq -r .version tauri.conf.json)
           gh release upload "v$VERSION" SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
+
+      # O latest.json (atualização automática) foi montado durante os builds, com a assinatura
+      # do instalador do Windows ainda sem o SignPath. Aqui ela é trocada pela assinatura do
+      # instalador final (o .sig refeito no job do Windows).
+      - name: Corrigir latest.json (Windows assinado)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(jq -r .version tauri.conf.json)
+          SIG=$(find artefatos -name '*-setup.exe.sig' | head -n1)
+          if [ -z "$SIG" ] || ! gh release download "v$VERSION" -p latest.json -D upd --repo "$GITHUB_REPOSITORY"; then
+            echo "Sem latest.json ou sem .sig do Windows; nada a corrigir."
+            exit 0
+          fi
+          jq --arg sig "$(cat "$SIG")"             '.platforms |= with_entries(if (.key | startswith("windows-")) and (.value.url | endswith("-setup.exe")) then .value.signature = $sig else . end)'             upd/latest.json > latest.json
+          jq '.platforms | keys' latest.json
+          gh release upload "v$VERSION" latest.json --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Atestado de origem
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

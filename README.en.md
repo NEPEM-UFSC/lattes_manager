@@ -13,6 +13,7 @@ Desktop application for Brazilian researchers and university faculty to organize
 - Generates a single PDF report with all supporting documents, plus indicators and Excel export.
 - Simulates scores for faculty career progression and public hiring processes using configurable scoring tables.
 - Full backup (database and documents) and restore.
+- Checks for new versions and updates itself (Windows, macOS and Linux AppImage).
 
 The user interface is in Brazilian Portuguese, since the Lattes CV is specific to Brazil.
 
@@ -73,6 +74,8 @@ Every change is tested in CI, with dependency auditing and CodeQL, before a rele
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
 Network access happens only when the user uses a lookup feature, such as querying a DOI, ORCID or OpenAlex, or downloading the open-access PDF of an article. CV data and supporting documents stay on the user's computer. The app has no user accounts and no telemetry.
+
+The only automatic connection is the update check: when the app starts (at most twice a day), it queries the public GitHub Releases API (`api.github.com`) to see whether a newer version exists. No user data is sent. The check can be turned off in Sobre (About) › "Verificar ao abrir o app".
 
 ## Author
 

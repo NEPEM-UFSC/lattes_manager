@@ -1,14 +1,24 @@
 # Histórico de versões
 
-## 1.2.1
+## 1.2.0
+
+### Atualizações
+- O app avisa quando há versão nova (consulta a última release do GitHub ao abrir, no máximo duas vezes por dia) e mostra as novidades.
+- Atualização automática no Windows, no macOS e no Linux (AppImage): baixa, confere a assinatura digital, instala e reinicia. No Linux por .deb/.rpm, oferece o download do instalador certo.
+- Em Sobre: "Verificar atualizações" e a opção de desligar a verificação ao abrir; no popup, "Pular esta versão".
+
+### Distribuição
+- Instaladores do Windows preparados para a assinatura de código da SignPath Foundation.
+- Os builds geram as assinaturas do atualizador e o `latest.json`; o workflow recusa uma tag que não bate com a versão do app.
+- README em inglês (`README.en.md`) e política de privacidade com a verificação de atualizações.
+
+## 1.1.0
 
 ### Segurança
 - Dependências atualizadas para corrigir vulnerabilidades conhecidas: `zip` 9.8 (extração de .zip de backup), `quick-xml` 0.41 (leitura do XML do Lattes), `calamine` 0.38 (planilhas), `rusqlite` 0.43 com SQLite embutido corrigido, `cookie` e `url`.
 
 ### Distribuição
 - Política de assinatura de código e de privacidade no README, exigidas pela SignPath Foundation.
-
-## 1.2.0
 
 ### Distribuição
 - Licença MIT.
@@ -40,7 +50,6 @@
 ### Ferramentas
 - Diagnóstico da classificação (Ferramentas › Comprovantes): cada comprovante vinculado é classificado por um modelo treinado com os demais, mostrando o acerto de categoria e tipo, o acerto por categoria, as confusões mais comuns e os comprovantes classificados errado (com atalho para abrir).
 
-## 1.1.0
 
 ### Funcionalidade
 - Painel de pendências (Ferramentas › Sincronização): lista os registros sem comprovante, com arquivo ausente no disco, artigos sem DOI ou Qualis e registros sem ano ou título, com atalho para abrir o registro ou a ferramenta que resolve. A tela inicial mostra quantos registros têm pendência.

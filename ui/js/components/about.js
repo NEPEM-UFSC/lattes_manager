@@ -2,6 +2,7 @@
 
 import { api } from "../api.js";
 import { escapeHtml } from "../utils.js";
+import { updater } from "./updater.js";
 
 const FEATURES = [
   ["🗂️", "Cadastro organizado", "10 categorias do currículo + categorias suas, com comprovantes salvos em subpastas numeradas e nomes padronizados."],
@@ -20,10 +21,11 @@ export class AboutView {
   }
 
   async show() {
-    const [version, stats, dd] = await Promise.all([
+    const [version, stats, dd, autoUpd] = await Promise.all([
       api.getAppVersion().catch(() => "—"),
       api.getAppStats().catch(() => null),
       api.getDataDirInfo().catch(() => null),
+      updater.getAuto().catch(() => true),
     ]);
     const year = new Date().getFullYear();
     this.el.innerHTML = `
@@ -35,6 +37,10 @@ export class AboutView {
             <span class="ab-kicker">Versão ${escapeHtml(version)}</span>
             <h2>Lattes Manager</h2>
             <p>Gestão do currículo Lattes e dos seus comprovantes — do cadastro ao PDF de progressão, num só lugar e funcionando offline.</p>
+            <div class="ab-update">
+              <button type="button" class="btn btn-primary btn-sm" id="ab-check-update">🔄 Verificar atualizações</button>
+              <label class="ab-update-auto"><input type="checkbox" id="ab-update-auto" ${autoUpd ? "checked" : ""}/> Verificar ao abrir o app</label>
+            </div>
           </div>
         </section>
 
@@ -71,10 +77,19 @@ export class AboutView {
 
         <section class="ab-card ab-privacy">
           <b>🔒 Privacidade</b>
-          <p>Os registros e comprovantes ficam apenas no seu computador. A internet só é usada quando você resolve um DOI ou lê metadados de um PDF — e nesses casos apenas o DOI ou o título do trabalho é enviado à Crossref/OpenAlex.</p>
+          <p>Os registros e comprovantes ficam apenas no seu computador. A internet só é usada quando você resolve um DOI ou lê metadados de um PDF — e nesses casos apenas o DOI ou o título do trabalho é enviado à Crossref/OpenAlex. Ao abrir, o app consulta o GitHub para saber se há versão nova (nenhum dado seu é enviado); isso pode ser desligado acima.</p>
         </section>
 
         <footer class="ab-foot">© ${year} Prof. Dr. Tiago Olivoto — LEMGAD/NEPEM/UFSC · Lattes Manager v${escapeHtml(version)}</footer>
       </div>`;
+    const btn = this.el.querySelector("#ab-check-update");
+    btn?.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Verificando…";
+      await updater.checkNow();
+      btn.disabled = false;
+      btn.textContent = "🔄 Verificar atualizações";
+    });
+    this.el.querySelector("#ab-update-auto")?.addEventListener("change", (e) => updater.setAuto(e.target.checked));
   }
 }
