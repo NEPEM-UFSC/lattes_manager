@@ -32,16 +32,23 @@ export class AboutView {
       <div class="ab-wrap">
         <section class="ab-hero">
           <div class="ab-orb a"></div><div class="ab-orb b"></div>
-          <img src="img/logo.png" alt="" class="ab-logo"/>
-          <div class="ab-title">
-            <span class="ab-kicker">Versão ${escapeHtml(version)}</span>
-            <h2>Lattes Manager</h2>
-            <p>Gestão do currículo Lattes e dos seus comprovantes — do cadastro ao PDF de progressão, num só lugar e funcionando offline.</p>
-            <div class="ab-update">
-              <button type="button" class="btn btn-primary btn-sm" id="ab-check-update">🔄 Verificar atualizações</button>
-              <label class="ab-update-auto"><input type="checkbox" id="ab-update-auto" ${autoUpd ? "checked" : ""}/> Verificar ao abrir o app</label>
+          <div class="ab-hero-main">
+            <img src="img/logo.png" alt="" class="ab-logo"/>
+            <div class="ab-title">
+              <span class="ab-kicker">Versão ${escapeHtml(version)}</span>
+              <h2>Lattes Manager</h2>
+              <p>Gestão do currículo Lattes e dos seus comprovantes — do cadastro ao PDF de progressão, num só lugar e funcionando offline.</p>
+              <div class="ab-update">
+                <button type="button" class="btn btn-primary btn-sm" id="ab-check-update">🔄 Verificar atualizações</button>
+                <label class="ab-update-auto"><input type="checkbox" id="ab-update-auto" ${autoUpd ? "checked" : ""}/> Verificar ao abrir o app</label>
+              </div>
             </div>
           </div>
+          <aside class="ab-hero-disclaimer" aria-label="Aviso legal e institucional">
+            <div class="ab-disc-head">⚖️ Aviso Institucional &amp; Propriedade Intelectual</div>
+            <p>O <b>Lattes Manager</b> é um software livre, gratuito e independente desenvolvido no âmbito da <b>UFSC</b> para organização local de documentos comprobatórios a partir do arquivo XML exportado pelo próprio pesquisador.</p>
+            <p><b>Sem vínculo oficial com o CNPq:</b> este aplicativo <b>não é</b> um produto oficial nem possui afiliação, endosso ou integração direta com os servidores do <b>CNPq/MCTI</b> ou da <b>CAPES</b>. As menções a <i>Currículo Lattes</i>, <i>Plataforma Lattes</i> e <i>Qualis</i> têm finalidade estritamente descritiva de compatibilidade (art. 132, II, Lei nº 9.279/1996).</p>
+          </aside>
         </section>
 
         <section class="ab-cols">
