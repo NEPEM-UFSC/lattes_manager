@@ -1,6 +1,6 @@
 # Histórico de versões
 
-## Não publicado
+## 1.3.1
 
 ### Atualizações
 - Tela de sucesso na primeira abertura depois de atualizar, com as novidades da versão (lidas do histórico embutido no app, funciona sem internet).
