@@ -54,8 +54,8 @@ The user interface lives in `ui/` (HTML, CSS and JavaScript, no bundler). The ba
 
 ## Releasing
 
-1. Update the version in `Cargo.toml` and `tauri.conf.json` and record the changes in [CHANGELOG.md](CHANGELOG.md).
-2. Create and push the tag: `git tag v1.0.0`, then `git push origin v1.0.0`.
+1. Record the changes under `## Não publicado` (unreleased) in [CHANGELOG.md](CHANGELOG.md) and commit.
+2. Run `.\update_app v1.3.0` in the project folder (Windows). The [scripts/release.ps1](scripts/release.ps1) script checks the repository, updates the version in `tauri.conf.json`, `Cargo.toml`, `Cargo.lock` and the changelog, runs the tests, commits, tags and pushes. Options: `-DryRun`, `-SkipTests` and `-Force` (recreates a tag that has not been released yet).
 3. The "Instaladores" workflow builds the installers for all three systems into a draft Release; the Windows installer is sent to SignPath for signing.
 
 ## Code signing policy

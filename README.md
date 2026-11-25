@@ -53,9 +53,9 @@ A interface fica em `ui/` (HTML, CSS e JavaScript, sem bundler). O backend fica 
 
 ## Publicar uma versão
 
-1. Atualize a versão em `Cargo.toml` e em `tauri.conf.json` e registre as mudanças em [CHANGELOG.md](CHANGELOG.md).
-2. Crie e envie a tag: `git tag v1.0.0` e depois `git push origin v1.0.0`.
-3. O workflow "Instaladores" monta um rascunho de Release com os arquivos dos três sistemas; o instalador do Windows é enviado ao SignPath para assinatura.
+1. Registre as mudanças na seção `## Não publicado` do [CHANGELOG.md](CHANGELOG.md) e faça o commit.
+2. Rode `.\update_app v1.3.0` na pasta do projeto (Windows). O script [scripts/release.ps1](scripts/release.ps1) confere o repositório, atualiza a versão em `tauri.conf.json`, `Cargo.toml`, `Cargo.lock` e no CHANGELOG, roda os testes, faz o commit, cria a tag e envia tudo. Opções: `-DryRun` (só mostra o que faria), `-SkipTests` e `-Force` (recria uma tag que ainda não virou release).
+3. O workflow "Instaladores" monta um rascunho de Release com os arquivos dos três sistemas; o instalador do Windows é enviado ao SignPath para assinatura. Confira o rascunho e clique em "Publish release".
 
 ## Política de assinatura de código
 
