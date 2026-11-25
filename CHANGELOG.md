@@ -1,6 +1,6 @@
 # Histórico de versões
 
-## Não publicado
+## 1.3.0
 
 ### Formação
 - Ano de início e ano de conclusão (vazio = em andamento); a tabela mostra o período (ex.: 2016–2020 ou 2022–Atual).
