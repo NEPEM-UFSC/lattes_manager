@@ -6286,3 +6286,17 @@ body.sidebar-collapsed .sidebar .nav-list {
 
 /* nível dentro da subcategoria (Formação Acadêmica › Doutorado) */
 .tipo-nivel { margin-top: 3px; font-size: 11.5px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+
+/* tela de sucesso depois de atualizar */
+.upd-success .upd-ok-hero { text-align: center; padding: 30px 28px 6px; }
+.upd-ok-icon {
+  width: 64px; height: 64px; margin: 0 auto 14px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 34px; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 12px 28px -10px rgba(16, 185, 129, .6);
+  animation: updPop .45s cubic-bezier(.2, 1.4, .4, 1) both;
+}
+@keyframes updPop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.upd-ok-hero h2 { margin: 0 0 8px; font-size: 20px; color: var(--text-primary); }
+.upd-ok-hero p { margin: 0; font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
+.upd-notes-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: -10px; }

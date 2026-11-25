@@ -233,9 +233,71 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+/// CHANGELOG embutido no executável: as notas da versão aparecem mesmo sem internet.
+const CHANGELOG: &str = include_str!("../../CHANGELOG.md");
+
+/// Seção "## X.Y.Z" do CHANGELOG (sem o título), ou None se não houver.
+pub fn changelog_section(changelog: &str, versao: &str) -> Option<String> {
+    let v = versao.trim().trim_start_matches(['v', 'V']);
+    let mut dentro = false;
+    let mut linhas = Vec::new();
+    for l in changelog.lines() {
+        if let Some(t) = l.strip_prefix("## ") {
+            if dentro {
+                break;
+            }
+            dentro = t.trim() == v;
+            continue;
+        }
+        if dentro {
+            linhas.push(l);
+        }
+    }
+    let txt = linhas.join("\n").trim().to_string();
+    (dentro || !txt.is_empty())
+        .then_some(txt)
+        .filter(|t| !t.is_empty())
+}
+
+/// Notas da versão instalada (ou de outra), tiradas do CHANGELOG embutido.
+#[tauri::command]
+pub fn get_release_notes(versao: Option<String>) -> Option<String> {
+    let v = versao.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    changelog_section(CHANGELOG, &v)
+}
+
+/// Traz a janela principal para a frente (depois de atualizar, o instalador às vezes a
+/// reabre minimizada ou atrás das outras).
+#[tauri::command]
+pub fn focus_main_window(app: AppHandle) {
+    use tauri::Manager;
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notas_da_versao() {
+        let cl = "# Hist\n\n## 1.3.0\n\n### Formação\n- A\n- B\n\n## 1.2.0\n\n- C\n";
+        assert_eq!(
+            changelog_section(cl, "v1.3.0").as_deref(),
+            Some("### Formação\n- A\n- B")
+        );
+        assert_eq!(changelog_section(cl, "1.2.0").as_deref(), Some("- C"));
+        assert_eq!(changelog_section(cl, "1.1.0"), None);
+        // o CHANGELOG real tem a versão atual
+        assert!(
+            get_release_notes(None).is_some(),
+            "CHANGELOG.md sem a seção da versão {}",
+            env!("CARGO_PKG_VERSION")
+        );
+    }
 
     #[test]
     fn compara_versoes() {

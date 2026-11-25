@@ -8,6 +8,7 @@ import { escapeHtml, showToast } from "../utils.js";
 const KEY_AUTO = "update_check_auto"; // "0" desliga a verificação ao abrir o app
 const KEY_SKIP = "update_skip_version"; // versão que o usuário escolheu pular
 const KEY_LAST = "update_last_check"; // ISO da última verificação automática
+const KEY_RUN = "last_run_version"; // versão da última abertura (detecta que o app foi atualizado)
 const INTERVALO_MS = 12 * 60 * 60 * 1000; // no máximo duas consultas automáticas por dia
 
 const SISTEMA = {
@@ -17,6 +18,14 @@ const SISTEMA = {
   "linux-deb": "Linux (.deb)",
   "linux-rpm": "Linux (.rpm)",
 };
+
+/** "1.10.2" > "1.9.0"? */
+function maior(a, b) {
+  const p = (v) => String(v || "").replace(/^v/i, "").split(/[-+]/)[0].split(".").map((n) => parseInt(n, 10) || 0);
+  const [x, y] = [p(a), p(b)];
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+}
 
 /** Markdown simples das notas da release → HTML seguro (títulos, listas, negrito, código, links). */
 function notasHtml(md) {
@@ -57,6 +66,69 @@ export class Updater {
 
   async setAuto(on) {
     await api.setSetting(KEY_AUTO, on ? "1" : "0");
+  }
+
+  /**
+   * Primeira abertura depois de uma atualização: traz a janela para a frente (o instalador às
+   * vezes a reabre minimizada) e mostra a tela de sucesso com as novidades. Devolve true se mostrou.
+   */
+  async checkPostUpdate() {
+    if (!api.hasTauri()) return false;
+    try {
+      const atual = await api.getAppVersion();
+      const anterior = await api.getSetting(KEY_RUN).catch(() => null);
+      if (anterior === atual) return false;
+      await api.setSetting(KEY_RUN, atual).catch(() => {});
+      if (anterior && !maior(atual, anterior)) return false;
+      if (!anterior) {
+        // versões até a 1.3.0 não gravavam a versão aberta: se já houve verificação de
+        // atualização, o app veio de uma versão anterior; senão é a primeira instalação
+        const jaVerificou = await api.getSetting(KEY_LAST).catch(() => null);
+        if (!jaVerificou) return false;
+      }
+      api.focusMainWindow().catch(() => {});
+      const notas = await api.getReleaseNotes(atual).catch(() => null);
+      this.showSuccess(anterior, atual, notas);
+      return true;
+    } catch (e) {
+      console.warn("Pós-atualização:", e);
+      return false;
+    }
+  }
+
+  showSuccess(anterior, atual, notas) {
+    this.close();
+    const html = notasHtml(notas);
+    const ov = document.createElement("div");
+    ov.className = "modal-overlay upd-overlay";
+    ov.innerHTML = `
+      <div class="modal-dialog upd-dialog upd-success" role="dialog" aria-modal="true" aria-labelledby="upd-ok-title">
+        <div class="upd-ok-hero">
+          <div class="upd-ok-icon">✓</div>
+          <h2 id="upd-ok-title">Atualizado com sucesso!</h2>
+          <p>O Lattes Manager foi atualizado ${anterior ? `da versão <b>${escapeHtml(anterior)}</b> ` : ""}para a <b>${escapeHtml(atual)}</b>. Seus dados e comprovantes foram mantidos.</p>
+        </div>
+        <div class="modal-body">
+          ${html ? `<div class="upd-notes-title">O que há de novo</div><div class="upd-notes">${html}</div>` : ""}
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="btn btn-primary" data-upd="ok">Começar a usar</button>
+        </footer>
+      </div>`;
+    document.body.appendChild(ov);
+    this.overlay = ov;
+    const fechar = () => {
+      this.close();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape" || e.key === "Enter") fechar();
+    };
+    document.addEventListener("keydown", onKey);
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov || e.target.closest('[data-upd="ok"]')) fechar();
+    });
+    ov.querySelector('[data-upd="ok"]')?.focus();
   }
 
   /** Verificação silenciosa ao abrir o app: só mostra algo se houver versão nova. */

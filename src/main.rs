@@ -61,6 +61,8 @@ fn main() {
             commands::get_app_version,
             commands::check_update,
             commands::install_update,
+            commands::get_release_notes,
+            commands::focus_main_window,
             commands::get_profile_photo,
             commands::pick_profile_photo,
             commands::add_barema_documents,

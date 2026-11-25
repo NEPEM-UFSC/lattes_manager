@@ -307,6 +307,12 @@ function mockHandler(cmd, args = {}) {
         notas: "## Novidades\n- Atualização **automática**\n- Carga horária semanal",
       };
 
+    case "get_release_notes":
+      return "### Formação\n- Ano de início e de conclusão\n- Campo **Nível**\n\n### Correções\n- Quadro de comprovantes no tema escuro";
+
+    case "focus_main_window":
+      return null;
+
     case "install_update":
       throw "Instalação indisponível no navegador (mock).";
 
@@ -691,6 +697,9 @@ export const api = {
   checkUpdate: () => invokeCommand("check_update"),
   /** Baixa, confere a assinatura, instala e reinicia o app. */
   installUpdate: () => invokeCommand("install_update"),
+  /** Notas da versão (do CHANGELOG embutido no app); sem versão = a instalada. */
+  getReleaseNotes: (versao = null) => invokeCommand("get_release_notes", { versao }),
+  focusMainWindow: () => invokeCommand("focus_main_window"),
   onUpdateProgress: async (fn) => (window.__TAURI__?.event?.listen ? window.__TAURI__.event.listen("update-progress", (e) => fn(e.payload)) : () => { }),
   getProfilePhoto: () => invokeCommand("get_profile_photo"),
   pickProfilePhoto: () => invokeCommand("pick_profile_photo"),

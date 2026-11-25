@@ -1,5 +1,11 @@
 # Histórico de versões
 
+## Não publicado
+
+### Atualizações
+- Tela de sucesso na primeira abertura depois de atualizar, com as novidades da versão (lidas do histórico embutido no app, funciona sem internet).
+- Depois de atualizar, a janela do app volta para a frente (o instalador às vezes a reabria minimizada).
+
 ## 1.3.0
 
 ### Formação

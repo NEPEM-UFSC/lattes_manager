@@ -880,8 +880,10 @@ class App {
     await Promise.all([this.loadStats(), this.loadMappings(), this.loadQualis()]);
     await this.showHome();
     this.tour.maybeStartFirstRun();
-    // procura versão nova alguns segundos depois de abrir (sem atrasar a inicialização)
-    setTimeout(() => updater.checkOnStartup(), 5000);
+    // acabou de ser atualizado? tela de sucesso; senão, procura versão nova alguns segundos
+    // depois de abrir (sem atrasar a inicialização)
+    const atualizado = await updater.checkPostUpdate();
+    if (!atualizado) setTimeout(() => updater.checkOnStartup(), 5000);
   }
 
   bindEvents() {
