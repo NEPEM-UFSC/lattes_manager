@@ -1,5 +1,19 @@
 # Histórico de versões
 
+## Não publicado
+
+### Formação
+- Ano de início e ano de conclusão (vazio = em andamento); a tabela mostra o período (ex.: 2016–2020 ou 2022–Atual).
+- Campo "Nível" dentro da subcategoria (ex.: Formação Acadêmica › Graduação, Mestrado, Doutorado), com sugestões conforme a subcategoria; o campo do curso/instituição passa a se chamar "Descrição".
+- Os registros existentes recebem o nível automaticamente, pela subcategoria ou pela descrição; a importação do XML do Lattes preenche o ano de início e o nível.
+
+### Interface
+- Sobre: logo maior e sem fundo; os cartões de desenvolvimento, dados e tecnologia vêm logo abaixo do título, com links para olivoto.com.br e nepemufsc.com.
+
+### Correções
+- Quadro de comprovantes do formulário com fundo claro no tema escuro.
+- Download manual da atualização em computadores ARM (ex.: Windows ARM): quando não há instalador próprio da arquitetura, oferece o x64.
+
 ## 1.2.0
 
 ### Atualizações

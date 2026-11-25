@@ -487,6 +487,26 @@ ALTER TABLE projetos ADD COLUMN semestre_fim INTEGER;
 "#,
     // 17: unidade da carga horária da atuação: 'semestre' (padrão) ou 'semana' (h/semana × 18 semanas)
     "ALTER TABLE atuacao ADD COLUMN horas_unidade TEXT;",
+    // 18: formação com ano de início (o "ano" continua sendo o de conclusão; vazio = em
+    // andamento) e nível dentro da subcategoria (ex.: Formação Acadêmica › Doutorado).
+    // O nível dos registros existentes vem da subcategoria ou da descrição.
+    r#"
+ALTER TABLE formacao ADD COLUMN ano_inicio INTEGER;
+ALTER TABLE formacao ADD COLUMN nivel TEXT;
+UPDATE formacao SET nivel = CASE
+    WHEN tipo IN ('Graduação', 'Especialização', 'Mestrado', 'Mestrado profissionalizante', 'Doutorado', 'Pós-doutorado', 'Livre-docência', 'Curso técnico') THEN tipo
+    WHEN descricao LIKE '%p_s-doutor%' OR descricao LIKE '%p_s doutor%' OR descricao LIKE '%postdoc%' OR descricao LIKE '%p_s-doc%' THEN 'Pós-doutorado'
+    WHEN descricao LIKE '%livre-doc%' OR descricao LIKE '%livre doc%' THEN 'Livre-docência'
+    WHEN descricao LIKE '%doutorado%' OR descricao LIKE '%doctor%' OR descricao LIKE '%ph.d%' OR descricao LIKE '%phd%' THEN 'Doutorado'
+    WHEN descricao LIKE '%mestrado profissional%' THEN 'Mestrado profissional'
+    WHEN descricao LIKE '%mestrado%' OR descricao LIKE '%master%' THEN 'Mestrado'
+    WHEN descricao LIKE '%especializa%' OR descricao LIKE '%lato sensu%' THEN 'Especialização'
+    WHEN descricao LIKE '%MBA%' THEN 'MBA'
+    WHEN descricao LIKE '%gradua%' OR descricao LIKE '%bacharel%' OR descricao LIKE '%licenciatura%' OR descricao LIKE '%tecn_logo%' THEN 'Graduação'
+    WHEN descricao LIKE '%t_cnico%' THEN 'Curso técnico'
+END
+WHERE nivel IS NULL AND tipo NOT LIKE '%curta%' AND tipo NOT LIKE '%extens%';
+"#,
 ];
 
 pub fn create_tables(conn: &Connection) -> Result<()> {

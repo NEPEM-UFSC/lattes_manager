@@ -413,6 +413,23 @@ export function renderPeriodo(r, { semSemestre = "–Atual" } = {}) {
   return r.ano ? `${r.ano}${semSemestre}` : "—";
 }
 
+/** Período da formação: 2016–2020, 2022–Atual ou só o ano de conclusão. */
+function renderPeriodoFormacao(r) {
+  if (r.ano_inicio && r.ano) return Number(r.ano_inicio) === Number(r.ano) ? String(r.ano) : `${r.ano_inicio}–${r.ano}`;
+  if (r.ano_inicio) return `${r.ano_inicio}–Atual`;
+  return r.ano ? String(r.ano) : "—";
+}
+
+const NIVEIS_ACADEMICOS = ["Graduação", "Especialização", "MBA", "Residência", "Mestrado", "Mestrado profissional", "Doutorado", "Pós-doutorado", "Livre-docência", "Curso técnico"];
+const NIVEIS_COMPLEMENTARES = ["Curso livre", "Aperfeiçoamento", "Atualização", "Capacitação", "Treinamento", "Workshop", "Idiomas", "Extensão universitária", "MBA"];
+
+/** Sugestões de nível conforme a subcategoria escolhida (o campo aceita qualquer texto). */
+export function nivelFormacaoSugestoes(tipo = "") {
+  const t = String(tipo).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const complementar = /curta|extens|complementar|curso|treinament|capacita/.test(t) && !/academ/.test(t);
+  return complementar ? [...NIVEIS_COMPLEMENTARES, ...NIVEIS_ACADEMICOS.filter((n) => !NIVEIS_COMPLEMENTARES.includes(n))] : [...NIVEIS_ACADEMICOS, ...NIVEIS_COMPLEMENTARES.filter((n) => !NIVEIS_ACADEMICOS.includes(n))];
+}
+
 /** Campos de semestre de início e de fim (atuação, projetos). */
 const SEMESTRE_INICIO_FIELD = {
   name: "semestre",
@@ -468,17 +485,19 @@ export const CATEGORY_SCHEMAS = {
     folder: "2_formacao",
     columns: [
       { key: "id", label: "#", width: "1%", render: (r) => r.id },
-      { key: "ano", label: "Ano", width: "1%", render: (r) => r.ano || "—" },
-      { key: "tipo", label: "Nível / Grau", width: "1%", render: (r) => renderTipoBadge(r.tipo) },
-      { key: "descricao", label: "Curso / Instituição", render: (r) => escapeHtml(r.descricao || "—") },
+      { key: "ano", label: "Período", width: "1%", render: (r) => renderPeriodoFormacao(r) },
+      { key: "tipo", label: "Subcategoria", width: "1%", render: (r) => `${renderTipoBadge(r.tipo)}${r.nivel && r.nivel !== r.tipo ? `<div class="tipo-nivel">${escapeHtml(r.nivel)}</div>` : ""}` },
+      { key: "descricao", label: "Descrição", render: (r) => escapeHtml(r.descricao || "—") },
       { key: "horas", label: "Horas", width: "1%", render: (r) => r.horas != null ? `<span class="badge badge-hours">${r.horas}h</span>` : "—" },
       { key: "file", label: "Comprovante", width: "1%", render: (r) => renderFileBadge(r) },
       { key: "log", label: "Data", width: "1%", render: (r) => renderLog(r.log) },
     ],
     fields: [
-      { name: "ano", label: "Ano de Conclusão / Início", type: "number", required: true, placeholder: "2020", width: "half" },
-      { name: "tipo", label: "Nível de Formação", type: "tipo_select", required: true, width: "half" },
-      { name: "descricao", label: "Curso / Instituição de Ensino", type: "text", required: true, placeholder: "Ex: Doutorado em Engenharia de Computação - UFSC", width: "full" },
+      { name: "tipo", label: "Subcategoria", type: "tipo_select", required: true, width: "half" },
+      { name: "nivel", label: "Nível", type: "suggest", suggest: nivelFormacaoSugestoes, required: false, placeholder: "Ex: Doutorado", width: "half" },
+      { name: "ano_inicio", label: "Ano de Início", type: "number", required: false, placeholder: "Ex: 2016", width: "half" },
+      { name: "ano", label: "Ano de Conclusão", type: "number", required: false, placeholder: "Vazio = em andamento", width: "half" },
+      { name: "descricao", label: "Descrição", type: "text", required: true, placeholder: "Ex: Doutorado em Engenharia de Computação - UFSC", width: "full" },
       { name: "horas", label: "Carga Horária (horas)", type: "number", required: false, placeholder: "Ex: 360", width: "half" },
     ],
   },

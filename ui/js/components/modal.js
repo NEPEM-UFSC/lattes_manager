@@ -437,6 +437,9 @@ export class RecordModal {
           <button type="button" class="btn btn-secondary btn-sm doi-resolve" title="Busca os dados do DOI (ou do título) e baixa o PDF de acesso aberto, se houver">⚡ Resolver</button></div>`;
       } else if (field.type === "link") {
         html += `<input type="text" inputmode="url" spellcheck="false" autocomplete="off" id="field-${field.name}" name="${field.name}" class="form-input" value="${escapeHtml(val)}" placeholder="${escapeHtml(field.placeholder || "")}" title="Endereço http(s); sem o https:// ele é completado ao salvar" />`;
+      } else if (field.type === "suggest") {
+        // texto livre com sugestões (atualizadas conforme a subcategoria)
+        html += `<input type="text" id="field-${field.name}" name="${field.name}" class="form-input" list="dl-${field.name}" autocomplete="off" value="${escapeHtml(val)}" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""} /><datalist id="dl-${field.name}"></datalist>`;
       } else if (field.type === "textarea") {
         html += `<textarea id="field-${field.name}" name="${field.name}" class="form-textarea" data-history="1" autocomplete="off" placeholder="${escapeHtml(field.placeholder || "")}" ${field.required ? "required" : ""}>${escapeHtml(val)}</textarea>`;
       } else {
@@ -453,6 +456,19 @@ export class RecordModal {
     html += `<input type="hidden" id="field-folder" name="folder" value="${escapeHtml(initialFolder)}" />`;
 
     this.dynamicFields.innerHTML = html;
+    // sugestões dos campos "suggest" conforme a subcategoria escolhida
+    const suggestFields = schema.fields.filter((f) => f.type === "suggest" && typeof f.suggest === "function");
+    if (suggestFields.length) {
+      const tipoEl = document.getElementById("field-tipo");
+      const fill = () => {
+        for (const f of suggestFields) {
+          const dl = document.getElementById(`dl-${f.name}`);
+          if (dl) dl.innerHTML = f.suggest(tipoEl?.value || "").map((o) => `<option value="${escapeHtml(o)}"></option>`).join("");
+        }
+      };
+      tipoEl?.addEventListener("change", fill);
+      fill();
+    }
     // carga horária total (horas por semestre × semestres do período), atualizada ao digitar
     const hint = document.getElementById("horas-total-hint");
     if (hint) {
@@ -956,7 +972,7 @@ export class RecordModal {
       const trimmed = value.trim();
       if (trimmed === "") {
         data[key] = null;
-      } else if (key === "ano" || key === "horas" || key === "alunos" || key === "ano_fim" || key === "semestres_ano" || key === "semestre" || key === "semestre_fim") {
+      } else if (key === "ano" || key === "horas" || key === "alunos" || key === "ano_fim" || key === "ano_inicio" || key === "semestres_ano" || key === "semestre" || key === "semestre_fim") {
         data[key] = Number(trimmed);
       } else {
         data[key] = trimmed;

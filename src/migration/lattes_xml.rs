@@ -45,6 +45,12 @@ pub struct XmlProduction {
     /// Orientações: "Orientação" ou "Coorientação".
     #[serde(default)]
     pub papel: Option<String>,
+    /// Formação: ano de início (o `ano` é o de conclusão; vazio = em andamento).
+    #[serde(default)]
+    pub ano_inicio: Option<i64>,
+    /// Formação acadêmica: nível (Graduação, Mestrado, Doutorado...).
+    #[serde(default)]
+    pub nivel: Option<String>,
 }
 
 /// Autor de uma produção no XML do Lattes.
@@ -87,6 +93,8 @@ impl XmlProduction {
             autores: Vec::new(),
             situacao: None,
             papel: None,
+            ano_inicio: None,
+            nivel: None,
         }
     }
 }
@@ -1216,15 +1224,10 @@ fn parse_formacao_elem(
     if desc.is_empty() {
         return None;
     }
-    let ano = first_attr(
-        attrs,
-        &[
-            "ANO-DE-CONCLUSAO",
-            "ANO-DE-OBTENCAO-DO-TITULO",
-            "ANO-DE-INICIO",
-        ],
-    )
-    .and_then(|s| parse_year_str(&s));
+    // ano = conclusão (vazio = em andamento); o início fica à parte
+    let ano = first_attr(attrs, &["ANO-DE-CONCLUSAO", "ANO-DE-OBTENCAO-DO-TITULO"])
+        .and_then(|s| parse_year_str(&s));
+    let ano_inicio = first_attr(attrs, &["ANO-DE-INICIO"]).and_then(|s| parse_year_str(&s));
     let horas = if is_comp {
         first_attr(attrs, &["CARGA-HORARIA"])
             .and_then(|s| s.parse::<i64>().ok())
@@ -1236,6 +1239,10 @@ fn parse_formacao_elem(
     let mut item = XmlProduction::new("formacao", tipo, folder, ano, desc.clone(), elem);
     item.descricao = Some(desc);
     item.horas = horas;
+    item.ano_inicio = ano_inicio;
+    if !is_comp {
+        item.nivel = Some(tipo.to_string());
+    }
     item.curso = course.map(|c| clean_text(&c));
     item.journal = inst.map(|i| clean_text(&i));
     Some(item)
@@ -2257,8 +2264,8 @@ pub fn import_items(
             }
             "formacao" => {
                 tx.execute(
-                    "INSERT INTO formacao (ano, tipo, identifier, file, folder, descricao, horas, log, path, url) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, NULL, ?8)",
-                    params![it.ano, it.tipo, it.doi, folder, desc, it.horas, log, it.url],
+                    "INSERT INTO formacao (ano, tipo, identifier, file, folder, descricao, horas, log, path, url, ano_inicio, nivel) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, NULL, ?8, ?9, ?10)",
+                    params![it.ano, it.tipo, it.doi, folder, desc, it.horas, log, it.url, it.ano_inicio, it.nivel],
                 )
             }
             "encargos" => {

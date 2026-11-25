@@ -578,6 +578,8 @@ fn dedup_ids(ids: &[i64]) -> Vec<i64> {
 const ALLOWED_BATCH_COLUMNS: &[&str] = &[
     "ano",
     "ano_fim",
+    "ano_inicio",
+    "nivel",
     "tipo",
     "instituicao",
     "titulo",

@@ -176,7 +176,7 @@ pub fn list_formacao(
     year: Option<i64>,
     tipo: Option<&str>,
 ) -> Result<Vec<FormacaoRecord>> {
-    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM formacao WHERE 1=1".to_string();
+    let mut sql = "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url, ano_inicio, nivel FROM formacao WHERE 1=1".to_string();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     if let Some(y) = year {
@@ -189,13 +189,17 @@ pub fn list_formacao(
     }
     if let Some(s) = search {
         if !s.trim().is_empty() {
-            sql.push_str(" AND (fold(descricao) LIKE ? OR fold(identifier) LIKE ?)");
+            sql.push_str(
+                " AND (fold(descricao) LIKE ? OR fold(identifier) LIKE ? OR fold(nivel) LIKE ?)",
+            );
             let pattern = format!("%{}%", crate::db::fold(s.trim()));
+            params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern.clone()));
             params_vec.push(Box::new(pattern));
         }
     }
-    sql.push_str(" ORDER BY ano DESC, id DESC");
+    // em andamento (sem ano de conclusão) primeiro, depois pela conclusão
+    sql.push_str(" ORDER BY COALESCE(ano, 9999) DESC, ano_inicio DESC, id DESC");
 
     let params_slice: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
     let mut stmt = conn.prepare(&sql)?;
@@ -691,6 +695,17 @@ pub fn get_app_stats(conn: &Connection, db_path: &str) -> Result<AppStatsDto> {
     })
 }
 
+/// (ano_inicio, nivel) atuais de um registro de formação.
+fn get_formacao_extra(conn: &Connection, id: i64) -> Result<(Option<i64>, Option<String>)> {
+    Ok(conn
+        .query_row(
+            "SELECT ano_inicio, nivel FROM formacao WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap_or((None, None)))
+}
+
 pub fn json_str(val: &Value, key: &str) -> Option<String> {
     val.get(key).and_then(|v| match v {
         Value::String(s) => {
@@ -735,7 +750,7 @@ pub fn get_record_by_id(conn: &Connection, category: &str, id: i64) -> Result<Re
         }
         "formacao" => {
             let mut stmt = conn.prepare(
-                "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url FROM formacao WHERE id = ?1",
+                "SELECT id, ano, tipo, identifier, file, folder, descricao, horas, log, path, url, ano_inicio, nivel FROM formacao WHERE id = ?1",
             )?;
             stmt.query_row([id], FormacaoRecord::from_row)
                 .map(Into::into)?
@@ -879,7 +894,13 @@ pub fn insert_record(
                 params![ano, tipo, identifier, file, folder, descricao, log, path],
             )?;
         }
-        "formacao" | "encargos" => {
+        "formacao" => {
+            conn.execute(
+                "INSERT INTO formacao (ano, tipo, identifier, file, folder, descricao, horas, log, path, ano_inicio, nivel) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![ano, tipo, identifier, file, folder, json_str(data, "descricao"), json_i64(data, "horas"), log, path, json_i64(data, "ano_inicio"), json_str(data, "nivel")],
+            )?;
+        }
+        "encargos" => {
             let descricao = json_str(data, "descricao");
             let horas = json_i64(data, "horas");
             conn.execute(
@@ -1084,7 +1105,32 @@ pub fn update_record(
                 params![ano, tipo, identifier, file, folder, descricao, log, path, id],
             )?;
         }
-        "formacao" | "encargos" => {
+        "formacao" => {
+            let (old_inicio, old_nivel) = get_formacao_extra(conn, id)?;
+            let pick_s = |k: &str, old: Option<String>| {
+                if data.get(k).is_some() {
+                    json_str(data, k)
+                } else {
+                    old
+                }
+            };
+            let pick_i = |k: &str, old: Option<i64>| {
+                if data.get(k).is_some() {
+                    json_i64(data, k)
+                } else {
+                    old
+                }
+            };
+            let descricao = pick_s("descricao", existing.descricao.clone());
+            let horas = pick_i("horas", existing.horas);
+            let ano_inicio = pick_i("ano_inicio", old_inicio);
+            let nivel = pick_s("nivel", old_nivel);
+            conn.execute(
+                "UPDATE formacao SET ano = ?1, tipo = ?2, identifier = ?3, file = ?4, folder = ?5, descricao = ?6, horas = ?7, log = ?8, path = ?9, ano_inicio = ?10, nivel = ?11 WHERE id = ?12",
+                params![ano, tipo, identifier, file, folder, descricao, horas, log, path, ano_inicio, nivel, id],
+            )?;
+        }
+        "encargos" => {
             let descricao = if data.get("descricao").is_some() {
                 json_str(data, "descricao")
             } else {
