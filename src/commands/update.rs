@@ -111,11 +111,12 @@ fn escolher_asset<'a>(assets: &'a [(String, String)], sis: &str) -> Option<&'a (
         "linux-deb" => &[".deb", ".appimage"],
         _ => &[".rpm", ".appimage"],
     };
+    // prefere a arquitetura deste computador; sem ela, qualquer instalador da extensão
+    // (ex.: Windows ARM roda o instalador x64 por emulação)
     for e in ext {
-        if let Some(a) = assets.iter().find(|(n, _)| {
-            let l = n.to_lowercase();
-            l.ends_with(e) && arch_ok(n)
-        }) {
+        let mut da_ext = assets.iter().filter(|(n, _)| n.to_lowercase().ends_with(e));
+        let primeiro = da_ext.clone().next();
+        if let Some(a) = da_ext.find(|(n, _)| arch_ok(n)).or(primeiro) {
             return Some(a);
         }
     }
@@ -268,6 +269,21 @@ mod tests {
         assert_eq!(
             nome("linux-appimage"),
             Some("Lattes.Manager_1.3.0_amd64.AppImage")
+        );
+
+        // com versões para as duas arquiteturas, escolhe a deste computador
+        let duas: Vec<(String, String)> = ["App_1.0_aarch64.AppImage", "App_1.0_amd64.AppImage"]
+            .iter()
+            .map(|n| (n.to_string(), n.to_string()))
+            .collect();
+        let esperado = if cfg!(target_arch = "aarch64") {
+            "App_1.0_aarch64.AppImage"
+        } else {
+            "App_1.0_amd64.AppImage"
+        };
+        assert_eq!(
+            escolher_asset(&duas, "linux-appimage").map(|x| x.0.as_str()),
+            Some(esperado)
         );
     }
 }
