@@ -99,6 +99,8 @@ pub struct FormacaoRecord {
     pub log: Option<String>,
     pub path: Option<String>,
     pub url: Option<String>,
+    pub ano_inicio: Option<i64>,
+    pub nivel: Option<String>,
 }
 
 impl FormacaoRecord {
@@ -115,6 +117,8 @@ impl FormacaoRecord {
             log: row.get("log")?,
             path: row.get("path")?,
             url: optional_url(row),
+            ano_inicio: row.get("ano_inicio").unwrap_or(None),
+            nivel: row.get("nivel").unwrap_or(None),
         })
     }
 }
@@ -542,6 +546,10 @@ pub struct RecordDto {
     pub category: String,
     pub ano: Option<i64>,
     pub ano_fim: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ano_inicio: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nivel: Option<String>,
     pub tipo: Option<String>,
     pub identifier: Option<String>,
     pub file: Option<String>,
@@ -687,6 +695,8 @@ impl From<FormacaoRecord> for RecordDto {
             id: r.id,
             category: "formacao".to_string(),
             ano: r.ano,
+            ano_inicio: r.ano_inicio,
+            nivel: r.nivel,
             tipo: r.tipo,
             identifier: r.identifier,
             file: r.file,

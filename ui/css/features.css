@@ -1046,13 +1046,39 @@
 }
 
 .ab-logo {
-  width: 92px;
-  height: 92px;
-  border-radius: 26px;
-  background: radial-gradient(circle at 30% 25%, #1e293b, #0b1120);
-  padding: 8px;
-  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, .5);
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 26px rgba(0, 0, 0, .35));
   position: relative;
+}
+
+.ab-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ab-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-light);
+  background: var(--app-bg);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background .15s, border-color .15s;
+}
+
+.ab-link:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 
 .ab-title {
@@ -6236,7 +6262,7 @@ body.sidebar-collapsed .sidebar .nav-list {
 
 /* ---------- Atualizações ---------- */
 .ab-update { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 12px; }
-.ab-update-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
+.ab-update-auto { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: rgba(255, 255, 255, .85); cursor: pointer; }
 .upd-overlay { z-index: 1000; }
 .upd-dialog { max-width: 560px; }
 .upd-versions { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 14px; border-radius: var(--radius-md, 10px); background: var(--app-bg); }
@@ -6257,3 +6283,6 @@ body.sidebar-collapsed .sidebar .nav-list {
 @keyframes updIndet { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 .upd-status { color: var(--text-muted); font-size: 12px; }
 .upd-footer .upd-spacer { flex: 1; }
+
+/* nível dentro da subcategoria (Formação Acadêmica › Doutorado) */
+.tipo-nivel { margin-top: 3px; font-size: 11.5px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }

@@ -44,16 +44,16 @@ export class AboutView {
           </div>
         </section>
 
-        <section class="ab-grid">
-          ${FEATURES.map(([i, t, d], k) => `<div class="ab-feat" style="--i:${k}"><span>${i}</span><b>${escapeHtml(t)}</b><p>${escapeHtml(d)}</p></div>`).join("")}
-        </section>
-
         <section class="ab-cols">
           <div class="ab-card ab-dev">
             <div class="rb-label">Desenvolvimento</div>
             <h3>Prof. Dr. Tiago Olivoto</h3>
             <p>LEMGAD · NEPEM · Universidade Federal de Santa Catarina (UFSC)</p>
             <div class="ab-tags"><span>LEMGAD</span><span>NEPEM</span><span>UFSC</span></div>
+            <div class="ab-links">
+              <a href="#" class="ab-link" data-url="https://olivoto.com.br/">🌐 olivoto.com.br</a>
+              <a href="#" class="ab-link" data-url="https://nepemufsc.com/">🌱 nepemufsc.com</a>
+            </div>
           </div>
           <div class="ab-card">
             <div class="rb-label">Seus dados</div>
@@ -75,6 +75,10 @@ export class AboutView {
           </div>
         </section>
 
+        <section class="ab-grid">
+          ${FEATURES.map(([i, t, d], k) => `<div class="ab-feat" style="--i:${k}"><span>${i}</span><b>${escapeHtml(t)}</b><p>${escapeHtml(d)}</p></div>`).join("")}
+        </section>
+
         <section class="ab-card ab-privacy">
           <b>🔒 Privacidade</b>
           <p>Os registros e comprovantes ficam apenas no seu computador. A internet só é usada quando você resolve um DOI ou lê metadados de um PDF — e nesses casos apenas o DOI ou o título do trabalho é enviado à Crossref/OpenAlex. Ao abrir, o app consulta o GitHub para saber se há versão nova (nenhum dado seu é enviado); isso pode ser desligado acima.</p>
@@ -90,6 +94,12 @@ export class AboutView {
       btn.disabled = false;
       btn.textContent = "🔄 Verificar atualizações";
     });
+    this.el.querySelectorAll(".ab-link").forEach((a) =>
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        api.openUrl(a.dataset.url).catch(() => {});
+      })
+    );
     this.el.querySelector("#ab-update-auto")?.addEventListener("change", (e) => updater.setAuto(e.target.checked));
   }
 }
